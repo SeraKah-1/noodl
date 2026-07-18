@@ -7,7 +7,12 @@ import {
   isSupabaseConfigured,
   pingSupabase,
 } from '../supabase';
-import { runFullSync, getDeviceId, type SyncReport } from '../services/syncService';
+import {
+  runFullSync,
+  getDeviceId,
+  onSyncProgress,
+  type SyncReport,
+} from '../services/syncService';
 
 /**
  * Cloud account + cross-device sync controls.
@@ -20,9 +25,16 @@ export const AuthWidget: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [lastSync, setLastSync] = useState<SyncReport | null>(null);
   const [health, setHealth] = useState<string | null>(null);
+  const [syncPhase, setSyncPhase] = useState<string | null>(null);
 
   useEffect(() => {
     return auth.onAuthStateChanged((u) => setUser(u));
+  }, []);
+
+  useEffect(() => {
+    return onSyncProgress((p) => {
+      setSyncPhase(p.detail ? `${p.phase}: ${p.detail}` : p.phase);
+    });
   }, []);
 
   useEffect(() => {
@@ -56,13 +68,23 @@ export const AuthWidget: React.FC = () => {
   const handleSync = async () => {
     setSyncing(true);
     setError(null);
+    setSyncPhase('starting…');
     try {
-      // force=true re-checks all rows; still non-blocking for the rest of the app
+      // Never hang the button forever — outer budget ~45s
       const report = await runFullSync({ force: false });
       setLastSync(report);
-      if (report.errors.length) setError(report.errors.join(' · '));
+      if (report.timedOut) {
+        setError(
+          `Sync cycle timed out after ~${Math.round((report.ms || 45000) / 1000)}s` +
+            (report.remainingDirty ? ` (${report.remainingDirty} left — will continue in background)` : '')
+        );
+      } else if (report.errors.length) {
+        setError(report.errors.slice(0, 3).join(' · '));
+      }
+      setSyncPhase(null);
     } catch (e: any) {
       setError(e?.message || 'Sync failed');
+      setSyncPhase(null);
     } finally {
       setSyncing(false);
     }
@@ -119,19 +141,23 @@ export const AuthWidget: React.FC = () => {
           className="w-full flex items-center justify-center gap-2 text-sm font-bold bg-indigo-50 text-indigo-700 py-2.5 rounded-xl hover:bg-indigo-100 disabled:opacity-60"
         >
           <RefreshCw size={15} className={syncing ? 'animate-spin' : ''} />
-          {syncing ? 'Syncing in background…' : 'Sync now (all devices)'}
+          {syncing ? 'Syncing…' : 'Sync now (all devices)'}
         </button>
+        {syncing && syncPhase && (
+          <p className="text-[10px] text-indigo-600 font-mono truncate">{syncPhase}</p>
+        )}
         <p className="text-[10px] text-theme-muted leading-relaxed">
-          Local data stays usable while syncing. Only changed quizzes are uploaded.
+          Local data stays usable. Each cycle max ~45s; only changed quizzes (no sim HTML). Leftovers continue in background.
         </p>
 
         {lastSync && (
           <p className="text-[11px] text-theme-muted">
-            Last sync: push {lastSync.pushed}
-            {typeof (lastSync as any).skipped === 'number' ? ` · skip ${(lastSync as any).skipped}` : ''}
+            Last: push {lastSync.pushed}
+            {typeof lastSync.skipped === 'number' ? ` · skip ${lastSync.skipped}` : ''}
             {' '}· pull {lastSync.pulled}
-            {typeof (lastSync as any).ms === 'number' ? ` · ${(lastSync as any).ms}ms` : ''}
-            {lastSync.errors.length ? ` · ${lastSync.errors.length} warnings` : ' · ok'}
+            {typeof lastSync.ms === 'number' ? ` · ${lastSync.ms}ms` : ''}
+            {lastSync.remainingDirty ? ` · ${lastSync.remainingDirty} queued` : ''}
+            {lastSync.timedOut ? ' · partial' : lastSync.errors.length ? ` · ${lastSync.errors.length} warnings` : ' · ok'}
           </p>
         )}
         {health && <p className="text-[11px] text-theme-muted">{health}</p>}
