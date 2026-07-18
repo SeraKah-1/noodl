@@ -23,6 +23,7 @@ export const AuthWidget: React.FC = () => {
   const [lastSync, setLastSync] = useState<SyncReport | null>(null);
   const [health, setHealth] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileWidgetError, setTurnstileWidgetError] = useState<string | null>(null);
 
   useEffect(() => {
     return auth.onAuthStateChanged((u) => setUser(u));
@@ -42,12 +43,20 @@ export const AuthWidget: React.FC = () => {
 
   const ensureHuman = async () => {
     if (!isTurnstileConfigured) return true;
+    // Widget failed (domain/key) — do not hard-block OAuth forever
+    if (turnstileWidgetError && !turnstileToken) {
+      console.warn('[auth] Turnstile widget error — allowing OAuth:', turnstileWidgetError);
+      return true;
+    }
     const result = await verifyTurnstileToken(turnstileToken);
     if (!result.ok) {
       setError(result.message || 'Complete the human check');
       resetTurnstile();
       setTurnstileToken(null);
       return false;
+    }
+    if (result.soft && result.message) {
+      console.warn('[auth] Turnstile soft-pass:', result.message);
     }
     return true;
   };
@@ -181,16 +190,38 @@ export const AuthWidget: React.FC = () => {
       </p>
       {health && <p className="text-[11px] text-theme-muted">{health}</p>}
       {error && <p className="text-xs text-rose-600">{error}</p>}
-      <TurnstileWidget onToken={setTurnstileToken} className="my-1" />
+      {turnstileWidgetError && (
+        <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 leading-snug">
+          {turnstileWidgetError}
+          <span className="block mt-1 text-amber-600/90">
+            You can still try sign-in. Fix hostnames in Cloudflare Turnstile dashboard when you can.
+          </span>
+        </p>
+      )}
+      <TurnstileWidget
+        className="my-1"
+        onToken={(t) => {
+          setTurnstileToken(t);
+          if (t) setTurnstileWidgetError(null);
+        }}
+        onWidgetError={(msg) => setTurnstileWidgetError(msg)}
+      />
+      {/* Enable buttons when: no turnstile, token ready, OR widget errored (soft allow) */}
       <button
-        disabled={busy || (isTurnstileConfigured && !turnstileToken)}
+        disabled={
+          busy ||
+          (isTurnstileConfigured && !turnstileToken && !turnstileWidgetError)
+        }
         onClick={handleGitHub}
         className="w-full flex items-center justify-center gap-2 bg-slate-900 text-white font-bold text-sm py-2.5 rounded-xl hover:bg-slate-800 disabled:opacity-60"
       >
         <Github size={16} /> {busy ? 'Redirecting…' : 'Continue with GitHub'}
       </button>
       <button
-        disabled={busy || (isTurnstileConfigured && !turnstileToken)}
+        disabled={
+          busy ||
+          (isTurnstileConfigured && !turnstileToken && !turnstileWidgetError)
+        }
         onClick={handleGoogle}
         className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-800 font-bold text-sm py-2.5 rounded-xl hover:bg-slate-50 disabled:opacity-60"
       >

@@ -13,9 +13,14 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ onBypass }) => {
   const [isLoading, setIsLoading] = useState<'github' | 'google' | 'guest' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [widgetError, setWidgetError] = useState<string | null>(null);
 
   const ensureHuman = async () => {
     if (!isTurnstileConfigured) return true;
+    if (widgetError && !turnstileToken) {
+      console.warn('[signin] Turnstile widget error — allowing continue:', widgetError);
+      return true;
+    }
     const result = await verifyTurnstileToken(turnstileToken);
     if (!result.ok) {
       setError(result.message || 'Complete the human check');
@@ -49,17 +54,15 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ onBypass }) => {
     setIsLoading('guest');
     setError(null);
     try {
-      if (!(await ensureHuman())) {
-        setIsLoading(null);
-        return;
-      }
+      // Guest local mode should not require Turnstile
       onBypass();
     } finally {
       setIsLoading(null);
     }
   };
 
-  const needTurnstile = isTurnstileConfigured && !turnstileToken;
+  const needTurnstile =
+    isTurnstileConfigured && !turnstileToken && !widgetError;
   const busy = !!isLoading;
 
   return (
@@ -77,8 +80,20 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ onBypass }) => {
           local as a guest.
         </p>
         {error && <p className="text-sm text-rose-600 mb-3">{error}</p>}
+        {widgetError && (
+          <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 mb-3 leading-snug">
+            {widgetError}
+          </p>
+        )}
 
-        <TurnstileWidget onToken={setTurnstileToken} className="mb-4" />
+        <TurnstileWidget
+          className="mb-4"
+          onToken={(t) => {
+            setTurnstileToken(t);
+            if (t) setWidgetError(null);
+          }}
+          onWidgetError={setWidgetError}
+        />
 
         {isSupabaseConfigured ? (
           <div className="space-y-2">
@@ -116,17 +131,15 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ onBypass }) => {
         {onBypass && (
           <button
             onClick={guest}
-            disabled={busy || needTurnstile}
+            disabled={busy}
             className="w-full mt-3 text-sm font-bold text-indigo-600 py-3 rounded-2xl hover:bg-indigo-50 disabled:opacity-60"
           >
-            {isLoading === 'guest' ? 'Checking…' : 'Continue as guest'}
+            {isLoading === 'guest' ? '…' : 'Continue as guest (local only)'}
           </button>
-        )}
-
-        {needTurnstile && (
-          <p className="text-[11px] text-amber-700 mt-3 text-center">Complete the check above to continue</p>
         )}
       </motion.div>
     </div>
   );
 };
+
+export default SignInScreen;

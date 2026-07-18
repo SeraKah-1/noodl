@@ -11,11 +11,17 @@ export default async function handler(req: any, res: any) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method not allowed' });
 
-  const secret = (process.env.TURNSTILE_SECRET_KEY || process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY || '').trim();
+  const secret = (
+    process.env.TURNSTILE_SECRET_KEY ||
+    process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY ||
+    ''
+  ).trim();
   if (!secret) {
-    return res.status(500).json({
+    // 503 so clients can soft-pass instead of hard-failing all logins
+    return res.status(503).json({
       success: false,
       error: 'TURNSTILE_SECRET_KEY not set on server',
+      'error-codes': ['missing-input-secret'],
     });
   }
 
