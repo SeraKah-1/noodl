@@ -1,5 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useCamera } from '../contexts/CameraContext';
+
+/** Viewport size that respects mobile browser chrome / visualViewport */
+const getViewport = () => {
+  const vv = window.visualViewport;
+  return {
+    w: vv?.width ?? window.innerWidth,
+    h: vv?.height ?? window.innerHeight,
+    left: vv?.offsetLeft ?? 0,
+    top: vv?.offsetTop ?? 0,
+  };
+};
+
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+const mapRange = (v: number, a: number, b: number) => clamp01((v - a) / (b - a));
 
 interface NoseTrackingManagerProps {
   onOptionSelect: (index: number) => void;
@@ -41,8 +56,8 @@ export const NoseTrackingManager: React.FC<NoseTrackingManagerProps> = ({
   // Ghost Pointer Ref (Direct DOM Mutation)
   const pointerRef = useRef<HTMLDivElement>(null);
   const cursorPosRef = useRef({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
-  const lastNosePosRef = useRef<{x: number, y: number} | null>(null);
-  const smoothedMoveRef = useRef<{x: number, y: number}>({ x: 0, y: 0 });
+  /** Absolute smoothed nose → screen (not delta-integrated; avoids drift) */
+  const smoothPosRef = useRef({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
   
   // Dwell Time State
   const [hoveredOption, setHoveredOption] = useState<number | string | null>(null);
@@ -230,10 +245,11 @@ export const NoseTrackingManager: React.FC<NoseTrackingManagerProps> = ({
                 } else {
                     const smileDuration = performance.now() - smileStartTimeRef.current;
                     if (smileDuration > SMILE_DWELL_DURATION && !hasSmileTriggeredRef.current) {
-                        // Trigger Reset!
-                        cursorPosRef.current = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
-                        lastNosePosRef.current = null; // Clear last nose pos so it doesn't jump back
-                        smoothedMoveRef.current = { x: 0, y: 0 }; // Clear momentum
+                        const { w, h, left, top } = getViewport();
+                        const cx = left + w / 2;
+                        const cy = top + h / 2;
+                        cursorPosRef.current = { x: cx, y: cy };
+                        smoothPosRef.current = { x: cx, y: cy };
                         hasSmileTriggeredRef.current = true;
                         if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([50, 50, 50]);
                     }
@@ -268,56 +284,61 @@ export const NoseTrackingManager: React.FC<NoseTrackingManagerProps> = ({
         }
 
         if (vipFace) {
-          const nose = vipFace[1]; // Nose tip
+          // Landmark 1 = nose tip (MediaPipe Face Landmarker topology)
+          const nose = vipFace[1];
+          const { w: vw, h: vh, left: vLeft, top: vTop } = getViewport();
 
-          if (lastNosePosRef.current) {
-            const deltaX = nose.x - lastNosePosRef.current.x;
-            const deltaY = nose.y - lastNosePosRef.current.y;
-            
-            // Note: Camera is mirrored, so we invert X delta
-            const moveX = -deltaX;
-            const moveY = deltaY;
+          // Absolute mapping (selfie-mirrored X) — pointer tracks nose position in frame
+          // Input range is slightly padded so looking down can reach the true bottom
+          // without needing extreme head tilt.
+          const mirX = 1 - nose.x; // 0 = screen left, 1 = screen right
+          const rawY = nose.y; // 0 = top, 1 = bottom
+          const nx = mapRange(mirX, 0.18, 0.82);
+          const ny = mapRange(rawY, 0.12, 0.78);
+          const targetAbsX = vLeft + nx * vw;
+          const targetAbsY = vTop + ny * vh;
 
-            // Apply smoothing
-            const SMOOTHING = 0.45; // 0 to 1, higher is smoother but more lag
-            smoothedMoveRef.current.x = smoothedMoveRef.current.x * SMOOTHING + moveX * (1 - SMOOTHING);
-            smoothedMoveRef.current.y = smoothedMoveRef.current.y * SMOOTHING + moveY * (1 - SMOOTHING);
+          // Exponential smooth toward absolute target (no delta accumulation / drift)
+          const SMOOTH = 0.38;
+          smoothPosRef.current.x += (targetAbsX - smoothPosRef.current.x) * SMOOTH;
+          smoothPosRef.current.y += (targetAbsY - smoothPosRef.current.y) * SMOOTH;
 
-            const speed = Math.hypot(smoothedMoveRef.current.x, smoothedMoveRef.current.y);
-            
-            const BASE_SENSITIVITY = 2200;
-            const ACCELERATION_FACTOR = 60;
+          // Clamp to visual viewport with small padding so pointer never hides under edges
+          const pad = 8;
+          cursorPosRef.current.x = Math.max(vLeft + pad, Math.min(vLeft + vw - pad, smoothPosRef.current.x));
+          cursorPosRef.current.y = Math.max(vTop + pad, Math.min(vTop + vh - pad, smoothPosRef.current.y));
 
-            const acceleration = 1 + (speed * ACCELERATION_FACTOR);
-            
-            cursorPosRef.current.x += smoothedMoveRef.current.x * BASE_SENSITIVITY * acceleration;
-            cursorPosRef.current.y += smoothedMoveRef.current.y * BASE_SENSITIVITY * acceleration;
-
-            // Clamp
-            cursorPosRef.current.x = Math.max(0, Math.min(window.innerWidth, cursorPosRef.current.x));
-            cursorPosRef.current.y = Math.max(0, Math.min(window.innerHeight, cursorPosRef.current.y));
-          }
-
-          lastNosePosRef.current = { x: nose.x, y: nose.y };
           targetX = cursorPosRef.current.x;
           targetY = cursorPosRef.current.y;
 
-          // Draw Nose for debugging
+          // Draw nose + face ROI on preview (mirrored to match video CSS)
           if (canvas && ctx) {
-            ctx.fillStyle = '#00FF00';
+            // Dim edges, highlight center tracking band
+            const bandX = canvas.width * 0.18;
+            const bandY = canvas.height * 0.12;
+            const bandW = canvas.width * 0.64;
+            const bandH = canvas.height * 0.66;
+            ctx.fillStyle = 'rgba(0,0,0,0.25)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.clearRect(bandX, bandY, bandW, bandH);
+            ctx.strokeStyle = 'rgba(16, 185, 129, 0.75)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(bandX, bandY, bandW, bandH);
+
+            const drawX = (1 - nose.x) * canvas.width;
+            const drawY = nose.y * canvas.height;
+            ctx.fillStyle = '#34d399';
             ctx.beginPath();
-            ctx.arc((1 - nose.x) * canvas.width, nose.y * canvas.height, 4, 0, 2 * Math.PI);
+            ctx.arc(drawX, drawY, 5, 0, 2 * Math.PI);
             ctx.fill();
+            ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
           }
-        } else {
-          lastNosePosRef.current = null;
         }
-      } else {
-        lastNosePosRef.current = null;
       }
     }
 
-    // Smart Hiding (Reading Mode) - REMOVED to allow top scrolling
     showCursor = true;
 
     // Direct DOM Mutation for Zero Latency
@@ -325,32 +346,58 @@ export const NoseTrackingManager: React.FC<NoseTrackingManagerProps> = ({
       pointerRef.current.style.transform = `translate3d(${targetX}px, ${targetY}px, 0) translate(-50%, -50%)`;
       pointerRef.current.style.opacity = showCursor ? '1' : '0';
       
-      // Visual feedback for smiling
       if (isSmilingRef.current) {
-          pointerRef.current.style.borderColor = '#10b981'; // Emerald-500
+          pointerRef.current.style.borderColor = '#10b981';
           pointerRef.current.style.boxShadow = '0 0 15px rgba(16, 185, 129, 0.8)';
           pointerRef.current.style.transform += ' scale(1.2)';
       } else {
-          pointerRef.current.style.borderColor = 'rgba(255,255,255,0.8)';
-          pointerRef.current.style.boxShadow = 'none';
+          pointerRef.current.style.borderColor = 'rgba(255,255,255,0.9)';
+          pointerRef.current.style.boxShadow = '0 0 0 1px rgba(0,0,0,0.25)';
       }
     }
 
     const px = targetX;
     const py = targetY;
+    const { w: vw, h: vh } = getViewport();
 
-    // --- AUTO SCROLLING ---
-    let newScrollState: 'up' | 'down' | null = null;
+    // --- COLLISION: options first (so bottom options beat scroll/nav steal) ---
+    const now = performance.now();
+    let hoveringOption = false;
+
     if (showCursor) {
-      const scrollZone = window.innerHeight * 0.15;
-      if (py > window.innerHeight - scrollZone) {
+      const optionElements = document.querySelectorAll('[data-option-index], [data-nose-action]');
+      optionElements.forEach((el) => {
+        const rect = el.getBoundingClientRect();
+        // Slight inset so border grazing is less accidental
+        const inset = 4;
+        if (
+          px >= rect.left + inset &&
+          px <= rect.right - inset &&
+          py >= rect.top + inset &&
+          py <= rect.bottom - inset
+        ) {
+          hoveringOption = true;
+          if (el.hasAttribute('data-option-index')) {
+            currentlyHovered = parseInt(el.getAttribute('data-option-index') || '-1', 10);
+          } else if (el.hasAttribute('data-nose-action')) {
+            currentlyHovered = el.getAttribute('data-nose-action') as any;
+          }
+        }
+      });
+    }
+
+    // --- AUTO SCROLL (only when NOT on an option; smaller zones so bottom is usable) ---
+    let newScrollState: 'up' | 'down' | null = null;
+    if (showCursor && !hoveringOption) {
+      const scrollZone = Math.min(56, vh * 0.08); // ~8% or 56px max — was 15% and blocked bottom
+      if (py > vh - scrollZone) {
         newScrollState = 'down';
-        const intensity = (py - (window.innerHeight - scrollZone)) / scrollZone;
-        window.scrollBy({ top: intensity * 15, behavior: 'auto' });
+        const intensity = (py - (vh - scrollZone)) / scrollZone;
+        window.scrollBy({ top: intensity * 10, behavior: 'auto' });
       } else if (py < scrollZone) {
         newScrollState = 'up';
         const intensity = (scrollZone - py) / scrollZone;
-        window.scrollBy({ top: -intensity * 15, behavior: 'auto' });
+        window.scrollBy({ top: -intensity * 10, behavior: 'auto' });
       }
     }
     
@@ -359,33 +406,12 @@ export const NoseTrackingManager: React.FC<NoseTrackingManagerProps> = ({
         setHoveredScroll(newScrollState);
     }
 
-    // --- COLLISION DETECTION & DWELL TIME ---
-    const now = performance.now();
-
-    // 1. Navigation Hitboxes (Extreme Edges)
-    const edgeWidth = window.innerWidth * 0.1; // 10vw
-
-    if (px <= edgeWidth) {
-      currentlyHoveredNav = 'prev';
-    } else if (px >= window.innerWidth - edgeWidth) {
-      currentlyHoveredNav = 'next';
-    }
-
-    // 2. Options Hitboxes (Only if not hovering nav)
-    if (currentlyHoveredNav === null && showCursor) {
-      const optionElements = document.querySelectorAll('[data-option-index], [data-nose-action]');
-
-      optionElements.forEach((el) => {
-        const rect = el.getBoundingClientRect();
-        // Check if pointer is inside the bounding box of the option button
-        if (px >= rect.left && px <= rect.right && py >= rect.top && py <= rect.bottom) {
-          if (el.hasAttribute('data-option-index')) {
-            currentlyHovered = parseInt(el.getAttribute('data-option-index') || '-1', 10);
-          } else if (el.hasAttribute('data-nose-action')) {
-            currentlyHovered = el.getAttribute('data-nose-action') as any; // Hack to reuse currentlyHovered for actions
-          }
-        }
-      });
+    // Nav edges only in vertical mid-band (won't steal top/bottom option hits)
+    const edgeWidth = Math.min(48, vw * 0.06);
+    const midBand = py > vh * 0.22 && py < vh * 0.78;
+    if (!hoveringOption && midBand) {
+      if (px <= edgeWidth) currentlyHoveredNav = 'prev';
+      else if (px >= vw - edgeWidth) currentlyHoveredNav = 'next';
     }
 
     // 1. Navigation Hitboxes
@@ -431,9 +457,11 @@ export const NoseTrackingManager: React.FC<NoseTrackingManagerProps> = ({
           if (typeof currentlyHovered === 'number') {
             onOptionSelectRef.current(currentlyHovered);
           } else if (currentlyHovered === 'reset') {
-            cursorPosRef.current = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
-            lastNosePosRef.current = null;
-            smoothedMoveRef.current = { x: 0, y: 0 };
+            const { w, h, left, top } = getViewport();
+            const cx = left + w / 2;
+            const cy = top + h / 2;
+            cursorPosRef.current = { x: cx, y: cy };
+            smoothPosRef.current = { x: cx, y: cy };
           }
           if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([50, 50, 50]);
         }
@@ -463,9 +491,11 @@ export const NoseTrackingManager: React.FC<NoseTrackingManagerProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space' || e.key === 'r' || e.key === 'R') {
         e.preventDefault();
-        cursorPosRef.current = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
-        lastNosePosRef.current = null;
-        smoothedMoveRef.current = { x: 0, y: 0 };
+        const { w, h, left, top } = getViewport();
+        const cx = left + w / 2;
+        const cy = top + h / 2;
+        cursorPosRef.current = { x: cx, y: cy };
+        smoothPosRef.current = { x: cx, y: cy };
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -481,12 +511,10 @@ export const NoseTrackingManager: React.FC<NoseTrackingManagerProps> = ({
       const idx = parseInt(htmlEl.getAttribute('data-option-index') || '-1', 10);
       
       if (idx === hoveredOption) {
-        // Apply progress background
         htmlEl.style.background = `linear-gradient(to right, rgba(16, 185, 129, 0.2) ${dwellProgress}%, transparent ${dwellProgress}%)`;
-        htmlEl.style.transform = `scale(${1 + (dwellProgress / 100) * 0.05})`; // Slight scale up
-        htmlEl.style.transition = 'none'; // Disable CSS transition for smooth JS updates
+        htmlEl.style.transform = `scale(${1 + (dwellProgress / 100) * 0.05})`;
+        htmlEl.style.transition = 'none';
       } else {
-        // Reset
         htmlEl.style.background = '';
         htmlEl.style.transform = '';
         htmlEl.style.transition = 'all 0.2s ease';
@@ -494,96 +522,140 @@ export const NoseTrackingManager: React.FC<NoseTrackingManagerProps> = ({
     });
   }, [hoveredOption, dwellProgress]);
 
-  return (
+  const resetPointer = () => {
+    const { w, h, left, top } = getViewport();
+    const cx = left + w / 2;
+    const cy = top + h / 2;
+    cursorPosRef.current = { x: cx, y: cy };
+    smoothPosRef.current = { x: cx, y: cy };
+  };
+
+  // Portal to body so Framer Motion transform ancestors cannot trap `fixed`
+  const ui = (
     <>
-      <div className="fixed top-4 left-4 z-50 bg-emerald-500 text-white px-4 py-2 rounded-xl shadow-lg text-xs font-bold flex items-center gap-2">
-        <span className="animate-pulse">👃</span> 
+      <div
+        className="fixed z-[300] bg-emerald-500 text-white px-3 py-1.5 rounded-xl shadow-lg text-[11px] font-bold flex items-center gap-2 pointer-events-none"
+        style={{ top: 'max(0.75rem, env(safe-area-inset-top))', left: 'max(0.75rem, env(safe-area-inset-left))' }}
+      >
+        <span className="animate-pulse">👃</span>
         {status}
       </div>
 
-      <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex gap-2">
-        <div 
-          className="bg-slate-800 text-white px-4 py-2 rounded-full shadow-lg text-xs font-bold transition-all relative overflow-hidden flex items-center gap-2"
-        >
-          {isSmiling ? <span className="text-emerald-600">😊 Mereset...</span> : <span>Smile or press R / Space to reset</span>}
+      <div
+        className="fixed z-[300] flex gap-2 pointer-events-none"
+        style={{
+          top: 'max(0.75rem, env(safe-area-inset-top))',
+          left: '50%',
+          transform: 'translateX(-50%)',
+        }}
+      >
+        <div className="bg-slate-900/90 text-white px-3 py-1.5 rounded-full shadow-lg text-[11px] font-bold flex items-center gap-2">
+          {isSmiling ? (
+            <span className="text-emerald-300">😊 Reset…</span>
+          ) : (
+            <span>Smile / R / Space = reset</span>
+          )}
         </div>
       </div>
-      
 
       <button
         type="button"
-        onClick={() => {
-          cursorPosRef.current = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
-          lastNosePosRef.current = null;
-          smoothedMoveRef.current = { x: 0, y: 0 };
+        onClick={resetPointer}
+        className="fixed z-[300] bg-white/95 backdrop-blur border border-slate-200 text-slate-700 px-3 py-2 rounded-xl shadow text-xs font-bold hover:bg-emerald-50 pointer-events-auto"
+        style={{
+          top: 'max(0.75rem, env(safe-area-inset-top))',
+          right: 'max(0.75rem, env(safe-area-inset-right))',
         }}
-        className="fixed top-4 right-4 z-50 bg-white/90 backdrop-blur border border-slate-200 text-slate-700 px-3 py-2 rounded-xl shadow text-xs font-bold hover:bg-indigo-50 pointer-events-auto"
       >
         Reset pointer
       </button>
 
-      {/* GHOST POINTER (Chameleon Ring) */}
-      <div 
+      {/* GHOST POINTER */}
+      <div
         ref={pointerRef}
-        className="fixed top-0 left-0 pointer-events-none z-[9999]"
+        className="fixed top-0 left-0 pointer-events-none z-[400]"
         style={{
-          width: '30px',
-          height: '30px',
-          border: '2px solid rgba(255,255,255,0.8)',
+          width: '28px',
+          height: '28px',
+          border: '2.5px solid rgba(255,255,255,0.95)',
           backdropFilter: 'invert(1)',
           borderRadius: '50%',
           opacity: 0,
-          transition: 'opacity 0.3s ease',
-          transform: `translate3d(${window.innerWidth / 2}px, ${window.innerHeight / 2}px, 0) translate(-50%, -50%)`
+          transition: 'opacity 0.2s ease',
+          willChange: 'transform',
         }}
       />
 
-      {/* NAVIGATION HITBOXES (Visual Feedback) */}
-      <div 
-        className={`fixed top-0 left-0 w-[10vw] h-full pointer-events-none z-[9998] transition-opacity duration-300 flex items-center justify-start pl-4 ${hoveredNav === 'prev' ? 'opacity-100' : 'opacity-0'}`}
-        style={{ background: `linear-gradient(to right, rgba(99, 102, 241, 0.2) ${navDwellProgress}%, transparent ${navDwellProgress}%)` }}
+      {/* Nav edge feedback — mid band only (matches hit logic) */}
+      <div
+        className={`fixed top-[22%] bottom-[22%] left-0 w-12 pointer-events-none z-[350] transition-opacity duration-200 flex items-center justify-start pl-1 ${
+          hoveredNav === 'prev' ? 'opacity-100' : 'opacity-0'
+        }`}
+        style={{
+          background: `linear-gradient(to right, rgba(99, 102, 241, 0.28) ${navDwellProgress}%, transparent ${navDwellProgress}%)`,
+        }}
       >
-        <div className="text-indigo-500 font-bold text-xl opacity-50">PREV</div>
-      </div>
-      
-      <div 
-        className={`fixed top-0 right-0 w-[10vw] h-full pointer-events-none z-[9998] transition-opacity duration-300 flex items-center justify-end pr-4 ${hoveredNav === 'next' ? 'opacity-100' : 'opacity-0'}`}
-        style={{ background: `linear-gradient(to left, rgba(99, 102, 241, 0.2) ${navDwellProgress}%, transparent ${navDwellProgress}%)` }}
-      >
-        <div className="text-indigo-500 font-bold text-xl opacity-50">NEXT</div>
+        <div className="text-indigo-500 font-bold text-xs opacity-70">PREV</div>
       </div>
 
-      {/* SCROLL HITBOXES (Visual Feedback) */}
-      <div 
-        className={`fixed top-0 left-0 w-full h-[15vh] pointer-events-none z-[9997] transition-opacity duration-300 flex justify-center items-start pt-4 ${hoveredScroll === 'up' ? 'opacity-100' : 'opacity-0'}`}
-        style={{ background: 'linear-gradient(to bottom, rgba(16, 185, 129, 0.2), transparent)' }}
+      <div
+        className={`fixed top-[22%] bottom-[22%] right-0 w-12 pointer-events-none z-[350] transition-opacity duration-200 flex items-center justify-end pr-1 ${
+          hoveredNav === 'next' ? 'opacity-100' : 'opacity-0'
+        }`}
+        style={{
+          background: `linear-gradient(to left, rgba(99, 102, 241, 0.28) ${navDwellProgress}%, transparent ${navDwellProgress}%)`,
+        }}
       >
-        <div className="text-emerald-500 font-bold text-xl opacity-70">SCROLL UP</div>
+        <div className="text-indigo-500 font-bold text-xs opacity-70">NEXT</div>
       </div>
 
-      <div 
-        className={`fixed bottom-0 left-0 w-full h-[15vh] pointer-events-none z-[9997] transition-opacity duration-300 flex justify-center items-end pb-4 ${hoveredScroll === 'down' ? 'opacity-100' : 'opacity-0'}`}
-        style={{ background: 'linear-gradient(to top, rgba(16, 185, 129, 0.2), transparent)' }}
+      {/* Thin scroll hints (8% zones) */}
+      <div
+        className={`fixed top-0 left-0 w-full h-14 pointer-events-none z-[340] transition-opacity duration-200 flex justify-center items-start pt-2 ${
+          hoveredScroll === 'up' ? 'opacity-100' : 'opacity-0'
+        }`}
+        style={{ background: 'linear-gradient(to bottom, rgba(16, 185, 129, 0.18), transparent)' }}
       >
-        <div className="text-emerald-500 font-bold text-xl opacity-70">SCROLL DOWN</div>
+        <div className="text-emerald-600 font-bold text-[10px] opacity-80">SCROLL UP</div>
       </div>
 
-      {/* DEBUG CAMERA FEED */}
-      <div className="fixed bottom-4 right-4 z-[9999] w-[200px] h-[150px] rounded-xl overflow-hidden border-2 border-emerald-500 shadow-lg bg-black">
+      <div
+        className={`fixed bottom-0 left-0 w-full h-14 pointer-events-none z-[340] transition-opacity duration-200 flex justify-center items-end pb-2 ${
+          hoveredScroll === 'down' ? 'opacity-100' : 'opacity-0'
+        }`}
+        style={{ background: 'linear-gradient(to top, rgba(16, 185, 129, 0.18), transparent)' }}
+      >
+        <div className="text-emerald-600 font-bold text-[10px] opacity-80">SCROLL DOWN</div>
+      </div>
+
+      {/* Camera preview — viewport-fixed, above bottom chrome, object-contain for 1:1 guide */}
+      <div
+        className="fixed z-[300] w-[9.5rem] h-[7.25rem] md:w-[12.5rem] md:h-[9.5rem] rounded-2xl overflow-hidden border-2 border-emerald-400 shadow-2xl bg-black ring-2 ring-emerald-500/25"
+        style={{
+          right: 'max(0.75rem, env(safe-area-inset-right))',
+          bottom: 'max(5.5rem, calc(env(safe-area-inset-bottom) + 4.5rem))',
+        }}
+      >
         <video
           ref={localVideoRef}
           autoPlay
           playsInline
           muted
-          className="absolute inset-0 w-full h-full object-cover transform scale-x-[-1]"
+          className="absolute inset-0 w-full h-full object-contain transform -scale-x-100 bg-black"
         />
-        <canvas 
+        <canvas
           ref={canvasRef}
-          className="absolute inset-0 w-full h-full object-cover transform scale-x-[-1]"
-          width={320}
-          height={240}
+          className="absolute inset-0 w-full h-full object-contain transform -scale-x-100"
         />
+        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/65 to-transparent px-1.5 py-1">
+          <p className="text-[8px] text-white font-semibold text-center leading-tight">
+            Move face in green box · nose = pointer
+          </p>
+        </div>
       </div>
     </>
   );
+
+  if (typeof document === 'undefined') return null;
+  return createPortal(ui, document.body);
 };

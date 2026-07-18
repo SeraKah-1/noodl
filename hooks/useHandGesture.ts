@@ -352,24 +352,32 @@ export const useHandGesture = (
     }
   };
 
-  /** Soft ROI frame: corner brackets only (not a heavy box). */
+  /**
+   * ROI guide: visible outer frame + inner "active" zone.
+   * Input only counts inside the *inner* rect so border grazing does not fire.
+   */
   const drawRoiGuide = (
     ctx: CanvasRenderingContext2D,
     roiX: number,
     roiY: number,
     roiW: number,
     roiH: number,
-    active: boolean
+    active: boolean,
+    inner: { x: number; y: number; w: number; h: number }
   ) => {
-    const len = Math.min(roiW, roiH) * 0.14;
-    const color = active ? 'rgba(167, 139, 250, 0.85)' : 'rgba(255, 255, 255, 0.45)';
+    // Dim outside the outer frame so the box is obvious
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.clearRect(roiX, roiY, roiW, roiH);
+
+    const len = Math.min(roiW, roiH) * 0.16;
+    const color = active ? 'rgba(167, 139, 250, 0.95)' : 'rgba(255, 255, 255, 0.75)';
     ctx.strokeStyle = color;
-    ctx.lineWidth = Math.max(1.25, ctx.canvas.width * 0.003);
+    ctx.lineWidth = Math.max(2.5, ctx.canvas.width * 0.006);
     ctx.lineCap = 'round';
     ctx.setLineDash([]);
 
     const corners: Array<[number, number, number, number, number, number]> = [
-      // x,y, dx1,dy1, dx2,dy2
       [roiX, roiY, len, 0, 0, len],
       [roiX + roiW, roiY, -len, 0, 0, len],
       [roiX, roiY + roiH, len, 0, 0, -len],
@@ -384,12 +392,31 @@ export const useHandGesture = (
       ctx.stroke();
     }
 
-    // Very light dashed border
-    ctx.strokeStyle = active ? 'rgba(167, 139, 250, 0.25)' : 'rgba(255, 255, 255, 0.15)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([6, 8]);
-    ctx.strokeRect(roiX, roiY, roiW, roiH);
+    // Outer solid border
+    ctx.strokeStyle = active ? 'rgba(167, 139, 250, 0.55)' : 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = Math.max(1.5, ctx.canvas.width * 0.0035);
     ctx.setLineDash([]);
+    ctx.strokeRect(roiX, roiY, roiW, roiH);
+
+    // Inner active zone (stricter) — dashed
+    ctx.strokeStyle = active ? 'rgba(196, 181, 253, 0.7)' : 'rgba(255, 255, 255, 0.35)';
+    ctx.lineWidth = 1.25;
+    ctx.setLineDash([5, 6]);
+    ctx.strokeRect(inner.x, inner.y, inner.w, inner.h);
+    ctx.setLineDash([]);
+
+    // Center crosshair (subtle)
+    const cx = inner.x + inner.w / 2;
+    const cy = inner.y + inner.h / 2;
+    const arm = Math.min(inner.w, inner.h) * 0.06;
+    ctx.strokeStyle = active ? 'rgba(167, 139, 250, 0.5)' : 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx - arm, cy);
+    ctx.lineTo(cx + arm, cy);
+    ctx.moveTo(cx, cy - arm);
+    ctx.lineTo(cx, cy + arm);
+    ctx.stroke();
   };
 
   const drawHand = (
@@ -470,11 +497,18 @@ export const useHandGesture = (
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
 
-      // ROI ~62% × 72% centered — roomy enough for fist + open palm
-      const roiW = canvas.width * 0.62;
-      const roiH = canvas.height * 0.72;
+      // Outer guide box (visible). Active zone is inset so edge grazing does NOT fire.
+      const roiW = canvas.width * 0.52;
+      const roiH = canvas.height * 0.58;
       const roiX = (canvas.width - roiW) / 2;
       const roiY = (canvas.height - roiH) / 2;
+      const INSET = 0.14; // 14% margin inside outer frame
+      const inner = {
+        x: roiX + roiW * INSET,
+        y: roiY + roiH * INSET,
+        w: roiW * (1 - 2 * INSET),
+        h: roiH * (1 - 2 * INSET),
+      };
 
       let results: any;
       try {
@@ -502,16 +536,19 @@ export const useHandGesture = (
         setIsHandDetected(true);
         const wrist = landmarks[0];
         const middleMcp = landmarks[9];
+        const indexTip = landmarks[8];
         const cx = ((wrist.x + middleMcp.x) / 2) * canvas.width;
         const cy = ((wrist.y + middleMcp.y) / 2) * canvas.height;
-        inROI =
-          cx > roiX &&
-          cx < roiX + roiW &&
-          cy > roiY &&
-          cy < roiY + roiH;
+        const tipX = indexTip.x * canvas.width;
+        const tipY = indexTip.y * canvas.height;
 
-        drawRoiGuide(ctx, roiX, roiY, roiW, roiH, inROI);
-        drawHand(ctx, landmarks, inROI ? 'rgba(167,139,250,0.95)' : 'rgba(244,63,94,0.7)');
+        // Strict: palm center AND index tip must sit inside the *inner* zone
+        const inInner = (x: number, y: number) =>
+          x >= inner.x && x <= inner.x + inner.w && y >= inner.y && y <= inner.y + inner.h;
+        inROI = inInner(cx, cy) && inInner(tipX, tipY);
+
+        drawRoiGuide(ctx, roiX, roiY, roiW, roiH, inROI, inner);
+        drawHand(ctx, landmarks, inROI ? 'rgba(167,139,250,0.95)' : 'rgba(244,63,94,0.75)');
 
         if (inROI && !isPausedRef.current) {
           const gesture = classifyHandGesture(
@@ -528,7 +565,7 @@ export const useHandGesture = (
         pushUi({ inRoi: inROI, handPresent: true });
       } else {
         setIsHandDetected(false);
-        drawRoiGuide(ctx, roiX, roiY, roiW, roiH, false);
+        drawRoiGuide(ctx, roiX, roiY, roiW, roiH, false, inner);
         resetDwell();
         pushUi({ inRoi: false, handPresent: false });
       }

@@ -1,5 +1,6 @@
 import { getLocale, t } from '../services/i18n';
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useHandGesture } from '../hooks/useHandGesture';
 import { Camera, Hand } from 'lucide-react';
@@ -11,6 +12,11 @@ interface GestureControlProps {
   isAnswered: boolean;
 }
 
+/**
+ * Hand camera HUD is portaled to document.body.
+ * Framer Motion parents use `transform`, which would otherwise trap
+ * `position: fixed` and park the preview below the fold.
+ */
 export const GestureControl: React.FC<GestureControlProps> = ({
   onOptionSelect,
   onNext,
@@ -72,51 +78,58 @@ export const GestureControl: React.FC<GestureControlProps> = ({
 
   const displayLabel = getGestureLabel(detectedGesture);
 
-  if (error) {
-    return (
-      <div className="fixed bottom-6 right-6 z-50 max-w-[14rem] rounded-2xl bg-rose-50/95 border border-rose-100 px-3 py-2 text-[11px] text-rose-700 shadow-lg pointer-events-auto">
-        {error}
-      </div>
-    );
-  }
-
-  return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end pointer-events-none gap-3">
-      {/* Feedback bubble */}
+  const shell = error ? (
+    <div
+      className="fixed z-[300] max-w-[14rem] rounded-2xl bg-rose-50/95 border border-rose-100 px-3 py-2 text-[11px] text-rose-700 shadow-lg pointer-events-auto"
+      style={{
+        right: 'max(0.75rem, env(safe-area-inset-right))',
+        bottom: 'max(5.5rem, calc(env(safe-area-inset-bottom) + 4.5rem))',
+      }}
+    >
+      {error}
+    </div>
+  ) : (
+    <div
+      className="fixed z-[300] flex flex-col items-end pointer-events-none gap-2"
+      style={{
+        // Always in the visible viewport (above bottom chrome / safe area)
+        right: 'max(0.75rem, env(safe-area-inset-right))',
+        bottom: 'max(5.5rem, calc(env(safe-area-inset-bottom) + 4.5rem))',
+      }}
+    >
       <AnimatePresence>
         {detectedGesture && (
           <motion.div
-            initial={{ y: 16, opacity: 0, scale: 0.9 }}
+            initial={{ y: 12, opacity: 0, scale: 0.92 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
-            exit={{ y: 8, opacity: 0, scale: 0.95 }}
+            exit={{ y: 8, opacity: 0, scale: 0.96 }}
             transition={{ type: 'spring', stiffness: 320, damping: 26 }}
-            className="bg-white/90 backdrop-blur-xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.08)] rounded-2xl p-3 pr-5 flex items-center gap-4 pointer-events-auto"
+            className="bg-white/95 backdrop-blur-xl border border-slate-100 shadow-xl rounded-2xl p-2.5 pr-4 flex items-center gap-3 pointer-events-auto"
           >
-            <div className="relative w-12 h-12 flex items-center justify-center bg-slate-50 rounded-full shadow-inner">
+            <div className="relative w-11 h-11 flex items-center justify-center bg-slate-50 rounded-full shadow-inner">
               <svg className="absolute inset-0 w-full h-full transform -rotate-90">
-                <circle cx="24" cy="24" r="20" stroke="#f1f5f9" strokeWidth="4" fill="transparent" />
+                <circle cx="22" cy="22" r="18" stroke="#f1f5f9" strokeWidth="3.5" fill="transparent" />
                 <circle
-                  cx="24"
-                  cy="24"
-                  r="20"
+                  cx="22"
+                  cy="22"
+                  r="18"
                   stroke="#8b5cf6"
-                  strokeWidth="4"
+                  strokeWidth="3.5"
                   fill="transparent"
-                  strokeDasharray={125}
-                  strokeDashoffset={125 - (dwellProgress / 100) * 125}
+                  strokeDasharray={113}
+                  strokeDashoffset={113 - (dwellProgress / 100) * 113}
                   strokeLinecap="round"
-                  className="transition-all duration-75 ease-linear"
                 />
               </svg>
               <span className="absolute text-sm font-bold text-slate-700">{displayLabel}</span>
             </div>
             <div className="flex flex-col">
-              <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider mb-0.5">
+              <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">
                 {detectedGesture === 'NEXT' || detectedGesture === 'BACK'
                   ? t('navNavigate')
                   : t('navChoice')}
               </span>
-              <span className="text-sm font-bold text-slate-700 leading-tight">
+              <span className="text-sm font-bold text-slate-700">
                 {dwellProgress >= 100
                   ? id
                     ? 'Terkonfirmasi'
@@ -130,72 +143,69 @@ export const GestureControl: React.FC<GestureControlProps> = ({
         )}
       </AnimatePresence>
 
-      {/* Camera feed + soft ROI (corners drawn on canvas; CSS hint label) */}
-      <motion.div
-        initial={{ scale: 0.95, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="relative w-36 h-28 md:w-52 md:h-40 bg-black/10 backdrop-blur-sm rounded-2xl overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-white/50 pointer-events-auto"
-      >
+      {/* object-contain so canvas ROI matches video pixels 1:1 (no cover crop mismatch) */}
+      <div className="relative w-[9.5rem] h-[7.25rem] md:w-[13rem] md:h-[9.75rem] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-violet-400/80 pointer-events-auto ring-2 ring-violet-500/20">
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted
-          className="absolute inset-0 w-full h-full object-cover transform -scale-x-100"
+          className="absolute inset-0 w-full h-full object-contain transform -scale-x-100 bg-black"
         />
         <canvas
           ref={canvasRef}
-          className="absolute inset-0 w-full h-full transform -scale-x-100"
+          className="absolute inset-0 w-full h-full object-contain transform -scale-x-100"
         />
 
-        {/* Live status chip */}
-        <div className="absolute top-1.5 left-1.5 right-1.5 flex items-center justify-between gap-1">
+        <div className="absolute top-1.5 left-1.5 right-1.5 flex items-center justify-between gap-1 z-10">
           <span
-            className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-md backdrop-blur-sm ${
+            className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md shadow ${
               handPresent
                 ? inRoi
-                  ? 'bg-violet-500/80 text-white'
-                  : 'bg-amber-500/80 text-white'
-                : 'bg-black/35 text-white/90'
+                  ? 'bg-violet-600 text-white'
+                  : 'bg-amber-500 text-white'
+                : 'bg-black/60 text-white'
             }`}
           >
             {handPresent
               ? inRoi
                 ? id
-                  ? 'Di frame'
-                  : 'In frame'
+                  ? '✓ Di zona aktif'
+                  : '✓ Active zone'
                 : id
-                  ? 'Masukkan ke frame'
-                  : 'Move into frame'
+                  ? 'Masuk ke kotak dalam'
+                  : 'Enter inner box'
               : id
                 ? 'Tunjukkan tangan'
                 : 'Show hand'}
           </span>
           <span
-            className={`w-1.5 h-1.5 rounded-full ${
-              handPresent && inRoi ? 'bg-emerald-400 animate-pulse' : 'bg-white/50'
+            className={`w-2 h-2 rounded-full ring-1 ring-white/40 ${
+              handPresent && inRoi ? 'bg-emerald-400 animate-pulse' : 'bg-white/40'
             }`}
           />
         </div>
 
-        {/* Legend — thin, non-blocking */}
-        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/55 to-transparent pt-5 pb-1.5 px-2">
-          <p className="text-[8px] md:text-[9px] text-white/85 font-medium leading-tight text-center tracking-wide">
+        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 via-black/35 to-transparent pt-4 pb-1.5 px-1.5 z-10">
+          <p className="text-[8px] md:text-[9px] text-white font-semibold leading-tight text-center">
             {id
-              ? '1–4 jari = A–D · jempol = lanjut · telapak = balik · kepalan = diam'
-              : '1–4 fingers = A–D · thumb = next · palm = back · fist = idle'}
+              ? 'Zona dalam = input · tepi luar = diabaikan'
+              : 'Inner zone = input · outer edge ignored'}
           </p>
         </div>
 
         {!isLoaded && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-slate-100/85 backdrop-blur-sm">
-            <Camera className="animate-pulse text-slate-500" size={20} />
-            <span className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-slate-900/90 z-20">
+            <Camera className="animate-pulse text-violet-300" size={20} />
+            <span className="text-[10px] text-violet-100 font-medium flex items-center gap-1">
               <Hand size={12} /> {id ? 'Memuat model…' : 'Loading model…'}
             </span>
           </div>
         )}
-      </motion.div>
+      </div>
     </div>
   );
+
+  if (typeof document === 'undefined') return null;
+  return createPortal(shell, document.body);
 };
