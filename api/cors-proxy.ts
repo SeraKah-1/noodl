@@ -1,4 +1,4 @@
-// Vercel Serverless Function: CORS Proxy for 9Router & External LLM Providers in MikirEXP
+// Vercel Serverless Function: CORS Proxy for 9Router & External LLM Providers in Noodl
 export default async function handler(req: any, res: any) {
   // 1. Set wildcard CORS headers for browser preflight & cross-origin access
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -19,7 +19,7 @@ export default async function handler(req: any, res: any) {
   }
 
   if (!targetUrl || targetUrl === '/' || targetUrl === '/api/cors-proxy') {
-    return res.status(200).json({ status: 'online', message: '9Router & MikirEXP CORS Proxy active' });
+    return res.status(200).json({ status: 'online', message: '9Router & Noodl CORS Proxy active' });
   }
 
   if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
@@ -52,7 +52,7 @@ export default async function handler(req: any, res: any) {
 
     return res.send(responseText);
   } catch (err: any) {
-    console.error('[MikirEXP CORS Proxy Error]:', err);
+    console.error('[Noodl CORS Proxy Error]:', err);
     return res.status(500).json({ error: err.message || 'CORS Proxy Error' });
   }
 }

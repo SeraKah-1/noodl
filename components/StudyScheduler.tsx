@@ -38,7 +38,7 @@ export const StudyScheduler: React.FC<StudySchedulerProps> = ({ isOpen, onClose,
   // Google Calendar Fallback
   const handleGoogleCalendar = () => {
     const title = encodeURIComponent(`Belajar Rutin: ${defaultTopic || "Materi Umum"}`);
-    const details = encodeURIComponent(`Waktunya mengasah otak di Mikir (-•_•)!`);
+    const details = encodeURIComponent(`Waktunya mengasah otak di Noodl!`);
     const gCalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&recur=RRULE:FREQ=DAILY`;
     window.open(gCalUrl, '_blank');
   };

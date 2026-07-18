@@ -20,9 +20,9 @@ export default defineConfig(({ mode }) => {
           registerType: 'autoUpdate',
           includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg', 'icon-192.png', 'icon-512.png', 'icon.jpg'],
           manifest: {
-            name: 'Mikir — AI Study & Quiz App',
-            short_name: 'Mikir',
-            description: 'Platform Belajar & Quiz AI Interaktif dengan Kartu SRS, Graph Concept View, dan Maskot Kaomoji',
+            name: 'Noodl — use your noodle',
+            short_name: 'Noodl',
+            description: 'Turn notes into high-yield quizzes. Spaced repetition. Multilingual AI.',
             theme_color: '#0f172a',
             background_color: '#0f172a',
             display: 'standalone',

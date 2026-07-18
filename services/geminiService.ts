@@ -39,8 +39,8 @@ async function callAI(action: string, payload: any): Promise<any> {
     let endpoint = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://mikir.app',
-      'X-Title': 'Mikir AI'
+      'HTTP-Referer': 'https://noodl.app',
+      'X-Title': 'Noodl'
     };
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
@@ -1359,7 +1359,7 @@ export const generateDeepInsight = async (
   const topics = Object.keys(groupedData);
   const resultData: Record<string, ConceptCardData> = {};
   
-  const systemInstruction = `SISTEM: Kamu adalah Tutor Ahli berkarakter "Mikir ( ◕ ‿ ◕ )". Gayamu asik, to-the-point, dan berwawasan mendalam. Keluarkan output HANYA dalam format JSON.`;
+  const systemInstruction = `SISTEM: Kamu adalah Tutor Ahli berkarakter "Noodl". Gayamu asik, to-the-point, dan berwawasan mendalam. Keluarkan output HANYA dalam format JSON.`;
 
   const CONCEPT_SCHEMA = {
     type: "object",

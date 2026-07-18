@@ -97,7 +97,7 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
         setIsCloudSynced(true);
       }
       
-      alert("Simulasi & Kuis berhasil diunggah ke Mikir Cloud! (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧");
+      alert("Simulasi & Kuis berhasil diunggah ke Noodl Cloud! (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧");
     } catch (err: any) {
       alert("Gagal mengunggah ke Cloud: " + (err.message || String(err)));
     } finally {
@@ -372,7 +372,7 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
               {!currentUser ? (
                 <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 border border-slate-200/40" title="Login untuk menyimpan ke cloud">
                   <CloudOff size={14} />
-                  <span>Mikir Cloud Offline</span>
+                  <span>Noodl Cloud Offline</span>
                 </div>
               ) : isCloudSynced ? (
                 <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/40">
@@ -451,7 +451,7 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
               (⌐■_■) Waktunya Bikin Simulasi
             </h3>
             <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mb-8 leading-relaxed">
-              Mikir akan menganalisis materimu, lalu secara otomatis merakit HTML/CSS/JS untuk membuat simulasi interaktif super keren.
+              Noodl will analyze materimu, lalu secara otomatis merakit HTML/CSS/JS untuk membuat simulasi interaktif super keren.
             </p>
 
             <button

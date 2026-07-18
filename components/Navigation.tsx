@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Home, FolderOpen, Settings, Brain, Shuffle, 
   MessageSquare, Sparkles, BookOpen, Grid, X 
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AppView } from '../types';
+import { t, subscribeLocale } from '../services/i18n';
 
 interface NavigationProps {
   currentView: AppView;
@@ -13,13 +14,15 @@ interface NavigationProps {
 
 export const Navigation: React.FC<NavigationProps> = ({ currentView, onChangeView }) => {
   const [isHubOpen, setIsHubOpen] = useState(false);
+  const [, tick] = useState(0);
+  useEffect(() => subscribeLocale(() => tick((n) => n + 1)), []);
 
   const mainTabs = [
-    { id: AppView.GENERATOR, icon: Home, label: 'Home' },
-    { id: AppView.VIRTUAL_ROOM, icon: Shuffle, label: 'Mix' },
-    { id: AppView.NEURO_SYNC, icon: Brain, label: 'Sync' },
-    { id: AppView.WORKSPACE, icon: FolderOpen, label: 'Files' },
-    { id: AppView.SETTINGS, icon: Settings, label: 'Settings' },
+    { id: AppView.GENERATOR, icon: Home, label: t('navHome') },
+    { id: AppView.VIRTUAL_ROOM, icon: Shuffle, label: t('navMix') },
+    { id: AppView.NEURO_SYNC, icon: Brain, label: t('navSync') },
+    { id: AppView.WORKSPACE, icon: FolderOpen, label: t('navFiles') },
+    { id: AppView.SETTINGS, icon: Settings, label: t('navSettings') },
   ];
 
   const allRouters = [
@@ -106,10 +109,10 @@ export const Navigation: React.FC<NavigationProps> = ({ currentView, onChangeVie
                   </div>
                   <div>
                     <h2 className="text-xl font-black text-theme-text flex items-center gap-2">
-                      Mikir 9 Routers Hub
+                      Quick jump
                     </h2>
                     <p className="text-xs text-theme-muted">
-                      Akses cepat ke 9 modul utama aplikasi Mikir AI.
+                      Jump to any Noodl module.
                     </p>
                   </div>
                 </div>

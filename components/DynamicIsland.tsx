@@ -72,7 +72,7 @@ export const DynamicIsland: React.FC = () => {
               {syncStatus === 'idle' && (
                 <div className="flex items-center px-4 py-2 gap-2">
                   <span className="text-sm font-bold opacity-80">( •_• )</span>
-                  <span className="text-xs font-medium text-white/50 border-l border-white/20 pl-2">Mikir</span>
+                  <span className="text-xs font-medium text-white/50 border-l border-white/20 pl-2">Noodl</span>
                 </div>
               )}
 

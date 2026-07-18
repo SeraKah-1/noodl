@@ -469,7 +469,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
             className="text-6xl font-black tracking-tighter"
         >
             <span className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600">
-                Mikir
+                Noodl
             </span>
             <span className="font-light opacity-40 text-4xl ml-2 text-slate-500">( •_•)</span>
         </motion.h1>

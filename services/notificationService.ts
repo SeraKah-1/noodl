@@ -30,7 +30,7 @@ export const scheduleDailyReminder = (time: string) => { // format "HH:MM"
   // Send immediate feedback
   if (Notification.permission === "granted") {
     new Notification("Pengingat Diaktifkan! ⏰", {
-      body: `Mikir (-•_•) akan mengingatkanmu setiap hari jam ${time}.`,
+      body: `Noodl (-•_•) akan mengingatkanmu setiap hari jam ${time}.`,
       icon: "https://cdn-icons-png.flaticon.com/512/3767/3767084.png" // Generic study icon
     });
   }
@@ -86,14 +86,14 @@ export const downloadICSFile = (time: string, topic: string = "Materi Umum") => 
   const icsContent = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Mikir App//Study Scheduler//ID',
+    'PRODID:-//Noodl App//Study Scheduler//ID',
     'CALSCALE:GREGORIAN',
     'BEGIN:VEVENT',
     `DTSTART:${formatDate(startDate)}`,
     `DTEND:${formatDate(endDate)}`,
     'RRULE:FREQ=DAILY', // Daily recurrence
     `SUMMARY:Belajar Rutin: ${topic}`,
-    'DESCRIPTION:Waktunya mengasah otak di aplikasi Mikir (-•_•)! Jangan lupa review materi hari ini.',
+    'DESCRIPTION:Waktunya mengasah otak di aplikasi Noodl (-•_•)! Jangan lupa review materi hari ini.',
     'STATUS:CONFIRMED',
     'SEQUENCE:0',
     'BEGIN:VALARM',
@@ -108,7 +108,7 @@ export const downloadICSFile = (time: string, topic: string = "Materi Umum") => 
   const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
   const link = document.createElement('a');
   link.href = window.URL.createObjectURL(blob);
-  link.setAttribute('download', 'jadwal_belajar_mikir.ics');
+  link.setAttribute('download', 'noodl_study_schedule.ics');
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

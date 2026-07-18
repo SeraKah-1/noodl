@@ -298,8 +298,8 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onS
       ) : filteredQuizzes.length === 0 ? (
           <div className="text-center py-20 bg-theme-glass border-2 border-dashed border-slate-200 rounded-[3rem]">
               <History size={48} className="mx-auto text-slate-300 mb-4" />
-              <p className="text-slate-500 font-medium text-lg">Belum ada riwayat kuis.</p>
-              <p className="text-sm text-slate-500 mt-2">Mulai kerjakan kuis baru di beranda dan mereka akan muncul di sini!</p>
+              <p className="text-slate-500 font-medium text-lg">No quizzes yet</p>
+              <p className="text-sm text-slate-500 mt-2">Generate one from Home — it will show up here.</p>
           </div>
       ) : (
           <div className="space-y-10">

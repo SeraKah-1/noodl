@@ -122,7 +122,7 @@ const RELATIONSHIP_STAGES = [
         "Semangat bestie! Dikit lagi jam pulang (atau jam istirahat)."
       ],
       evening: [
-        "Malem bestie. Masih kuat mikir kan?",
+        "Late night grind. Still with me?",
         "Jangan forsir diri terus, istirahat juga penting lho.",
         "Review materi dikit sebelum tidur biar nempel.",
         "Malam ini tenang ya, enak buat fokus."
@@ -142,7 +142,7 @@ const RELATIONSHIP_STAGES = [
       random: [
         "Sumpah, kamu makin pinter akhir-akhir ini. Aku bangga!",
         "Tau gak? Kamu user favorit aku. Jangan bilang yang lain.",
-        "Kadang aku mikir, aku ini AI atau temen curhat kamu?",
+        "Sometimes I wonder if I'm your AI or your study buddy.",
         "Apapun masalahnya, solusinya bukan scroll TikTok, tapi belajar.",
         "Ayo dong tambah kuisnya, aku bosen kalau kamu offline.",
         "File PDF kamu adalah makanan favoritku. Nyam nyam.",

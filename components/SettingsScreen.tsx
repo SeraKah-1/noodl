@@ -28,6 +28,7 @@ import { getSavedTheme } from '../services/themeService';
 import { ThemeSelector } from './ThemeSelector';
 import { AuthWidget } from './AuthWidget';
 import { AiProvider, ModelOption, ThemeName } from '../types';
+import { getLocale, setLocale, t, type Locale } from '../services/i18n';
 
 type SettingsTab = 'providers' | 'account' | 'appearance' | 'features' | 'notifications';
 
@@ -279,7 +280,7 @@ export const SettingsScreen: React.FC = () => {
                         Konfigurasi {currentProviderCatalog.name}
                       </h3>
                       <p className="text-xs text-theme-muted mt-0.5">
-                        Masukkan API key dan ganti endpoint URL jika menggunakan proxy / server lokal.
+                        Paste the API key for this provider. Change Base URL only if you use a proxy or local server.
                       </p>
                     </div>
                     <a
@@ -288,18 +289,21 @@ export const SettingsScreen: React.FC = () => {
                       rel="noreferrer"
                       className="text-xs font-bold text-indigo-400 hover:underline flex items-center gap-1 shrink-0"
                     >
-                      Dapatkan Key <ExternalLink size={12} />
+                      Get key <ExternalLink size={12} />
                     </a>
                   </div>
 
                   <div className="space-y-4">
-                    {/* API Key Input */}
+                    {/* API Key Input — provider-agnostic copy */}
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-theme-text flex items-center justify-between">
-                        <span>API Key {currentProviderCatalog.requiresKey ? '(Wajib)' : '(Opsional)'}</span>
+                        <span>
+                          API key{' '}
+                          {currentProviderCatalog.requiresKey ? '(required)' : '(optional)'}
+                        </span>
                         {apiKeyInput && (
                           <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
-                            <ShieldCheck size={12} /> Key Dikonfigurasi
+                            <ShieldCheck size={12} /> Saved on this device
                           </span>
                         )}
                       </label>
@@ -308,7 +312,13 @@ export const SettingsScreen: React.FC = () => {
                           type={showApiKey ? 'text' : 'password'}
                           value={apiKeyInput}
                           onChange={(e) => setApiKeyInput(e.target.value)}
-                          placeholder={currentProviderCatalog.id === 'gemini' ? 'AIzaSy... (atau kosongkan untuk Vertex AI Mode)' : 'sk-...'}
+                          placeholder={
+                            currentProviderCatalog.id === 'gemini'
+                              ? 'Provider API key (e.g. AIza…)'
+                              : currentProviderCatalog.id === 'anthropic'
+                                ? 'sk-ant-…'
+                                : 'sk-… or provider token'
+                          }
                           className="w-full px-4 py-3 bg-theme-bg border border-theme-border rounded-xl text-sm text-theme-text focus:outline-none focus:ring-2 focus:ring-indigo-500 pr-24 font-mono"
                         />
                         <button
@@ -316,7 +326,7 @@ export const SettingsScreen: React.FC = () => {
                           onClick={() => setShowApiKey(!showApiKey)}
                           className="absolute right-3 top-1/2 -translate-y-1/2 px-2.5 py-1 text-xs text-theme-muted hover:text-theme-text bg-theme-glass rounded-lg border border-theme-border"
                         >
-                          {showApiKey ? 'Sembunyikan' : 'Tampilkan'}
+                          {showApiKey ? 'Hide' : 'Show'}
                         </button>
                       </div>
                     </div>
@@ -440,11 +450,39 @@ export const SettingsScreen: React.FC = () => {
               >
                 <div className="bg-theme-glass border border-theme-border rounded-3xl p-6 shadow-xl space-y-4">
                   <h2 className="text-lg font-bold text-theme-text flex items-center gap-2">
+                    <Globe className="text-indigo-500" size={20} />
+                    {t('language')}
+                  </h2>
+                  <p className="text-sm text-theme-muted">
+                    {t('languageHint')}
+                  </p>
+                  <div className="flex gap-2">
+                    {([
+                      { id: 'en' as Locale, label: 'English' },
+                      { id: 'id' as Locale, label: 'Indonesia' },
+                    ]).map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setLocale(opt.id)}
+                        className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-colors ${
+                          getLocale() === opt.id
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-theme-bg text-theme-text border-theme-border hover:border-indigo-300'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="bg-theme-glass border border-theme-border rounded-3xl p-6 shadow-xl space-y-4">
+                  <h2 className="text-lg font-bold text-theme-text flex items-center gap-2">
                     <Palette className="text-indigo-500" size={20} />
-                    Tema & Estetika Visual
+                    Theme
                   </h2>
                   <p className="text-sm text-theme-muted mb-4">
-                    Pilih tema visual Neobrutalism, Dark Mode, atau Minimalist Big Tech yang sesuai dengan selera Anda.
+                    Pick a look that feels calm for long study sessions.
                   </p>
                   <ThemeSelector currentTheme={currentTheme} onThemeChange={setCurrentTheme} />
                 </div>
@@ -557,7 +595,7 @@ export const SettingsScreen: React.FC = () => {
                   <div className="p-4 rounded-2xl bg-theme-bg/60 border border-theme-border space-y-3">
                     <h4 className="font-bold text-sm text-theme-text">Jadwal Pengingat Belajar Harian</h4>
                     <p className="text-xs text-theme-muted">
-                      Mikir akan mengirimkan kaomoji notification untuk mengingatkan Anda belajar pada jam berikut.
+                      Noodl can send a gentle study reminder at this time.
                     </p>
                     <div className="flex items-center gap-3 pt-2">
                       <input

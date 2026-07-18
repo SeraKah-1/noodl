@@ -168,7 +168,7 @@ PEDAGOGICAL & TECHNICAL REQUIREMENTS:
 2. DILARANG menggunakan dependensi eksternal (no CDNs, no external libraries/scripts/styles, no external images). Semua harus digambar langsung menggunakan Canvas API, inline SVG, CSS, atau HTML standar.
 3. Simulasi WAJIB interaktif: sediakan kontrol seperti slider, tombol, atau toggle untuk memanipulasi variabel interaktif yang diminta.
 4. UMPAN BALIK INSTAN (Instant Pedagogical Feedback): Tampilkan satu panel teks dinamis kecil yang menjelaskan secara ilmiah efek langsung dari perubahan variabel yang dilakukan pengguna (misal: "Saat konsentrasi katalis dinaikkan, laju reaksi meningkat karena frekuensi tumbukan partikel bertambah").
-5. Desain PREMIUM, MODERN, dan PLAYFUL (Mikirexp Theme):
+5. Desain PREMIUM, MODERN, dan PLAYFUL (Noodl theme):
    - Warna latar belakang gelap (dark theme, contoh: #0f172a atau #1e293b)
    - Aksen warna gradasi cerah untuk membedakan komponen (indigo, emerald, amber, rose)
    - Berikan kontras yang sangat jelas antara komponen interaktif (slider/tombol) dengan dekorasi statis agar siswa tahu apa yang bisa dimanipulasi
