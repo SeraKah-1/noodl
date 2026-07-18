@@ -1,7 +1,6 @@
 /**
- * Noodl cloud layer — Supabase Auth + optional data sync.
- * When VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are missing, everything
- * runs fully local (guest mode). No secrets belong in this file.
+ * Noodl cloud layer — Supabase Auth (GitHub + Google) + session plumbing.
+ * Configure VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY (never service_role in the browser).
  */
 import { createClient, type SupabaseClient, type User as SbUser } from '@supabase/supabase-js';
 
@@ -16,17 +15,51 @@ export const supabase: SupabaseClient | null = isSupabaseConfigured
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true,
+        flowType: 'pkce',
+        storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+      },
+      realtime: {
+        params: { eventsPerSecond: 5 },
+      },
+      global: {
+        headers: { 'x-noodl-client': 'web' },
       },
     })
   : null;
 
-/** @deprecated use isSupabaseConfigured */
+/** @deprecated */
 export const isFirebaseConfigured = isSupabaseConfigured;
 
 type AuthListener = (user: SbUser | null) => void;
 
 let _user: SbUser | null = null;
 const listeners = new Set<AuthListener>();
+
+function mapUser(u: SbUser | null) {
+  if (!u) return null;
+  const meta = u.user_metadata || {};
+  return {
+    uid: u.id,
+    id: u.id,
+    email: u.email ?? null,
+    displayName:
+      (meta.full_name as string | undefined) ||
+      (meta.name as string | undefined) ||
+      (meta.user_name as string | undefined) ||
+      (meta.preferred_username as string | undefined) ||
+      u.email ||
+      'Noodler',
+    photoURL:
+      (meta.avatar_url as string | undefined) ||
+      (meta.picture as string | undefined) ||
+      null,
+    provider:
+      u.app_metadata?.provider ||
+      (Array.isArray(u.app_metadata?.providers) ? u.app_metadata.providers[0] : null) ||
+      'email',
+    raw: u,
+  };
+}
 
 if (supabase) {
   supabase.auth.getSession().then(({ data }) => {
@@ -39,40 +72,13 @@ if (supabase) {
   });
 }
 
-/** Firebase-shaped auth shim so existing screens need minimal edits */
 export const auth = {
   get currentUser() {
-    if (!_user) return null;
-    return {
-      uid: _user.id,
-      email: _user.email ?? null,
-      displayName:
-        (_user.user_metadata?.full_name as string | undefined) ||
-        (_user.user_metadata?.name as string | undefined) ||
-        _user.email ||
-        'Noodler',
-      photoURL: (_user.user_metadata?.avatar_url as string | undefined) || null,
-    };
+    return mapUser(_user);
   },
   onAuthStateChanged(callback: (user: any) => void) {
-    const wrapped: AuthListener = (u) => {
-      if (!u) {
-        callback(null);
-        return;
-      }
-      callback({
-        uid: u.id,
-        email: u.email ?? null,
-        displayName:
-          (u.user_metadata?.full_name as string | undefined) ||
-          (u.user_metadata?.name as string | undefined) ||
-          u.email ||
-          'Noodler',
-        photoURL: (u.user_metadata?.avatar_url as string | undefined) || null,
-      });
-    };
+    const wrapped: AuthListener = (u) => callback(mapUser(u));
     listeners.add(wrapped);
-    // immediate
     wrapped(_user);
     return () => listeners.delete(wrapped);
   },
@@ -82,39 +88,58 @@ export const auth = {
   },
 };
 
-export type User = {
-  uid: string;
-  email: string | null;
-  displayName: string | null;
-  photoURL: string | null;
-};
+export type User = NonNullable<ReturnType<typeof mapUser>>;
 
-export async function signInWithGoogle() {
-  if (!supabase) throw new Error('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+function oauthRedirect() {
+  if (typeof window === 'undefined') return undefined;
+  // support both root and deep links after deploy
+  return `${window.location.origin}/`;
+}
+
+export async function signInWithGitHub() {
+  if (!supabase) {
+    throw new Error('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+  }
   const { error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
+    provider: 'github',
     options: {
-      redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
+      redirectTo: oauthRedirect(),
+      scopes: 'read:user user:email',
+      queryParams: { prompt: 'consent' },
     },
   });
   if (error) throw error;
 }
 
-/** Legacy no-ops kept so old call sites compile */
+export async function signInWithGoogle() {
+  if (!supabase) {
+    throw new Error('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+  }
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: oauthRedirect() },
+  });
+  if (error) throw error;
+}
+
+/** Prefer GitHub (hackathon / dev default), fall back to Google */
+export async function signInWithPreferred() {
+  return signInWithGitHub();
+}
+
 export async function signInWithGoogleToken(_idToken: string, _accessToken?: string) {
-  return signInWithGoogle();
+  return signInWithPreferred();
 }
 export async function signInWithDirectGoogleOAuth() {
-  return signInWithGoogle();
+  return signInWithPreferred();
 }
 export async function processOAuthRedirectUrl() {
-  /* supabase handles PKCE / hash automatically */
+  /* PKCE / hash handled by supabase-js */
 }
 export async function logOut() {
   await auth.signOut();
 }
 
-/** No Firestore — cloud rows go through supabase client directly */
 export const db = null;
 
 export enum OperationType {
@@ -126,11 +151,10 @@ export enum OperationType {
   WRITE = 'write',
 }
 
-export function handleFirestoreError(e: unknown, _op?: OperationType, _path?: string) {
+export function handleFirestoreError(e: unknown) {
   console.warn('[Noodl cloud]', e);
 }
 
-/** Vertex via Firebase AI Logic removed — use provider API keys instead */
 export function getFirebaseVertexAIModel(_modelId?: string): null {
   return null;
 }

@@ -265,6 +265,59 @@ Please **don’t** commit API keys, Supabase service roles, or `.env.local`.
 
 ---
 
+
+
+## Cross-device sync (Supabase)
+
+Noodl is **offline-first**. IndexedDB stays primary; Supabase is the backpack between devices.
+
+```mermaid
+sequenceDiagram
+  participant Phone
+  participant IDB as IndexedDB
+  participant SB as Supabase
+  participant Laptop
+  Phone->>IDB: write quiz / SRS
+  Phone->>SB: push (LWW by client_updated_at)
+  Laptop->>SB: pull + realtime
+  Laptop->>IDB: merge
+```
+
+### What syncs
+| Data | Table | Notes |
+|------|-------|--------|
+| Quizzes | `quizzes` | soft-delete via `deleted_at` |
+| Library | `library_items` | materials |
+| SRS cards | `srs_items` | Neuro-Sync |
+| Prefs | `user_profiles` | non-secret settings |
+| Devices | `devices` / `sync_state` | last sync timestamps |
+
+### Auth
+- **GitHub** (default button) + optional **Google**
+- PKCE flow, session in `localStorage`, auto refresh
+- RLS: every row scoped to `auth.uid()`
+
+### One-time project setup
+
+1. Sign in at [supabase.com/dashboard](https://supabase.com/dashboard) **with GitHub**
+2. Create project **noodl** (or run bootstrap below)
+3. SQL Editor → paste [`supabase/schema.sql`](supabase/schema.sql) → Run
+4. Authentication → Providers → enable **GitHub**
+   - Create a GitHub OAuth App (Developer settings)
+   - Callback URL: `https://<PROJECT_REF>.supabase.co/auth/v1/callback`
+   - Redirect URLs in Supabase: `http://localhost:5173/**`, your production URL
+5. Project Settings → API → copy URL + `anon` key into `.env.local`
+
+```bash
+# After you mint a management token (GitHub-linked account):
+# https://supabase.com/dashboard/account/tokens
+export SUPABASE_ACCESS_TOKEN=sbp_...
+npm run supabase:bootstrap
+```
+
+> **Why not use the GitHub PAT alone?** Supabase Management API needs a Supabase personal token (`sbp_…`). Your GitHub login is how you *get into* the dashboard; the app then uses GitHub OAuth for *end-user* sign-in.
+
+
 ## License
 
 MIT — see [LICENSE](LICENSE). Fork it, break it, make it weirder.

@@ -1,24 +1,25 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { LogIn, Loader2, Sparkles } from 'lucide-react';
-import { signInWithGoogle, isSupabaseConfigured } from '../supabase';
+import { Github, Loader2, Sparkles, Chrome } from 'lucide-react';
+import { signInWithGitHub, signInWithGoogle, isSupabaseConfigured } from '../supabase';
 
 interface SignInScreenProps {
   onBypass?: () => void;
 }
 
 export const SignInScreen: React.FC<SignInScreenProps> = ({ onBypass }) => {
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState<'github' | 'google' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSignIn = async () => {
-    setIsLoading(true);
+  const go = async (provider: 'github' | 'google') => {
+    setIsLoading(provider);
     setError(null);
     try {
-      await signInWithGoogle();
+      if (provider === 'github') await signInWithGitHub();
+      else await signInWithGoogle();
     } catch (err: any) {
       setError(err?.message || 'Sign-in failed');
-      setIsLoading(false);
+      setIsLoading(null);
     }
   };
 
@@ -33,22 +34,44 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ onBypass }) => {
           <Sparkles size={22} /> Noodl
         </div>
         <p className="text-slate-600 text-sm mb-6 leading-relaxed">
-          Turn messy notes into high-yield quizzes. Remember them with spaced repetition.
-          Optional cloud sync — or stay fully local.
+          Use your noodle across every device. Sign in to sync quizzes &amp; reviews — or stay
+          local as a guest.
         </p>
         {error && <p className="text-sm text-rose-600 mb-3">{error}</p>}
+
         {isSupabaseConfigured ? (
-          <button
-            onClick={handleSignIn}
-            disabled={isLoading}
-            className="w-full flex items-center justify-center gap-2 bg-slate-900 text-white font-bold py-3 rounded-2xl hover:bg-slate-800 disabled:opacity-60"
-          >
-            {isLoading ? <Loader2 className="animate-spin" size={18} /> : <LogIn size={18} />}
-            Continue with Google
-          </button>
+          <div className="space-y-2">
+            <button
+              onClick={() => go('github')}
+              disabled={!!isLoading}
+              className="w-full flex items-center justify-center gap-2 bg-slate-900 text-white font-bold py-3 rounded-2xl hover:bg-slate-800 disabled:opacity-60"
+            >
+              {isLoading === 'github' ? (
+                <Loader2 className="animate-spin" size={18} />
+              ) : (
+                <Github size={18} />
+              )}
+              Continue with GitHub
+            </button>
+            <button
+              onClick={() => go('google')}
+              disabled={!!isLoading}
+              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-800 font-bold py-3 rounded-2xl hover:bg-slate-50 disabled:opacity-60"
+            >
+              {isLoading === 'google' ? (
+                <Loader2 className="animate-spin" size={18} />
+              ) : (
+                <Chrome size={18} />
+              )}
+              Continue with Google
+            </button>
+          </div>
         ) : (
-          <p className="text-xs text-slate-500 mb-3">Cloud auth not configured — continue as guest.</p>
+          <p className="text-xs text-slate-500 mb-3">
+            Cloud auth not configured yet — continue as guest, then add Supabase env vars.
+          </p>
         )}
+
         {onBypass && (
           <button
             onClick={onBypass}

@@ -42,6 +42,7 @@ import { QuizState, Question, QuizResult, ModelConfig, QuizMode, AppView, ExamSt
 import { Info, CreditCard, AlertTriangle, Play, RotateCcw, X as XIcon } from 'lucide-react';
 import { useAppStore } from './store/useAppStore';
 import { auth, isSupabaseConfigured } from './supabase';
+import { startRealtimeSync, stopRealtimeSync, runFullSync } from './services/syncService';
 // auth.onAuthStateChanged provided by supabase shim
 
 import { useAutoSave } from './hooks/useAutoSave';
@@ -126,7 +127,9 @@ const App: React.FC = () => {
             isAdmin: false
           });
           console.log("User logged in, triggering unified sync...");
-          await unifiedSync().catch(e => console.error("Unified sync error", e));
+          await runFullSync().catch(e => console.error("Unified sync error", e));
+          stopRealtimeSync();
+          startRealtimeSync();
           
           unsubQuizzes(); // cleanup previous
           unsubQuizzes = subscribeToQuizzes(() => {
@@ -140,6 +143,7 @@ const App: React.FC = () => {
       } else {
         setCurrentUser(null);
         unsubQuizzes();
+        stopRealtimeSync();
       }
       setAuthLoading(false);
     });

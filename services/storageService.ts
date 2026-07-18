@@ -9,28 +9,36 @@ import { Question, ModelConfig, AiProvider, StorageProvider, CloudNote, LibraryI
 import { summarizeMaterial } from "./geminiService";
 import { get, set, update } from 'idb-keyval'; // IndexedDB Wrapper
 import { auth, supabase, isSupabaseConfigured } from "../supabase";
+import {
+  cloudUpsertQuizRow,
+  cloudSoftDeleteQuiz,
+  runFullSync,
+  registerNetworkSyncListener as registerSyncNetwork,
+  startRealtimeSync,
+  stopRealtimeSync,
+} from "./syncService";
 
 /** Cloud helpers (Supabase). Fail soft — local IDB always remains source of truth. */
 const cloudEnabled = () => Boolean(isSupabaseConfigured && supabase && auth.currentUser);
 
 async function cloudUpsertQuiz(quiz: any) {
-  if (!cloudEnabled() || !supabase || !auth.currentUser) return;
-  const { error } = await supabase.from("quizzes").upsert({
-    id: String(quiz.id),
-    user_id: auth.currentUser.uid,
-    title: quiz.name || quiz.title || "Untitled",
-    topic: quiz.topic || quiz.config?.topic || null,
-    questions: quiz.questions || [],
-    meta: quiz,
-    updated_at: new Date().toISOString(),
-  });
-  if (error) console.warn("[cloud quiz upsert]", error.message);
+  try {
+    await cloudUpsertQuizRow({
+      ...quiz,
+      client_updated_at: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (e: any) {
+    console.warn("[cloud quiz upsert]", e?.message || e);
+  }
 }
 
 async function cloudDeleteQuiz(id: string) {
-  if (!cloudEnabled() || !supabase || !auth.currentUser) return;
-  const { error } = await supabase.from("quizzes").delete().eq("id", id).eq("user_id", auth.currentUser.uid);
-  if (error) console.warn("[cloud quiz delete]", error.message);
+  try {
+    await cloudSoftDeleteQuiz(id);
+  } catch (e: any) {
+    console.warn("[cloud quiz delete]", e?.message || e);
+  }
 }
 
 async function cloudMergeProfile(config: Record<string, unknown>) {
@@ -600,18 +608,15 @@ export const saveGeneratedQuiz = async (file: File | null, config: ModelConfig, 
         try {
             newEntry.authorId = auth.currentUser.uid;
             newEntry.userId = auth.currentUser.uid;
-            const quizRef = doc(db, "quizzes", newEntry.id);
-            await setDoc(quizRef, sanitizeForFirestore({
-                ...newEntry,
-                created_at: serverTimestamp(),
-                updatedAt: serverTimestamp()
-            }));
+            newEntry.client_updated_at = new Date().toISOString();
+            newEntry.updatedAt = newEntry.client_updated_at;
+            await cloudUpsertQuiz(newEntry);
         } catch (cloudErr) {
             console.error("Cloud save failed, queueing for offline upload", cloudErr);
             await update(PENDING_UPLOADS_KEY, (val) => [...(val || []), newEntry]);
         }
     } else {
-        console.warn("Auth not ready, queueing quiz for later sync.");
+        // Guest: keep local only (queue if they sign in later)
         await update(PENDING_UPLOADS_KEY, (val) => [...(val || []), newEntry]);
     }
   } catch (err) {
@@ -627,16 +632,15 @@ export const flushPendingUploads = async () => {
     const remaining = [];
     for (const entry of pending) {
         try {
-            const quizRef = doc(db, "quizzes", entry.id);
             const patchedEntry = {
                 ...entry,
                 authorId: auth.currentUser.uid,
                 userId: auth.currentUser.uid,
-                updatedAt: serverTimestamp()
+                client_updated_at: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
             };
-            await setDoc(quizRef, sanitizeForFirestore(patchedEntry), { merge: true });
+            await cloudUpsertQuiz(patchedEntry);
             
-            // Patch local history to match the uploaded authorId instead of 'local'
             await update(HISTORY_IDB_KEY, (val) => {
                 const history = val || [];
                 return history.map((item: any) => 
@@ -1219,152 +1223,17 @@ let _syncInProgress = false;
 let _networkListenerRegistered = false;
 
 export const unifiedSync = async (): Promise<{ synced: boolean; errors: string[] }> => {
-    const errors: string[] = [];
-
-    // Guard: no user = nothing to sync with cloud
-    if (!auth.currentUser) {
-        return { synced: false, errors: ['Not authenticated'] };
-    }
-
-    // Guard: prevent concurrent syncs
-    if (_syncInProgress) {
-        return { synced: false, errors: ['Sync already in progress'] };
-    }
-
-    _syncInProgress = true;
-    const uid = auth.currentUser.uid;
-
-    try {
-        // --- PHASE 1: Flush pending uploads ---
-        try {
-            await flushPendingUploads();
-        } catch (e: any) {
-            errors.push(`Pending flush: ${e.message}`);
-        }
-
-        // --- PHASE 2: Sync Quizzes (bidirectional merge) ---
-        try {
-            const localQuizzes: any[] = (await get(HISTORY_IDB_KEY)) || [];
-            const quizzesRef = collection(db, "quizzes");
-            const q = query(quizzesRef, where("authorId", "==", uid));
-            const snap = await getDocs(q);
-
-            const cloudMap = new Map<string, any>();
-            snap.docs.forEach(d => {
-                const data = d.data();
-                cloudMap.set(d.id, {
-                    ...data,
-                    id: d.id,
-                    date: data.created_at?.toDate ? data.created_at.toDate().toISOString() : data.date,
-                    updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : data.date
-                });
-            });
-
-            // Merge: cloud wins on timestamp, local-only items get uploaded
-            const mergedMap = new Map<string, any>();
-            cloudMap.forEach((v, k) => mergedMap.set(k, v));
-
-            for (const local of localQuizzes) {
-                const id = String(local.id);
-                const cloud = mergedMap.get(id);
-                if (!cloud) {
-                    // Local-only: upload to cloud
-                    mergedMap.set(id, local);
-                    try {
-                        const ref = doc(db, "quizzes", id);
-                        await setDoc(ref, sanitizeForFirestore({
-                            ...local,
-                            authorId: uid,
-                            userId: uid,
-                            updatedAt: serverTimestamp()
-                        }), { merge: true });
-                    } catch (e: any) {
-                        errors.push(`Upload quiz ${id}: ${e.message}`);
-                    }
-                } else {
-                    // Both exist: latest wins
-                    const localTime = new Date(local.updatedAt || local.date || 0).getTime();
-                    const cloudTime = new Date(cloud.updatedAt || cloud.date || 0).getTime();
-                    if (localTime > cloudTime) {
-                        mergedMap.set(id, local);
-                    }
-                }
-            }
-
-            const merged = Array.from(mergedMap.values()).sort(
-                (a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
-            );
-            await set(HISTORY_IDB_KEY, merged);
-        } catch (e: any) {
-            errors.push(`Quiz sync: ${e.message}`);
-        }
-
-        // --- PHASE 3: Sync Library (bidirectional merge) ---
-        try {
-            const localLib: LibraryItem[] = (await get(LIBRARY_IDB_KEY)) || [];
-            const libRef = collection(db, "users", uid, "library");
-            const libSnap = await getDocs(query(libRef));
-
-            const cloudLibMap = new Map<string, LibraryItem>();
-            libSnap.docs.forEach(d => {
-                const data = d.data();
-                cloudLibMap.set(d.id, {
-                    ...data,
-                    id: d.id,
-                    created_at: data.created_at instanceof Timestamp ? data.created_at.toDate().toISOString() : data.created_at
-                } as LibraryItem);
-            });
-
-            // Merge
-            const mergedLibMap = new Map<string, LibraryItem>();
-            cloudLibMap.forEach((v, k) => mergedLibMap.set(k, v));
-            for (const local of localLib) {
-                const id = String(local.id);
-                if (!mergedLibMap.has(id)) {
-                    mergedLibMap.set(id, local);
-                    // Upload local-only item
-                    try {
-                        const itemRef = doc(db, "users", uid, "library", id);
-                        await setDoc(itemRef, sanitizeForFirestore({ ...local, userId: uid }), { merge: true });
-                    } catch (e: any) {
-                        errors.push(`Upload lib ${id}: ${e.message}`);
-                    }
-                }
-            }
-
-            const mergedLib = Array.from(mergedLibMap.values()).sort(
-                (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-            );
-            await set(LIBRARY_IDB_KEY, mergedLib);
-        } catch (e: any) {
-            errors.push(`Library sync: ${e.message}`);
-        }
-
-        // --- PHASE 4: Sync API Key from cloud (config) ---
-        try {
-            await syncApiKeyFromCloud();
-        } catch (e: any) {
-            errors.push(`Config sync: ${e.message}`);
-        }
-
-        console.log(`[UnifiedSync] Complete. Errors: ${errors.length}`);
-        return { synced: true, errors };
-    } finally {
-        _syncInProgress = false;
-    }
+    const report = await runFullSync();
+    return { synced: report.synced, errors: report.errors };
 };
+
+export { startRealtimeSync, stopRealtimeSync };
 
 // Register a network listener to auto-sync when coming back online
 export const registerNetworkSyncListener = () => {
     if (_networkListenerRegistered) return;
     _networkListenerRegistered = true;
-
-    if (typeof window !== 'undefined') {
-        window.addEventListener('online', () => {
-            console.log('[UnifiedSync] Network restored, triggering sync...');
-            setTimeout(() => unifiedSync(), 1500); // Slight delay for connection stabilization
-        });
-    }
+    registerSyncNetwork();
 };
 
 

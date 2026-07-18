@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "supabase:bootstrap": "node scripts/bootstrap-supabase.mjs",
+    "sync:check": "node -e \"console.log(\"Configure .env.local then sign in with GitHub in the app\")\""
   },
   "dependencies": {
     "@capacitor/android": "^6.2.0",
