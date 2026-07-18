@@ -59,16 +59,23 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ onComplete, onExit
 
   // --- NEW CONTEXT HOOKS ---
   const { isExperimentalEnabled, toggleExperimental } = useExperimentalSettings();
-  const { mode: cameraMode, setMode: setCameraMode } = useCamera();
+  const { mode: cameraMode, setMode: setCameraMode, forceStop } = useCamera();
   const [showSettings, setShowSettings] = useState(false);
   const [showMobileLeaderboard, setShowMobileLeaderboard] = useState(false);
 
   // Sync camera mode with experimental settings
   useEffect(() => {
     if (!isExperimentalEnabled && cameraMode !== 'OFF') {
-      setCameraMode('OFF');
+      forceStop();
     }
-  }, [isExperimentalEnabled, cameraMode, setCameraMode]);
+  }, [isExperimentalEnabled, cameraMode, forceStop]);
+
+  // Leaving the quiz must always release the camera (no stuck LED / open stream)
+  useEffect(() => {
+    return () => {
+      forceStop();
+    };
+  }, [forceStop]);
 
   const currentQuestion = questions[currentIndex];
   // Calculate progress for worm bar (width in percentage)
@@ -296,21 +303,35 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ onComplete, onExit
                     {isExperimentalEnabled && (
                         <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
                             <button 
+                                type="button"
                                 onClick={() => setCameraMode(cameraMode === 'NOSE' ? 'OFF' : 'NOSE')}
                                 className={`p-2 rounded-lg transition-all flex items-center gap-2 ${cameraMode === 'NOSE' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
-                                title="Nose tracking (Nose Navigation)"
+                                title="Nose tracking (exclusive — turns hand off)"
+                                aria-pressed={cameraMode === 'NOSE'}
                             >
                                 <Eye size={16} strokeWidth={2.5} />
                                 {cameraMode === 'NOSE' && <span className="text-xs font-bold pr-1">Nose</span>}
                             </button>
                             <button 
+                                type="button"
                                 onClick={() => setCameraMode(cameraMode === 'HAND' ? 'OFF' : 'HAND')}
                                 className={`p-2 rounded-lg transition-all flex items-center gap-2 ${cameraMode === 'HAND' ? 'bg-purple-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
-                                title="Hand Gesture Control"
+                                title="Hand gesture (exclusive — turns nose off)"
+                                aria-pressed={cameraMode === 'HAND'}
                             >
                                 <Hand size={16} strokeWidth={2.5} />
                                 {cameraMode === 'HAND' && <span className="text-xs font-bold pr-1">Hand</span>}
                             </button>
+                            {cameraMode !== 'OFF' && (
+                              <button
+                                type="button"
+                                onClick={() => forceStop()}
+                                className="p-2 rounded-lg text-rose-500 hover:bg-rose-50 transition-all text-[10px] font-bold uppercase tracking-wide"
+                                title="Force stop camera"
+                              >
+                                Off
+                              </button>
+                            )}
                         </div>
                     )}
                 </div>

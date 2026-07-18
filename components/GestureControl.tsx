@@ -35,8 +35,14 @@ export const GestureControl: React.FC<GestureControlProps> = ({
   const videoRef = React.useRef<HTMLVideoElement>(null);
 
   React.useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
+    const el = videoRef.current;
+    if (!el) return;
+    if (stream) {
+      el.srcObject = stream;
+      void el.play().catch(() => {});
+    } else {
+      try { el.pause(); } catch { /* ignore */ }
+      el.srcObject = null;
     }
   }, [stream]);
 

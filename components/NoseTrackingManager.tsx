@@ -19,12 +19,19 @@ export const NoseTrackingManager: React.FC<NoseTrackingManagerProps> = ({
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const landmarkerRef = useRef<any>(null);
   const requestRef = useRef<number>(0);
+  const loopActiveRef = useRef(false);
   const lastVideoTimeRef = useRef<number>(-1);
 
-  // Sync stream to local video for visualization
+  // Sync stream to local preview; clear when stream is gone so LED can release
   useEffect(() => {
-    if (localVideoRef.current && stream) {
-      localVideoRef.current.srcObject = stream;
+    const el = localVideoRef.current;
+    if (!el) return;
+    if (stream) {
+      el.srcObject = stream;
+      void el.play().catch(() => {});
+    } else {
+      try { el.pause(); } catch { /* ignore */ }
+      el.srcObject = null;
     }
   }, [stream]);
 
@@ -119,9 +126,10 @@ export const NoseTrackingManager: React.FC<NoseTrackingManagerProps> = ({
 
     return () => {
       active = false;
+      loopActiveRef.current = false;
       clearTimeout(loadTimeout);
       if (landmarkerRef.current) {
-        landmarkerRef.current.close();
+        try { landmarkerRef.current.close(); } catch { /* ignore */ }
         landmarkerRef.current = null;
       }
       if (requestRef.current) {
@@ -141,13 +149,21 @@ export const NoseTrackingManager: React.FC<NoseTrackingManagerProps> = ({
     onPrevRef.current = onPrev;
   }, [onOptionSelect, onNext, onPrev]);
 
-  // Start prediction loop when camera is ready
+  // Start prediction loop when camera is ready; hard-stop when not
   useEffect(() => {
     if (isCameraReady && isModelLoaded && landmarkerRef.current) {
         setStatus('Nose tracking active');
+        loopActiveRef.current = true;
         requestRef.current = requestAnimationFrame(predictWebcam);
+    } else {
+        loopActiveRef.current = false;
+        if (requestRef.current) {
+          cancelAnimationFrame(requestRef.current);
+          requestRef.current = 0;
+        }
     }
     return () => {
+        loopActiveRef.current = false;
         if (requestRef.current) {
             cancelAnimationFrame(requestRef.current);
             requestRef.current = 0;
@@ -156,13 +172,21 @@ export const NoseTrackingManager: React.FC<NoseTrackingManagerProps> = ({
   }, [isCameraReady, isModelLoaded]);
 
   const predictWebcam = () => {
-    if (!landmarkerRef.current || !globalVideoRef.current) return;
+    if (!loopActiveRef.current) return;
+    if (!landmarkerRef.current || !globalVideoRef.current) {
+      if (loopActiveRef.current) {
+        requestRef.current = requestAnimationFrame(predictWebcam);
+      }
+      return;
+    }
 
     const video = globalVideoRef.current;
     
     // Safety check
     if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
-        requestRef.current = requestAnimationFrame(predictWebcam);
+        if (loopActiveRef.current) {
+          requestRef.current = requestAnimationFrame(predictWebcam);
+        }
         return;
     }
 
@@ -429,7 +453,9 @@ export const NoseTrackingManager: React.FC<NoseTrackingManagerProps> = ({
       }
     }
 
-    requestRef.current = requestAnimationFrame(predictWebcam);
+    if (loopActiveRef.current) {
+      requestRef.current = requestAnimationFrame(predictWebcam);
+    }
   };
 
   // Keyboard shortcut to reset cursor

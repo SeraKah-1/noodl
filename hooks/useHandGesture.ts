@@ -36,6 +36,7 @@ export const useHandGesture = (
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const landmarkerRef = useRef<any>(null);
   const requestRef = useRef<number>(0);
+  const loopActiveRef = useRef(false);
   const lastGestureRef = useRef<string | null>(null);
   const gestureStartTimeRef = useRef<number>(0);
   const hasTriggeredRef = useRef<boolean>(false);
@@ -96,41 +97,64 @@ export const useHandGesture = (
 
     return () => {
       active = false;
+      loopActiveRef.current = false;
       clearTimeout(loadTimeout);
       if (landmarkerRef.current) {
-          landmarkerRef.current.close();
+          try { landmarkerRef.current.close(); } catch { /* ignore */ }
           landmarkerRef.current = null;
       }
-      cancelAnimationFrame(requestRef.current);
+      if (requestRef.current) cancelAnimationFrame(requestRef.current);
+      requestRef.current = 0;
     };
   }, []);
 
-  // Start prediction loop when camera is ready
+  // Start prediction loop when camera is ready; hard-stop when not
   useEffect(() => {
     if (isCameraReady && landmarkerRef.current && !state.error) {
+        loopActiveRef.current = true;
         requestRef.current = requestAnimationFrame(predictWebcam);
+    } else {
+        loopActiveRef.current = false;
+        if (requestRef.current) {
+          cancelAnimationFrame(requestRef.current);
+          requestRef.current = 0;
+        }
     }
     return () => {
-        cancelAnimationFrame(requestRef.current);
+        loopActiveRef.current = false;
+        if (requestRef.current) {
+          cancelAnimationFrame(requestRef.current);
+          requestRef.current = 0;
+        }
     };
   }, [isCameraReady, state.isLoaded, state.error]);
 
   // --- 3. DETECTION LOOP (THROTTLED) ---
-  const predictWebcam = async () => {
-    if (!landmarkerRef.current || !videoRef.current || !canvasRef.current) return;
+  const predictWebcam = () => {
+    if (!loopActiveRef.current) return;
+    if (!landmarkerRef.current || !videoRef.current || !canvasRef.current) {
+      if (loopActiveRef.current) {
+        requestRef.current = requestAnimationFrame(predictWebcam);
+      }
+      return;
+    }
 
     const video = videoRef.current;
     
     // Safety check for video readiness
     if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
-        requestRef.current = requestAnimationFrame(predictWebcam);
+        if (loopActiveRef.current) {
+          requestRef.current = requestAnimationFrame(predictWebcam);
+        }
         return;
     }
     
     if (video.currentTime !== lastVideoTimeRef.current) {
         const timeDiff = (video.currentTime - lastVideoTimeRef.current) * 1000;
         if (timeDiff < 100) { // ~10 FPS for smoother feedback
-             requestRef.current = requestAnimationFrame(predictWebcam);
+             if (loopActiveRef.current) {
+               requestRef.current = requestAnimationFrame(predictWebcam);
+             }
              return;
         }
         lastVideoTimeRef.current = video.currentTime;
@@ -195,7 +219,9 @@ export const useHandGesture = (
         }
     }
     
-    requestRef.current = requestAnimationFrame(predictWebcam);
+    if (loopActiveRef.current) {
+      requestRef.current = requestAnimationFrame(predictWebcam);
+    }
   };
 
   // --- 4. GESTURE RECOGNITION MATH (ROTATION INVARIANT) ---
