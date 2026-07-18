@@ -6,8 +6,6 @@
  */
 
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { getFirebaseVertexAIModel } from "../supabase";
-type FirebaseGenerationConfig = Record<string, unknown>;
 import { Question, QuizMode, ExamStyle, ConceptNode, ConceptPriority, DeepInsightData, ConceptCardData } from "../types";
 import { getLocale } from './i18n';
 
@@ -353,35 +351,13 @@ export async function callAI(action: string, payload: any): Promise<any> {
     }
   }
 
-  // 4. GOOGLE GEMINI FALLBACK (Firebase/Vertex) — stubbed in Noodl public build
-  console.log(`[Gemini] Routing ${action} via Firebase Vertex AI (Express Mode)...`);
-  const genConfig: Partial<FirebaseGenerationConfig> = {};
-  if (responseSchema) {
-    genConfig.responseMimeType = "application/json";
-    genConfig.responseSchema = responseSchema;
-  }
-  if (temperature !== undefined) genConfig.temperature = temperature;
-  if (maxOutputTokens) genConfig.maxOutputTokens = maxOutputTokens;
-
-  const model = getFirebaseVertexAIModel(
-    resolvedModel,
-    genConfig,
-    systemInstruction
-  ) as any;
-
-  // Noodl replaced Firebase with Supabase: getFirebaseVertexAIModel() always returns null.
-  // Without a user Gemini key this path used to crash as "Cannot read properties of null".
-  if (!model || typeof model.generateContent !== 'function') {
-    throw new Error(
-      'Gemini needs an API key in this build (Vertex/Firebase AI was removed). ' +
-      'Settings → AI providers → Gemini → paste Google AI Studio key, Save. ' +
-      'Or switch provider to OpenRouter / OpenAI / Groq and use that key.'
-    );
-  }
-
-  const requestContents = contents || [{ role: 'user', parts }];
-  const result = await model.generateContent({ contents: requestContents });
-  return { result: result.response.text() };
+  // 4. No silent Firebase/Vertex backend — BYOK only in this build.
+  // Missing key for gemini (or unknown provider) ends here with a clear error.
+  throw new Error(
+    `[${provider}] API key missing or provider not configured. ` +
+      `Open Settings → AI providers, paste a key for ${provider} (or switch provider), Save. ` +
+      `Noodl uses bring-your-own-key only (no built-in Vertex/Firebase AI).`
+  );
 }
 
 // --- CONFIGURATION ---
@@ -857,18 +833,14 @@ export const generateQuiz = async (
   cachedConceptMap?: ConceptNode[],
   userBloomPercentages?: Record<string, number>
 ): Promise<{ questions: Question[], contextText: string, conceptMap?: ConceptNode[] }> => {
-  const isVertexExpress = import.meta.env.VITE_USE_VERTEX_EXPRESS === 'true';
-  const isFirebaseVertexAI = import.meta.env.VITE_USE_FIREBASE_VERTEX_AI === 'true';
   const activeProv = getActiveProvider();
-  // Vertex env flags only help Gemini when a real Vertex client exists (not in Noodl stub).
+  // BYOK only — no Vertex/Firebase free path in this build.
   if (!apiKey) {
-    if (activeProv !== 'gemini' || (!isVertexExpress && !isFirebaseVertexAI)) {
-      throw new Error(
-        getLocale() === 'id'
-          ? `API key ${activeProv} belum diisi. Buka Setelan → Provider AI.`
-          : `API key for ${activeProv} is not set. Open Settings → AI providers.`
-      );
-    }
+    throw new Error(
+      getLocale() === 'id'
+        ? `API key ${activeProv} belum diisi. Buka Setelan → Provider AI (BYOK).`
+        : `API key for ${activeProv} is not set. Open Settings → AI providers (BYOK).`
+    );
   }
   
   // --- PREPARE CONTEXT ---
@@ -1558,9 +1530,7 @@ VIOLATION EXAMPLES (DO NOT DO THIS):
 };
 
 export const chatWithDocument = async (apiKey: string, modelId: string, history: any[], message: string, contextText: string, file: File | null) => {
-  const isVertexExpress = import.meta.env.VITE_USE_VERTEX_EXPRESS === 'true';
-  const isFirebaseVertexAI = import.meta.env.VITE_USE_FIREBASE_VERTEX_AI === 'true';
-  if (!apiKey && !isVertexExpress && !isFirebaseVertexAI) throw new Error("API key is not set.");
+  if (!apiKey) throw new Error("API key is not set (BYOK). Open Settings → AI providers.");
 
   const finalParts: any[] = [];
   const langBlock = outputLanguageRule(contextText || message);

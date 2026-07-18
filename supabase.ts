@@ -209,6 +209,7 @@ export function handleFirestoreError(e: unknown) {
   console.warn('[Noodl cloud]', e);
 }
 
+/** @deprecated Always null — kept so accidental imports fail closed. */
 export function getFirebaseVertexAIModel(_modelId?: string): null {
   return null;
 }

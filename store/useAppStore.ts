@@ -44,7 +44,7 @@ export const useAppStore = create<AppState>((set) => ({
   activeQuizId: null,
   lastConfig: null,
   errorMsg: null,
-  loadingStatus: "Inisialisasi...",
+  loadingStatus: "Ready",
   activeMode: QuizMode.STANDARD,
 
   // Setters

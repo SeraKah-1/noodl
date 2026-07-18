@@ -95,11 +95,6 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
   const [, setLocaleTick] = useState(0);
   useEffect(() => subscribeLocale(() => setLocaleTick(n => n + 1)), []);
 
-  const isVertexBackendAvailable =
-    import.meta.env.VITE_USE_VERTEX_EXPRESS === 'true' ||
-    import.meta.env.VITE_USE_FIREBASE_VERTEX_AI === 'true' ||
-    import.meta.env.VITE_USE_VERTEX_AI === 'true';
-
   // Re-sync active provider + global model whenever this screen is shown (Settings is source of truth).
   useEffect(() => {
     const p = getActiveProvider();
@@ -109,10 +104,8 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
     setModelId(ensureActiveModelValid(p, models));
   }, []);
 
-  // Key must match the *active* provider — not hard-coded Gemini.
-  const hasApiKey =
-    !!getApiKey(provider) ||
-    (provider === 'gemini' && isVertexBackendAvailable);
+  // BYOK only — key must match the *active* provider (no built-in Vertex free path).
+  const hasApiKey = !!getApiKey(provider);
 
   useEffect(() => {
     getLibraryItems().then(setLibraryItems);

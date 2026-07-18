@@ -218,7 +218,7 @@ export const MaterialOverview: React.FC<MaterialOverviewProps> = ({
                          <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-black tracking-wider text-white mb-2 ${style.badge}`}>
                            {style.label}
                          </span>
-                         <h2 className={`text-2xl font-black \${style.text}`}>{t.topic}</h2>
+                         <h2 className={`text-2xl font-black ${style.text}`}>{t.topic}</h2>
                        </div>
                        {t.accuracy !== null && (
                          <div className="bg-white/80 px-3 py-1.5 rounded-lg font-bold text-sm shadow-sm">

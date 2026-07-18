@@ -47,12 +47,7 @@ import { useAutoSave } from './hooks/useAutoSave';
 import { OnboardingModal } from './components/OnboardingModal';
 import { getLocale, isOnboardingDone, t, subscribeLocale } from './services/i18n';
 
-const isVertexExpress = import.meta.env.VITE_USE_VERTEX_EXPRESS === 'true';
-const isFirebaseVertexAI = import.meta.env.VITE_USE_FIREBASE_VERTEX_AI === 'true';
-const isVertexAIEnabled = import.meta.env.VITE_USE_VERTEX_AI === 'true';
-
-const isAiAvailableWithoutUserKey = isVertexExpress || isFirebaseVertexAI || isVertexAIEnabled;
-
+/** Noodl is BYOK-only — no built-in Vertex/Firebase free path. */
 const App: React.FC = () => {
   const {
     currentView, setCurrentView,
@@ -204,19 +199,15 @@ const App: React.FC = () => {
 
   const startQuizGeneration = async (files: File[] | null, config: ModelConfig) => {
     const apiKey = getApiKey(config.provider);
-    // Vertex-only backend unlocks Gemini without a user key — not other providers.
-    const canUseWithoutUserKey =
-      config.provider === 'gemini' && isAiAvailableWithoutUserKey;
-    
-    if (!apiKey && !canUseWithoutUserKey) {
+    if (!apiKey) {
       showErrorNotification({
         title: t('genStartFailed'),
         action: "startQuizGeneration",
         whatHappened: t('genCancelled'),
-        error: "API key missing",
+        error: "API key missing (BYOK)",
         possibleCauses: [
           t('genNeedKey'),
-          t('genNoBackend')
+          'Settings → AI providers → paste key for the selected provider, Save.',
         ]
       });
       return;
@@ -346,8 +337,8 @@ const App: React.FC = () => {
         try {
             const existingTexts = originalQuestions.map(q => q.text);
             const apiKey = getApiKey(lastConfig.config.provider);
-            if (!apiKey && !(lastConfig.config.provider === 'gemini' && isAiAvailableWithoutUserKey)) {
-              throw new Error("API Key missing");
+            if (!apiKey) {
+              throw new Error("API key missing (BYOK). Set it in Settings → AI providers.");
             }
             let newQuestions: Question[] = [];
             const { files, config } = lastConfig;

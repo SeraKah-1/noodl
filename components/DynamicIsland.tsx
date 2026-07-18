@@ -1,9 +1,7 @@
 import { t } from '../services/i18n';
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Loader2, CheckCircle2, AlertTriangle, Wifi, WifiOff, Sparkles, BrainCircuit } from 'lucide-react';
-const db = null;
-const disableNetwork = async (_?: any) => {}; const enableNetwork = async (_?: any) => {};
+import { Loader2, AlertTriangle, WifiOff, BrainCircuit } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { QuizState } from '../types';
 
@@ -13,24 +11,24 @@ export const DynamicIsland: React.FC = () => {
   const { quizState, loadingStatus } = useAppStore();
 
   useEffect(() => {
-    const handleOnline = async () => {
+    const handleOnline = () => {
       setIsOnline(true);
+      // Brief “back online” pulse — no Firebase network toggle
       setSyncStatus('syncing');
-      try {
-        if (db) await enableNetwork(db);
-        setTimeout(() => setSyncStatus('idle'), 2000);
-      } catch (e) {
-        setSyncStatus('error');
-      }
+      const t = setTimeout(() => setSyncStatus('idle'), 1200);
+      return () => clearTimeout(t);
     };
 
-    const handleOffline = async () => {
+    const handleOffline = () => {
       setIsOnline(false);
       setSyncStatus('offline');
-      if (db) await disableNetwork(db);
     };
 
-    window.addEventListener('online', handleOnline);
+    const onOnline = () => {
+      handleOnline();
+    };
+
+    window.addEventListener('online', onOnline);
     window.addEventListener('offline', handleOffline);
 
     if (!navigator.onLine) {
@@ -38,7 +36,7 @@ export const DynamicIsland: React.FC = () => {
     }
 
     return () => {
-      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
