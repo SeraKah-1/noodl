@@ -57,7 +57,8 @@ export const AuthWidget: React.FC = () => {
     setSyncing(true);
     setError(null);
     try {
-      const report = await runFullSync();
+      // force=true re-checks all rows; still non-blocking for the rest of the app
+      const report = await runFullSync({ force: false });
       setLastSync(report);
       if (report.errors.length) setError(report.errors.join(' · '));
     } catch (e: any) {
@@ -118,12 +119,18 @@ export const AuthWidget: React.FC = () => {
           className="w-full flex items-center justify-center gap-2 text-sm font-bold bg-indigo-50 text-indigo-700 py-2.5 rounded-xl hover:bg-indigo-100 disabled:opacity-60"
         >
           <RefreshCw size={15} className={syncing ? 'animate-spin' : ''} />
-          {syncing ? 'Syncing devices…' : 'Sync now (all devices)'}
+          {syncing ? 'Syncing in background…' : 'Sync now (all devices)'}
         </button>
+        <p className="text-[10px] text-theme-muted leading-relaxed">
+          Local data stays usable while syncing. Only changed quizzes are uploaded.
+        </p>
 
         {lastSync && (
           <p className="text-[11px] text-theme-muted">
-            Last sync: push {lastSync.pushed} · pull {lastSync.pulled}
+            Last sync: push {lastSync.pushed}
+            {typeof (lastSync as any).skipped === 'number' ? ` · skip ${(lastSync as any).skipped}` : ''}
+            {' '}· pull {lastSync.pulled}
+            {typeof (lastSync as any).ms === 'number' ? ` · ${(lastSync as any).ms}ms` : ''}
             {lastSync.errors.length ? ` · ${lastSync.errors.length} warnings` : ' · ok'}
           </p>
         )}

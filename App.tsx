@@ -143,24 +143,25 @@ const App: React.FC = () => {
             photoURL: user.photoURL,
             isAdmin: false
           });
-          console.log("User logged in, triggering unified sync...");
-          await runFullSync().catch(e => console.error("Unified sync error", e));
-          stopRealtimeSync();
-          startRealtimeSync();
-          
-          unsubQuizzes(); // cleanup previous
+          // Local IDB is ready immediately. Cloud sync is background-only
+          // (subscribeToQuizzes emits local first, then single-flight sync + realtime).
+          console.log("User logged in — UI unlocked; cloud sync in background…");
+          setAuthLoading(false);
+          unsubQuizzes();
           unsubQuizzes = subscribeToQuizzes(() => {
-              // Background sync success
+            /* history updated after bg sync / realtime */
           });
         } catch (authError) {
           console.error("Auth token refresh or verification failed, user might be deleted/kicked:", authError);
           await auth.signOut();
           setCurrentUser(null);
+          setAuthLoading(false);
         }
       } else {
         setCurrentUser(null);
         unsubQuizzes();
         stopRealtimeSync();
+        setAuthLoading(false);
       }
       setAuthLoading(false);
     });

@@ -456,8 +456,10 @@ export const subscribeToQuizzes = (callback: (quizzes: any[]) => void) => {
     const history = (await get(HISTORY_IDB_KEY)) || [];
     if (!cancelled) callback(history);
   };
+  // Local first so UI/generate never wait on cloud
   emit();
-  runFullSync().then(emit).catch(() => {});
+  // Background merge only (single-flight inside runFullSync)
+  runFullSync().then(emit).catch(() => emit());
   const stop = startRealtimeSync(() => emit());
   return () => {
     cancelled = true;
@@ -564,8 +566,9 @@ export const downloadQuizFromCloud = async (quiz: any) => {
 
 export const getCloudQuizzes = async (filter: "public" | "mine" = "public"): Promise<any[]> => {
   if (!auth.currentUser) return [];
-  await runFullSync();
+  // Use local immediately — do not await full cloud re-upload
   const all = (await get(HISTORY_IDB_KEY)) || [];
+  runFullSync().catch(() => {});
   if (filter === "mine") {
     return all.filter(
       (q: any) => q.userId === auth.currentUser?.uid || q.authorId === auth.currentUser?.uid
