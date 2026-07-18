@@ -400,12 +400,12 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
     }
 
     const apiKey = getApiKey(provider);
-    if (!apiKey && !(provider === 'gemini' && isVertexBackendAvailable)) {
+    if (!apiKey) {
       showErrorNotification({
         title: t('flashGenFail'),
         action: "handleFlashcardStart.apiKeyValidation",
         whatHappened: t('flashGenNeedKey'),
-        error: "API Key missing"
+        error: "API Key missing (BYOK)"
       });
       setIsGenerating(false);
       return;
@@ -748,7 +748,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                           <option key={m.id || "unknown"} value={m.id || ""}>{m.label || "Unknown Model"}</option>
                        ))
                     ) : (
-                       <option value="">{getApiKey(provider) || (provider === 'gemini' && isVertexBackendAvailable) ? t('cfgFailLoadModel') : t('cfgNeedKeySettings')}</option>
+                       <option value="">{getApiKey(provider) ? t('cfgFailLoadModel') : t('cfgNeedKeySettings')}</option>
                     )}
                  </select>
                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">

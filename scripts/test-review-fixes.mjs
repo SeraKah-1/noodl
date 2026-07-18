@@ -52,6 +52,16 @@ ok(supabaseServerHits === 0, 'package.json has no @supabase/server (duplicate re
 const di = readFileSync(join(root, 'components/DynamicIsland.tsx'), 'utf8');
 ok(!di.includes('const db = null'), 'DynamicIsland has no Firebase db=null stub');
 
+const cfg = readFileSync(join(root, 'components/ConfigScreen.tsx'), 'utf8');
+ok(
+  !cfg.includes('isVertexBackendAvailable'),
+  'ConfigScreen has zero isVertexBackendAvailable refs (BYOK only)'
+);
+ok(
+  !cfg.includes('VITE_USE_FIREBASE_VERTEX_AI') && !cfg.includes('VITE_USE_VERTEX_EXPRESS'),
+  'ConfigScreen does not gate on Vertex env free-path flags'
+);
+
 if (failed) {
   console.error(`\n${failed} check(s) failed`);
   process.exit(1);
