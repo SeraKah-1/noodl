@@ -1,7 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Loader2, Sparkles, Chrome } from 'lucide-react';
-import { signInWithGoogle, isSupabaseConfigured } from '../supabase';
+import {
+  signInWithGoogle,
+  isSupabaseConfigured,
+  consumeOAuthCallbackError,
+  oauthRedirect,
+} from '../supabase';
 
 interface SignInScreenProps {
   onBypass?: () => void;
@@ -11,7 +16,13 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ onBypass }) => {
   const [isLoading, setIsLoading] = useState<'google' | 'guest' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    const oauthErr = consumeOAuthCallbackError();
+    if (oauthErr) setError(oauthErr);
+  }, []);
+
   const goGoogle = async () => {
+    if (isLoading) return;
     setIsLoading('google');
     setError(null);
     try {
@@ -49,21 +60,30 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ onBypass }) => {
           Use your noodle across every device. Sign in with Google to sync quizzes &amp; reviews —
           or stay local as a guest.
         </p>
-        {error && <p className="text-sm text-rose-600 mb-3">{error}</p>}
+        {error && (
+          <div className="text-sm text-rose-700 bg-rose-50 border border-rose-100 rounded-2xl p-3 mb-3 leading-relaxed">
+            {error}
+          </div>
+        )}
 
         {isSupabaseConfigured ? (
-          <button
-            onClick={goGoogle}
-            disabled={busy}
-            className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-800 font-bold py-3 rounded-2xl hover:bg-slate-50 disabled:opacity-60 shadow-sm"
-          >
-            {isLoading === 'google' ? (
-              <Loader2 className="animate-spin" size={18} />
-            ) : (
-              <Chrome size={18} />
-            )}
-            Continue with Google
-          </button>
+          <>
+            <button
+              onClick={goGoogle}
+              disabled={busy}
+              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-800 font-bold py-3 rounded-2xl hover:bg-slate-50 disabled:opacity-60 shadow-sm"
+            >
+              {isLoading === 'google' ? (
+                <Loader2 className="animate-spin" size={18} />
+              ) : (
+                <Chrome size={18} />
+              )}
+              Continue with Google
+            </button>
+            <p className="text-[10px] text-slate-400 mt-2 text-center font-mono truncate">
+              redirect → {typeof window !== 'undefined' ? oauthRedirect() : '…'}
+            </p>
+          </>
         ) : (
           <p className="text-xs text-slate-500 mb-3">
             Cloud auth not configured yet — continue as guest, then add Supabase env vars.

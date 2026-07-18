@@ -6,6 +6,7 @@ import {
   logOut,
   isSupabaseConfigured,
   pingSupabase,
+  consumeOAuthCallbackError,
 } from '../supabase';
 import {
   runFullSync,
@@ -32,6 +33,11 @@ export const AuthWidget: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const oauthErr = consumeOAuthCallbackError();
+    if (oauthErr) setError(oauthErr);
+  }, []);
+
+  useEffect(() => {
     return onSyncProgress((p) => {
       setSyncPhase(p.detail ? `${p.phase}: ${p.detail}` : p.phase);
     });
@@ -50,6 +56,7 @@ export const AuthWidget: React.FC = () => {
   }, []);
 
   const handleGoogle = async () => {
+    if (busy) return;
     setBusy(true);
     setError(null);
     try {

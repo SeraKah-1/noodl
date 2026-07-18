@@ -48,11 +48,35 @@ Dashboard → Authentication → Providers:
 - Enable **Google** only (Client ID/Secret from Google Cloud Console)
 - GitHub OAuth and Cloudflare Turnstile are **not** used
 
-Redirect URLs (Authentication → URL Configuration):
+### URL Configuration (required for Vercel Google login)
 
-- `http://localhost:3000/`
-- `http://localhost:5173/` (if you use Vite default)
-- production URL(s)
+**Authentication → URL Configuration** — wrong values cause:
+
+`http://localhost:3000/?error=…&error_code=flow_state_already_used`
+
+even when you started login on Vercel.
+
+| Field | Set to |
+|--------|--------|
+| **Site URL** | Your **production** URL, e.g. `https://YOUR-APP.vercel.app` (not localhost) |
+| **Redirect URLs** | One line each (trailing slash OK): |
+
+```
+https://YOUR-APP.vercel.app/
+https://YOUR-APP.vercel.app/**
+http://localhost:3000/
+http://localhost:3000/**
+http://127.0.0.1:3000/
+```
+
+Also add preview URLs if you use them (`https://noodl-*.vercel.app/**`).
+
+**Why:** App sends `redirectTo = window.location.origin` (correct on Vercel).
+If that origin is **not** in Redirect URLs, Supabase falls back to **Site URL**.
+If Site URL is still `http://localhost:3000`, Google finishes and dumps you on localhost
+with a dead PKCE state → `flow_state_already_used`.
+
+This is a **dashboard** setting, not fixed by app deploy alone. Code never hardcodes localhost for OAuth.
 
 ### 3. Client env
 
