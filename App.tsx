@@ -197,7 +197,7 @@ const App: React.FC = () => {
 
     return () => {
         unsubscribe();
-        unsubQuizzes();
+        onSignedOut();
         clearInterval(intervalId);
     };
   }, []);
