@@ -98,7 +98,7 @@ export const SettingsScreen: React.FC = () => {
   const handleSaveProviderConfig = () => {
     setProviderApiKey(selectedProvider, apiKeyInput.trim());
     setProviderBaseUrl(selectedProvider, baseUrlInput.trim());
-    setSaveStatus('Konfigurasi berhasil disimpan! (✦_✦)');
+    setSaveStatus(t('configSaved'));
     setTimeout(() => setSaveStatus(null), 3000);
   };
 
@@ -117,7 +117,7 @@ export const SettingsScreen: React.FC = () => {
     if (res.error) {
       setFetchNotice({ type: 'warning', message: res.error });
     } else {
-      setFetchNotice({ type: 'success', message: `Berhasil mengambil ${res.models.length} model aktif!` });
+      setFetchNotice({ type: 'success', message: t('modelsFetched').replace('{n}', String(res.models.length)) });
     }
   };
 
@@ -143,7 +143,7 @@ export const SettingsScreen: React.FC = () => {
     }
     if (reminderTime) {
       scheduleDailyReminder(reminderTime);
-      alert(`Pengingat belajar harian diatur ke jam ${reminderTime}!`);
+      alert(t('reminderSet').replace('{time}', reminderTime));
     }
   };
 
@@ -226,7 +226,7 @@ export const SettingsScreen: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <h2 className="text-lg font-bold text-theme-text flex items-center gap-2">
                       <Cpu className="text-indigo-500" size={20} />
-                      Pilih Provider AI Agnostik
+                      {t('pickProvider')}
                     </h2>
                     <span className="text-xs text-theme-muted">Model Agnostik Protocol</span>
                   </div>
@@ -342,7 +342,7 @@ export const SettingsScreen: React.FC = () => {
                         onClick={handleSaveProviderConfig}
                         className="px-5 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all flex items-center gap-2"
                       >
-                        <Check size={16} /> Simpan Konfigurasi
+                        <Check size={16} /> {t('saveConfig')}
                       </button>
 
                       <button
@@ -351,7 +351,7 @@ export const SettingsScreen: React.FC = () => {
                         className="px-5 py-3 bg-theme-bg border border-indigo-500/30 hover:border-indigo-500 text-indigo-400 hover:text-indigo-300 rounded-xl font-bold text-sm shadow-sm active:scale-95 transition-all flex items-center gap-2 disabled:opacity-50"
                       >
                         <RefreshCw size={16} className={isFetchingModels ? 'animate-spin' : ''} />
-                        {isFetchingModels ? 'Mengambil Model...' : '⚡ Auto-Fetch Available Models'}
+                        {isFetchingModels ? t('fetchingModels') : '⚡ Auto-Fetch Available Models'}
                       </button>
                     </div>
 
@@ -419,10 +419,10 @@ export const SettingsScreen: React.FC = () => {
                 <div className="bg-theme-glass border border-theme-border rounded-3xl p-6 shadow-xl space-y-4">
                   <h2 className="text-lg font-bold text-theme-text flex items-center gap-2">
                     <User className="text-indigo-500" size={20} />
-                    Akun Pengguna & Cloud Sync
+                    {t('accountTitle')}
                   </h2>
                   <p className="text-sm text-theme-muted">
-                    Hubungkan akun Firebase untuk melakukan sinkronisasi otomatis soal, riwayat kuis, dan SRS antar perangkat.
+                    {t('accountDesc')}
                   </p>
                   <AuthWidget />
                 </div>
@@ -585,7 +585,7 @@ export const SettingsScreen: React.FC = () => {
                       <div>
                         <h4 className="font-bold text-sm text-theme-text">Browser notification permission</h4>
                         <p className="text-xs text-theme-muted mt-0.5">
-                          Status Izin: <strong className="capitalize text-indigo-400">{notifPermission}</strong>
+                          {t('permStatus')}: <strong className="capitalize text-indigo-400">{notifPermission}</strong>
                         </p>
                       </div>
                       <button
@@ -599,7 +599,7 @@ export const SettingsScreen: React.FC = () => {
 
                   {/* Daily Reminder Time Picker */}
                   <div className="p-4 rounded-2xl bg-theme-bg/60 border border-theme-border space-y-3">
-                    <h4 className="font-bold text-sm text-theme-text">Jadwal Pengingat Belajar Harian</h4>
+                    <h4 className="font-bold text-sm text-theme-text">{t('dailyReminder')}</h4>
                     <p className="text-xs text-theme-muted">
                       Noodl can send a gentle study reminder at this time.
                     </p>
@@ -614,7 +614,7 @@ export const SettingsScreen: React.FC = () => {
                         onClick={handleSaveReminder}
                         className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm"
                       >
-                        Simpan Jam Pengingat
+                        {t('saveReminderTime')}
                       </button>
                     </div>
                   </div>

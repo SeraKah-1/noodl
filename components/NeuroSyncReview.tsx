@@ -1,3 +1,4 @@
+import { t } from '../services/i18n';
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -46,7 +47,7 @@ export const NeuroSyncReview: React.FC<NeuroSyncReviewProps> = ({ items, keycard
         <div className="space-y-8">
           <div className="text-center">
             <span className="px-3 py-1 rounded-full bg-theme-primary/10 text-theme-primary text-xs font-bold uppercase tracking-widest border border-theme-primary/20 mb-4 inline-block">
-              Pertanyaan Kuis
+              {t('quizQuestion')}
             </span>
             <h2 className="text-3xl md:text-5xl font-bold leading-tight mt-4">{q.text}</h2>
           </div>
@@ -80,7 +81,7 @@ export const NeuroSyncReview: React.FC<NeuroSyncReviewProps> = ({ items, keycard
                 <div className="p-6 bg-theme-primary/10 border border-theme-primary/20 rounded-3xl">
                   <div className="flex items-center gap-3 text-theme-primary mb-2 font-bold uppercase text-xs tracking-widest">
                     <CheckCircle2 className="w-4 h-4" />
-                    Jawaban Benar
+                    {t('correctAnswer')}
                   </div>
                   <p className="text-2xl md:text-4xl font-bold">{q.options[q.correctIndex] || q.correctAnswer}</p>
                 </div>
@@ -92,7 +93,7 @@ export const NeuroSyncReview: React.FC<NeuroSyncReviewProps> = ({ items, keycard
                 )}
 
                 <div className="pt-8">
-                  <p className="text-center text-theme-muted text-sm font-bold uppercase tracking-widest mb-6">Seberapa baik Anda mengingat ini?</p>
+                  <p className="text-center text-theme-muted text-sm font-bold uppercase tracking-widest mb-6">{t('rememberHowWell')}</p>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <button 
                       onClick={() => handleRate(0)}

@@ -4,6 +4,7 @@ import { get } from 'idb-keyval';
 import { Question, VisualizationBlueprint, VisualizationResult } from '../types';
 import { saveQuizVisualizations, HISTORY_IDB_KEY } from '../services/storageService';
 import { X } from 'lucide-react';
+import { t } from '../services/i18n';
 
 interface VisualizationModalProps {
   questions: Question[];
@@ -15,7 +16,7 @@ interface VisualizationModalProps {
 
 export const VisualizationModal: React.FC<VisualizationModalProps> = ({ 
   questions, 
-  title = "Simulasi AI", 
+  title, 
   quizId, 
   materialContext: externalContext, 
   onClose 
@@ -41,7 +42,7 @@ export const VisualizationModal: React.FC<VisualizationModalProps> = ({
       <div className="bg-slate-50 dark:bg-slate-900 w-full max-w-5xl h-[95vh] sm:h-[90vh] rounded-3xl flex flex-col shadow-2xl relative overflow-hidden">
          <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-950 sticky top-0 z-20 shadow-sm">
             <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-               <span className="text-indigo-600">(ﾉ◕ヮ◕)ﾉ*:･ﾟ✧</span> Mode Simulasi AI
+               <span className="text-indigo-600">(ﾉ◕ヮ◕)ﾉ*:･ﾟ✧</span> {title || t('aiSimBtn')}
             </h2>
             <button onClick={onClose} className="p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition-colors">
                <X size={20} />

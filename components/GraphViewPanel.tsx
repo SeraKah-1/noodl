@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Network, Loader2, Download, RefreshCw, X, Maximize2, Minimize2, FileJson, Image, FileCode } from 'lucide-react';
 import { generateKnowledgeGraph, type GraphViewResult, type GraphData } from '../services/graphViewService';
 import type { Question } from '../types';
+import { t } from '../services/i18n';
 
 interface GraphViewPanelProps {
   questions: Question[];
@@ -35,7 +36,7 @@ export const GraphViewPanel: React.FC<GraphViewPanelProps> = ({
 
   const handleGenerate = useCallback(async () => {
     if (questions.length < 3) {
-      setError('Minimal 3 soal diperlukan untuk membuat knowledge graph.');
+      setError('Need at least 3 questions for a knowledge graph.');
       return;
     }
 
@@ -52,7 +53,7 @@ export const GraphViewPanel: React.FC<GraphViewPanelProps> = ({
 
       if (graphResult.status === 'error') {
         setState('error');
-        setError(graphResult.error || 'Gagal membuat graph.');
+        setError(graphResult.error || 'Could not build graph.');
         return;
       }
 
@@ -60,7 +61,7 @@ export const GraphViewPanel: React.FC<GraphViewPanelProps> = ({
       setState('ready');
     } catch (err: any) {
       setState('error');
-      setError(err.message || 'Terjadi kesalahan saat membuat graph.');
+      setError(err.message || 'Something went wrong building the graph.');
     }
   }, [questions, title, materialContext]);
 
@@ -100,14 +101,14 @@ export const GraphViewPanel: React.FC<GraphViewPanelProps> = ({
       // Try to capture iframe content
       const iframeDoc = iframeRef.current.contentDocument || iframeRef.current.contentWindow?.document;
       if (!iframeDoc) {
-        alert('Tidak bisa capture gambar dari graph. Coba export sebagai HTML.');
+        alert(t('graphCaptureFail'));
         return;
       }
       
       // Use html2canvas if available, otherwise fallback
-      alert('💡 Untuk export sebagai gambar, gunakan tombol Screenshot browser (Print Screen) atau export sebagai HTML lalu buka dan screenshot.');
+      alert(t('graphExportTip'));
     } catch {
-      alert('Gunakan export HTML untuk menyimpan graph.');
+      alert(t('graphExportHtml'));
     }
   };
 
@@ -139,7 +140,7 @@ export const GraphViewPanel: React.FC<GraphViewPanelProps> = ({
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 {result?.data?.nodes.length 
                   ? `${result.data.nodes.length} konsep • ${result.data.edges.length} relasi`
-                  : 'Peta hubungan antar konsep dari soal'
+                  : t('graphSubtitle')
                 }
               </p>
             </div>
@@ -204,7 +205,7 @@ export const GraphViewPanel: React.FC<GraphViewPanelProps> = ({
           {state === 'error' && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-white dark:bg-slate-900 p-8">
               <div className="text-5xl mb-4">😵</div>
-              <h3 className="text-lg font-bold text-rose-600 dark:text-rose-400 mb-2">Gagal Membuat Graph</h3>
+              <h3 className="text-lg font-bold text-rose-600 dark:text-rose-400 mb-2">Could not build graph</h3>
               <p className="text-sm text-slate-500 dark:text-slate-400 text-center max-w-md mb-6">{error}</p>
               <button
                 onClick={handleGenerate}
@@ -220,7 +221,7 @@ export const GraphViewPanel: React.FC<GraphViewPanelProps> = ({
               <Network size={64} className="text-slate-200 dark:text-slate-700 mb-6" />
               <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300 mb-2">Knowledge Graph</h3>
               <p className="text-sm text-slate-500 dark:text-slate-400 text-center max-w-md mb-6">
-                Buat peta hubungan antar konsep dari {questions.length} soal menggunakan AI.
+                {t('createGraphFrom').replace('{n}', String(questions.length))}
               </p>
               <button
                 onClick={handleGenerate}

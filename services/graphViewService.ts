@@ -1,4 +1,5 @@
 import { outputLanguageRule } from "./languagePolicy";
+import { getLocale } from "./i18n";
 
 /**
  * ==========================================
@@ -100,7 +101,7 @@ export async function extractGraphData(
   materialContext?: string,
   onProgress?: (msg: string) => void
 ): Promise<GraphData> {
-  onProgress?.('🔍 Menganalisis konsep dan relasi antar soal...');
+  onProgress?.(getLocale() === 'id' ? '🔍 Menganalisis konsep dan relasi antar soal…' : '🔍 Analyzing concepts and relationships…');
 
   if (questions.length < 3) {
     throw new Error('Minimal 3 soal diperlukan untuk membuat knowledge graph.');
@@ -211,7 +212,7 @@ export async function generateGraphHTML(
   title: string,
   onProgress?: (msg: string) => void
 ): Promise<string> {
-  onProgress?.('🎨 Membuat visualisasi knowledge graph interaktif...');
+  onProgress?.(getLocale() === 'id' ? '🎨 Membuat visualisasi knowledge graph…' : '🎨 Building interactive knowledge graph…');
 
   const prompt = `Buat halaman HTML interaktif yang menampilkan knowledge graph (peta konsep) berikut.
 

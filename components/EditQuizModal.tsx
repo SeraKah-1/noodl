@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { X, Save, Plus, Trash2, CheckCircle2 } from 'lucide-react';
 import { Question } from '../types';
 import { GlassButton } from './GlassButton';
+import { t, getLocale } from '../services/i18n';
 
 interface EditQuizModalProps {
   quizTitle: string;
@@ -32,7 +33,7 @@ export const EditQuizModal: React.FC<EditQuizModalProps> = ({ quizTitle, initial
   };
 
   const handleDeleteQuestion = (idx: number) => {
-    if (confirm("Hapus soal ini?")) {
+    if (confirm(t('deleteQuestionQ'))) {
       const updated = questions.filter((_, i) => i !== idx);
       setQuestions(updated);
     }
@@ -42,9 +43,11 @@ export const EditQuizModal: React.FC<EditQuizModalProps> = ({ quizTitle, initial
     const newQ: Question = {
       id: Date.now(),
       text: "Pertanyaan Baru...",
-      options: ["Pilihan A", "Pilihan B", "Pilihan C", "Pilihan D"],
+      options: getLocale() === 'id'
+        ? ["Pilihan A", "Pilihan B", "Pilihan C", "Pilihan D"]
+        : ["Option A", "Option B", "Option C", "Option D"],
       correctIndex: 0,
-      explanation: "Penjelasan jawaban...",
+      explanation: t('explanationPh'),
       keyPoint: "Topik",
       difficulty: "Medium"
     };
@@ -70,7 +73,7 @@ export const EditQuizModal: React.FC<EditQuizModalProps> = ({ quizTitle, initial
            <div>
              <h2 className="text-xl font-bold text-slate-800 flex items-center">
                <span className="bg-indigo-100 text-indigo-600 px-2 py-1 rounded text-xs mr-2 uppercase tracking-wide">Admin Mode</span>
-               Edit Soal
+               {t('editQuestion')}
              </h2>
              <p className="text-slate-500 text-sm truncate max-w-md">{quizTitle}</p>
            </div>
@@ -139,7 +142,7 @@ export const EditQuizModal: React.FC<EditQuizModalProps> = ({ quizTitle, initial
         <div className="p-6 border-t border-slate-100 bg-white flex justify-end gap-3">
            <button onClick={onClose} className="px-6 py-3 text-slate-500 font-bold text-sm hover:bg-slate-100 rounded-xl">Batal</button>
            <GlassButton onClick={saveChanges} disabled={isSaving} className="bg-indigo-600 text-white border-none hover:bg-indigo-700">
-              {isSaving ? "Menyimpan..." : <><Save size={18} className="mr-2" /> Simpan Perubahan</>}
+              {isSaving ? t('saving') : <><Save size={18} className="mr-2" /> {t('saveChanges')}</>}
            </GlassButton>
         </div>
       </motion.div>

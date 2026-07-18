@@ -9,6 +9,7 @@ import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { getFirebaseVertexAIModel } from "../supabase";
 type FirebaseGenerationConfig = Record<string, unknown>;
 import { Question, QuizMode, ExamStyle, ConceptNode, ConceptPriority, DeepInsightData, ConceptCardData } from "../types";
+import { getLocale } from './i18n';
 
 import { 
   getActiveProvider as fetchActiveProvider, 
@@ -585,7 +586,9 @@ export const analyzeMaterialConcepts = async (
   modelId: string,
   onProgress: (msg: string) => void
 ): Promise<ConceptNode[]> => {
-  onProgress("Analisis Materi (Phase 1): Mengekstrak konsep high-yield...");
+  onProgress(getLocale() === 'id'
+      ? "Analisis materi (fase 1): mengekstrak konsep high-yield…"
+      : "Material analysis (phase 1): extracting high-yield concepts…");
   
   const systemInstruction = `ROLE: You are an expert educator analyzing study material for exam preparation. Respond using the same language as the source material for concept names and reasons when natural; priority labels stay HIGH/MODERATE/FILLER.
 TASK: Read the provided material and extract ALL distinct concepts/topics. You MUST be EXTREMELY granular — each testable fact should be its own concept.
@@ -686,7 +689,7 @@ export const generateQuiz = async (
 
   // 1. Handle Library Context
   if (libraryContext) {
-     onProgress("Memuat Context...");
+     onProgress(getLocale() === 'id' ? "Memuat konteks…" : "Loading context…");
      baseParts.push({ text: `LIBRARY MATERIAL:\n${libraryContext}\n\nEND OF LIBRARY MATERIAL` }); 
      contextText = "[Library Source]";
   }
@@ -695,7 +698,7 @@ export const generateQuiz = async (
   const fileArray = Array.isArray(files) ? files : (files ? [files] : []);
   if (fileArray.length > 0) {
     for (const file of fileArray) {
-      onProgress(`Memproses file ${file.name}...`);
+      onProgress(getLocale() === 'id' ? `Memproses file ${file.name}…` : `Processing ${file.name}…`);
       const part = await fileToGenerativePart(file);
       baseParts.push(part);
     }
@@ -1087,7 +1090,9 @@ VIOLATION EXAMPLES (DO NOT DO THIS):
 
   const runWave = async (plans: Array<{ batchIndex: number; count: number; bloomLevel?: ExamStyle; conceptTier?: ConceptPriority; tierConcepts?: ConceptNode[] }>, waveLabel: string) => {
     if (plans.length === 0) return;
-    onProgress(`${waveLabel}: menjalankan ${plans.length} batch paralel...`);
+    onProgress(getLocale() === 'id'
+      ? `${waveLabel}: menjalankan ${plans.length} batch paralel…`
+      : `${waveLabel}: running ${plans.length} parallel batches…`);
     const knownQuestionTexts = allGeneratedQuestions.map(q => q.text);
     const waveResults = await Promise.all(
       plans.map(plan => generateBatch(plan.batchIndex, plan.count, knownQuestionTexts, plan.bloomLevel, plan.conceptTier, plan.tierConcepts))
@@ -1122,7 +1127,9 @@ VIOLATION EXAMPLES (DO NOT DO THIS):
             }
             tierTarget = Math.min(tierTarget, remainingQuota);
             
-            onProgress(`Generating ${tier}-YIELD (${tierTarget} soal)...`);
+            onProgress(getLocale() === 'id'
+      ? `Generating ${tier}-YIELD (${tierTarget} soal)…`
+      : `Generating ${tier}-YIELD (${tierTarget} questions)…`);
 
             const tierLevelCounts: Array<{ style: ExamStyle; count: number }> = [];
             let tierAllocated = 0;
@@ -1182,7 +1189,9 @@ VIOLATION EXAMPLES (DO NOT DO THIS):
             const levelBatches = Math.ceil(levelTarget / BATCH_SIZE);
             let levelCursor = 0;
             
-            onProgress(`Generating ${levelPlan.style} (${levelTarget} soal)...`);
+            onProgress(getLocale() === 'id'
+      ? `Generating ${levelPlan.style} (${levelTarget} soal)…`
+      : `Generating ${levelPlan.style} (${levelTarget} questions)…`);
 
             while (levelCursor < levelBatches) {
                 const plans: Array<{ batchIndex: number; count: number; bloomLevel?: ExamStyle }> = [];
@@ -1237,7 +1246,9 @@ VIOLATION EXAMPLES (DO NOT DO THIS):
       // Smart Overflow: If we still don't have enough questions, escalate Bloom level
       if (allGeneratedQuestions.length < questionCount) {
          const remaining = questionCount - allGeneratedQuestions.length;
-         onProgress(`Materi hampir habis. Membuat ${remaining} soal tambahan (Smart Overflow)...`);
+         onProgress(getLocale() === 'id'
+      ? `Materi hampir habis. Membuat ${remaining} soal tambahan (Smart Overflow)…`
+      : `Material nearly exhausted. Adding ${remaining} more questions (Smart Overflow)…`);
          
          const escalateBloom = (styles: ExamStyle[]) => {
             if (styles.includes(ExamStyle.C5_EVALUATION)) return [ExamStyle.C5_EVALUATION, ExamStyle.C4_ANALYSIS];

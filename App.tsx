@@ -207,7 +207,7 @@ const App: React.FC = () => {
                });
            }
        }).catch((err) => {
-           alert("Gagal memuat kuis: " + err.message);
+           alert(t('loadQuizFailed') + ': ' + err.message);
        });
     }
 
@@ -223,13 +223,13 @@ const App: React.FC = () => {
     
     if (!apiKey && !isAiAvailableWithoutUserKey) {
       showErrorNotification({
-        title: "Gagal Memulai Generate Quiz",
+        title: t('genStartFailed'),
         action: "startQuizGeneration",
-        whatHappened: "Proses generate quiz dibatalkan sebelum berjalan.",
+        whatHappened: t('genCancelled'),
         error: "API key missing",
         possibleCauses: [
-          "Add an API key for your AI provider in Settings.",
-          "Mode backend/proxy tidak aktif sehingga key wajib tersedia di client."
+          t('genNeedKey'),
+          t('genNoBackend')
         ]
       });
       return;
@@ -242,13 +242,13 @@ const App: React.FC = () => {
        const totalSize = Array.from(files).reduce((acc, f) => acc + f.size, 0);
        if (totalSize > 50 * 1024 * 1024) { // 50MB hard limit
           showErrorNotification({
-            title: "Gagal Memproses Dokumen",
+            title: t('docProcessFailed'),
             action: "startQuizGeneration.fileSizeValidation",
-            whatHappened: "Ukuran total file melewati batas maksimum 50MB.",
+            whatHappened: t('fileOverLimit'),
             error: `Total file size: ${(totalSize / 1024 / 1024).toFixed(2)} MB`,
             possibleCauses: [
-              "Terlalu banyak file diunggah sekaligus.",
-              "Ada satu/lebih file berukuran besar."
+              t('tooManyFiles'),
+              t('fileTooBig'),
             ]
           });
           return;
@@ -257,7 +257,7 @@ const App: React.FC = () => {
 
     const hasLibrary = config.libraryContext && config.libraryContext.length > 0;
     
-    setLoadingStatus(hasLibrary ? "Membaca Library..." : (fileCount > 0 ? `Membaca ${fileCount} Dokumen...` : "Menganalisis Topik..."));
+    setLoadingStatus(hasLibrary ? t('readingLibrary') : (fileCount > 0 ? t('readingDocs').replace('{n}', String(fileCount)) : t('analyzingTopic')));
     setQuizState(QuizState.PROCESSING); 
     setErrorMsg(null);
     setActiveMode(config.mode);
@@ -293,12 +293,12 @@ const App: React.FC = () => {
           }
           
           if (!generatedQuestions || generatedQuestions.length === 0) {
-            throw new Error("AI tidak menghasilkan soal. Coba topik lain.");
+            throw new Error(t('noQuestions'));
           }
 
           // --- APPLY CLIENT-SIDE TRANSFORMATIONS (AST 0 LATENCY) ---
           if (config.enableMixedTypes) {
-             setLoadingStatus("Mengonversi Tipe Soal (Heuristic)...");
+             setLoadingStatus(t('convertingTypes'));
              generatedQuestions = transformToMixed(generatedQuestions);
           }
 
@@ -311,7 +311,7 @@ const App: React.FC = () => {
           
           let playableQuestions = generatedQuestions;
           if (config.enableRetention) {
-             setLoadingStatus("Menyusun Algoritma Retensi...");
+             setLoadingStatus(t('buildingRetention'));
              // Increase by ~60% (e.g. 10 -> 16 questions)
              playableQuestions = createRetentionSequence(generatedQuestions, 0.6);
           }
@@ -320,7 +320,7 @@ const App: React.FC = () => {
 
           notifyQuizReady(playableQuestions.length);
 
-          setLoadingStatus("Menyimpan Quiz...");
+          setLoadingStatus(t('savingQuiz'));
           try {
             const saveFileRef = files && files.length > 0 ? files[0] : null; 
             // Save ONLY ORIGINAL questions to history to save space/sanity
@@ -339,9 +339,9 @@ const App: React.FC = () => {
         } catch (error: any) {
           console.error("Generation Error:", error);
           const formattedError = showErrorNotification({
-            title: "Generate Quiz Gagal",
+            title: t('genFailed'),
             action: "startQuizGeneration.generateQuiz",
-            whatHappened: "Sistem gagal membuat soal dari input yang diberikan.",
+            whatHappened: t('genFailedDetail'),
             error
           });
           setErrorMsg(formattedError);
@@ -352,7 +352,7 @@ const App: React.FC = () => {
 
   const handleAddMoreQuestions = async (count: number) => {
     if (!lastConfig) return;
-    setLoadingStatus(`Meracik ${count} soal tambahan...`);
+    setLoadingStatus(t('addingQuestions').replace('{n}', String(count)));
     setQuizState(QuizState.PROCESSING);
 
     setTimeout(async () => {
@@ -405,9 +405,9 @@ const App: React.FC = () => {
       
           } catch (e: any) {
             showErrorNotification({
-              title: "Tambah Soal Gagal",
+              title: t('addQuestionsFailed'),
               action: "handleAddMoreQuestions",
-              whatHappened: "Permintaan menambah soal dari sesi aktif tidak berhasil.",
+              whatHappened: t('addQuestionsDetail'),
               error: e
             });
             setQuestions(originalQuestions); 
@@ -424,10 +424,10 @@ const App: React.FC = () => {
         const importedData = JSON.parse(content);
         
         if (!importedData.questions || !Array.isArray(importedData.questions)) {
-          throw new Error("Format file kuis tidak valid.");
+          throw new Error(t('importInvalid'));
         }
 
-        setLoadingStatus("Mengimpor Kuis...");
+        setLoadingStatus(t('loading') + '…');
         setQuizState(QuizState.PROCESSING);
 
         // Save to local history
@@ -445,12 +445,12 @@ const App: React.FC = () => {
            handleLoadHistory(latest[0]);
         }
         
-        alert("Kuis berhasil diimpor!");
+        alert(t('importOk'));
       } catch (err: any) {
         showErrorNotification({
-          title: "Impor Kuis Gagal",
+          title: t('importFailed'),
           action: "handleImportQuiz",
-          whatHappened: "File kuis tidak bisa diproses atau disimpan.",
+          whatHappened: t('importFailedDetail'),
           error: err
         });
         setQuizState(QuizState.CONFIG);
@@ -502,7 +502,7 @@ const App: React.FC = () => {
          questionCount: mixedAndShuffled.length,
          mode: QuizMode.STANDARD,
          examStyle: [ExamStyle.C2_CONCEPT],
-         topic: `Virtual Mixer (${mixedAndShuffled.length} soal)`,
+         topic: t('mixTopic').replace('{n}', String(mixedAndShuffled.length)),
        };
        await saveGeneratedQuiz(null, mixerConfig, mixedAndShuffled);
        const latest = await getSavedQuizzes();
@@ -523,7 +523,7 @@ const App: React.FC = () => {
   
   // NEW: Remix Handler
   const handleRemix = (sourceQuestions: Question[]) => {
-     setLoadingStatus("Remixing Soal...");
+     setLoadingStatus('Remixing…');
      setQuizState(QuizState.PROCESSING);
      
      setTimeout(() => {
@@ -648,9 +648,9 @@ const App: React.FC = () => {
             return (
                 <div className="flex flex-col items-center justify-center py-20 text-center">
                   <div className="text-6xl mb-4">(;X_X)</div>
-                  <h2 className="text-2xl font-bold mb-2 text-rose-600">Terjadi Kesalahan</h2>
-                  <p className="text-theme-muted mb-6">Data soal kosong atau corrupt.</p>
-                  <button onClick={resetApp} className="px-6 py-2 bg-indigo-500 text-white rounded-xl">Kembali ke Beranda</button>
+                  <h2 className="text-2xl font-bold mb-2 text-rose-600">{t('errorTitle')}</h2>
+                  <p className="text-theme-muted mb-6">{t('errorEmptyQuiz')}</p>
+                  <button onClick={resetApp} className="px-6 py-2 bg-indigo-500 text-white rounded-xl">{t('backHome')}</button>
                 </div>
             );
         }
@@ -735,7 +735,7 @@ case AppView.VISUALIZATION:
           <MaterialOverview
             questions={questions.length > 0 ? questions : originalQuestions}
             result={result}
-            title={lastConfig?.config.topic || "Modul Material Belajar"}
+            title={lastConfig?.config.topic || t('pageMaterialTitle')}
             quizId={activeQuizId || undefined}
           />
         );
@@ -857,13 +857,13 @@ case AppView.VISUALIZATION:
                   onClick={handleConfirmExit}
                   className="w-full py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex items-center justify-center gap-2"
                 >
-                  <XIcon size={16} /> Keluar (Progress Tersimpan)
+                  <XIcon size={16} /> {t('exitSaved')}
                 </button>
                 <button
                   onClick={handleResetFromScratch}
                   className="w-full py-2.5 text-rose-500 dark:text-rose-400 text-sm font-bold hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-xl transition-colors flex items-center justify-center gap-2"
                 >
-                  <RotateCcw size={14} /> Mulai Ulang dari Awal
+                  <RotateCcw size={14} /> {t('restartFromScratch')}
                 </button>
               </div>
             </motion.div>

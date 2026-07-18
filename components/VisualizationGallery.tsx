@@ -1,4 +1,4 @@
-import { t } from '../services/i18n';
+import { t, getLocale } from '../services/i18n';
 import { PageHeader } from './PageHeader';
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -99,9 +99,9 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
         setIsCloudSynced(true);
       }
       
-      alert("Simulasi & Kuis berhasil diunggah ke Noodl Cloud! (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧");
+      alert('Uploaded to cloud.');
     } catch (err: any) {
-      alert("Gagal mengunggah ke Cloud: " + (err.message || String(err)));
+      alert('Upload failed: ' + (err.message || String(err)));
     } finally {
       setIsUploading(false);
     }
@@ -147,7 +147,7 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
   // ─── PHASE 1: SCAN ───
   const handleScan = useCallback(async () => {
     if (!materialContext || materialContext.length < 50) {
-      setError('Materi terlalu pendek untuk dianalisis.');
+      setError('Material is too short to analyze.');
       return;
     }
 
@@ -162,7 +162,7 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
       });
 
       if (scanned.length === 0) {
-        setError('AI tidak menemukan konsep yang cocok untuk divisualisasikan dari materi ini.');
+        setError('No suitable concepts found for visualization.');
         setState('IDLE');
         return;
       }
@@ -177,7 +177,7 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
       setSelectedIds(autoSelected);
       setState('REVIEWING');
     } catch (err: any) {
-      setError(`Gagal memindai materi: ${err.message}`);
+      setError(`Scan failed: ${err.message}`);
       setState('IDLE');
     }
   }, [materialContext]);
@@ -212,7 +212,7 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
       );
       setState('COMPLETE');
     } catch (err: any) {
-      setError(`Gagal membuat visualisasi: ${err.message}`);
+      setError(`Could not build visualization: ${err.message}`);
       setState('COMPLETE');
     }
   }, [blueprints, selectedIds, materialContext, results]);
@@ -257,7 +257,7 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
         explanation: '',
         interactionGuide: '',
         status: 'error' as const,
-        error: err.message || 'Gagal membuat visualisasi'
+        error: err.message || 'Could not build visualization'
       } : r));
     }
   }, [materialContext]);
@@ -284,7 +284,7 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
       setResults(prev => prev.map(r => r.id === blueprint.id ? {
         ...r,
         status: 'error' as const,
-        error: err.message || 'Gagal meregenerasi visualisasi'
+        error: err.message || 'Could not regenerate visualization'
       } : r));
     }
   }, [materialContext, results]);
@@ -317,7 +317,7 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
   // ─── FITUR 4: ADD MORE VISUALIZATIONS ───
   const handleAddMore = useCallback(async () => {
     if (!materialContext || materialContext.length < 50) {
-      setError('Materi terlalu pendek untuk mencari konsep tambahan.');
+      setError('Material is too short for more concepts.');
       return;
     }
 
@@ -333,7 +333,7 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
       );
 
       if (additionalBlueprints.length === 0) {
-        setError('AI tidak menemukan konsep tambahan yang baru dari materi ini.');
+        setError('No additional concepts found.');
         setIsAddingMore(false);
         return;
       }
@@ -348,7 +348,7 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
       });
       setState('REVIEWING');
     } catch (err: any) {
-      setError(`Gagal mencari konsep tambahan: ${err.message}`);
+      setError(`Could not find more concepts: ${err.message}`);
     } finally {
       setIsAddingMore(false);
     }
@@ -360,7 +360,7 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
         <div>
           <h2 className="text-2xl font-black text-slate-800 dark:text-slate-100 flex items-center gap-2">
-            <span className="text-indigo-600">(ﾉ◕ヮ◕)ﾉ*:･ﾟ✧</span> Simulasi AI
+            <span className="text-indigo-600">(ﾉ◕ヮ◕)ﾉ*:･ﾟ✧</span> {t('aiSimBtn')}
           </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 font-medium mt-1">
             Bikin konsep abstrak jadi nyata dan bisa dimainkan
@@ -372,7 +372,7 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
           {quizId && (
             <div className="flex items-center">
               {!currentUser ? (
-                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 border border-slate-200/40" title="Login untuk menyimpan ke cloud">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 border border-slate-200/40" title="Sign in to save to cloud">
                   <CloudOff size={14} />
                   <span>Noodl Cloud Offline</span>
                 </div>
@@ -387,7 +387,7 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
                   onClick={handleUpload}
                   disabled={isUploading}
                   className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/40 transition-all border border-amber-200/40 shadow-sm"
-                  title="Klik untuk upload kuis dan simulasi ini ke Cloud"
+                  title="Upload quiz and simulations to cloud"
                 >
                   {isUploading ? (
                     <Loader2 size={14} className="animate-spin" />
@@ -406,7 +406,7 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 transition-colors border border-rose-100 dark:border-rose-900/60 shadow-sm"
             >
               <RefreshCw size={14} />
-              Mulai Ulang
+              {t('restart')}
             </button>
           )}
         </div>
@@ -450,10 +450,10 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
             </motion.div>
 
             <h3 className="text-xl font-black text-slate-700 dark:text-slate-200 mb-2">
-              (⌐■_■) Waktunya Bikin Simulasi
+              (⌐■_■) {t('timeToSim')}
             </h3>
             <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mb-8 leading-relaxed">
-              Noodl will analyze materimu, lalu secara otomatis merakit HTML/CSS/JS untuk membuat simulasi interaktif super keren.
+              {t('simDesc')}
             </p>
 
             <button
@@ -462,7 +462,7 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
               className="group inline-flex items-center gap-3 px-8 py-3.5 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-2xl font-bold text-base shadow-lg shadow-indigo-500/25 hover:shadow-xl hover:shadow-indigo-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
               <Wand2 size={20} />
-              Analisis Materi Sekarang
+              {t('analyzeNow')}
               <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />
             </button>
           </div>
@@ -487,7 +487,7 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
             ( •_•)&gt;⌐■-■ Sedang Mengincar Konsep...
           </h3>
           <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">
-            {progress.message || 'Mencari tahu bagian mana yang paling asyik divisualisasikan'}
+            {progress.message || 'Finding concepts worth visualizing…'}
           </p>
         </motion.div>
       )}
@@ -505,7 +505,7 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
             </p>
             <div className="flex gap-3">
               <button onClick={selectAll} className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 transition-colors">
-                Pilih Semua
+                {t('selectAll')}
               </button>
               <span className="text-indigo-300">|</span>
               <button onClick={deselectAll} className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 transition-colors">
@@ -596,7 +596,11 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
                   className="group inline-flex items-center gap-3 px-10 py-4 bg-gradient-to-r from-indigo-500 via-purple-500 to-fuchsia-500 text-white rounded-2xl font-black text-lg shadow-xl shadow-indigo-500/25 hover:shadow-2xl hover:shadow-purple-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
                 >
                   <Sparkles size={24} className="group-hover:animate-spin-slow" />
-                  {pendingCount === 0 && hasExistingResults ? 'Lihat Hasil (⌐■_■)' : (hasExistingResults ? `Lanjutkan Generate (${pendingCount} tertunda)` : `Generate ${pendingCount} Simulasi`)}
+                  {pendingCount === 0 && hasExistingResults
+                    ? `${t('viewResults')} (⌐■_■)`
+                    : (hasExistingResults
+                        ? t('continueGen').replace('{n}', String(pendingCount))
+                        : t('generateNSim').replace('{n}', String(pendingCount)))}
                   <ChevronRight size={20} className="group-hover:translate-x-1.5 transition-transform" />
                 </button>
               );
@@ -614,7 +618,7 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
               <div className="flex items-center gap-3">
                 <Loader2 size={24} className="animate-spin text-indigo-500" />
                 <p className="text-base font-black text-slate-800 dark:text-slate-100">
-                  ( ˘ ³˘)♥ Meracik Kode ({progress.current}/{progress.total})
+                  ( ˘ ³˘)♥ {getLocale() === 'id' ? 'Meracik kode' : 'Cooking code'} ({progress.current}/{progress.total})
                 </p>
               </div>
               <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 px-3 py-1.5 rounded-lg">
@@ -667,10 +671,10 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
                 <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
                   <Check size={18} className="text-emerald-600" />
                 </div>
-                (⌐■_■) {results.filter(r => r.status === 'success').length} Simulasi Siap!
+                (⌐■_■) {t('simReady').replace('{n}', String(results.filter(r => r.status === 'success').length))}
                 {results.filter(r => r.status === 'error').length > 0 && (
                   <span className="text-rose-500 font-bold text-sm bg-rose-100 px-2 py-1 rounded-lg ml-2">
-                    {results.filter(r => r.status === 'error').length} Gagal
+                    {t('failedCount').replace('{n}', String(results.filter(r => r.status === 'error').length))}
                   </span>
                 )}
               </span>
@@ -678,7 +682,7 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
                 onClick={() => setState('REVIEWING')} 
                 className="px-5 py-2.5 bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-200 transition-colors shadow-sm border border-slate-200/60"
               >
-                Pilih Lagi / Retrigger
+                {t('pickAgain')}
               </button>
               <button
                 onClick={handleAddMore}

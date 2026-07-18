@@ -1,3 +1,4 @@
+import { t } from '../services/i18n';
 
 import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence, useMotionValue, animate, useTransform } from 'framer-motion';
@@ -46,12 +47,12 @@ const SkillBar: React.FC<{ label: string; score: number; icon: any; color: strin
   </div>
 );
 
-const BLOOM_LEVELS = [
-  { id: ExamStyle.C1_RECALL, label: "C1: Mengingat", desc: "Hafalan" },
-  { id: ExamStyle.C2_CONCEPT, label: "C2: Memahami", desc: "Konsep Dasar" },
-  { id: ExamStyle.C3_APPLICATION, label: "C3: Menerapkan", desc: "Studi Kasus" },
-  { id: ExamStyle.C4_ANALYSIS, label: "C4: Menganalisis", desc: "Logika" },
-  { id: ExamStyle.C5_EVALUATION, label: "C5: Evaluasi", desc: "Kritik" },
+const getBloomLevels = () => [
+  { id: ExamStyle.C1_RECALL, label: t('cfgBloom1'), desc: t('cfgBloom1d') },
+  { id: ExamStyle.C2_CONCEPT, label: t('cfgBloom2'), desc: t('cfgBloom2d') },
+  { id: ExamStyle.C3_APPLICATION, label: t('cfgBloom3'), desc: t('cfgBloom3d') },
+  { id: ExamStyle.C4_ANALYSIS, label: t('cfgBloom4'), desc: t('cfgBloom4d') },
+  { id: ExamStyle.C5_EVALUATION, label: t('cfgBloom5'), desc: t('cfgBloom5d') },
 ];
 
 
@@ -128,14 +129,14 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({ result, questions, o
   const countRef = useRef<HTMLSpanElement>(null);
 
   let gradeColor = "text-indigo-600";
-  let gradeMessage = "Luar Biasa";
+  let gradeMessage = t('gradeGreat');
   
   if (percentage < 60) {
     gradeColor = "text-amber-600";
-    gradeMessage = "Perlu Latihan Lagi";
+    gradeMessage = t('gradePractice');
   } else if (percentage < 80) {
     gradeColor = "text-emerald-600";
-    gradeMessage = "Bagus";
+    gradeMessage = t('gradeGood');
   }
 
   const wrongAnswersCount = result.totalQuestions - result.correctCount;
@@ -173,7 +174,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({ result, questions, o
 
   const handleAddMoreSubmit = () => {
     const val = parseInt(addCount);
-    if (isNaN(val) || val < 1 || val > 20) return alert("Jumlah soal 1 - 20 saja.");
+    if (isNaN(val) || val < 1 || val > 20) return alert(t('resultAddCount'));
     
     if (lastConfig) {
       setLastConfig({
@@ -260,8 +261,8 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({ result, questions, o
              <div className="bg-indigo-50 p-4 rounded-2xl flex flex-col gap-4 border border-indigo-100">
                 <div className="flex items-center gap-2">
                    <div className="flex-1">
-                      <p className="text-xs font-bold text-indigo-900 uppercase">Tambah Soal Baru</p>
-                      <p className="text-[10px] text-indigo-500">Generate lagi dengan topik & context sama.</p>
+                      <p className="text-xs font-bold text-indigo-900 uppercase">{t('addNewQuestions')}</p>
+                      <p className="text-[10px] text-indigo-500">{t('addMoreHint')}</p>
                    </div>
                    
                    {examStyles.length > 1 && (
@@ -269,7 +270,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({ result, questions, o
                          onClick={() => setShowSliders(!showSliders)}
                          className="text-[10px] font-bold text-indigo-600 bg-indigo-100 px-2 py-1 rounded hover:bg-indigo-200"
                       >
-                         {showSliders ? "Tutup Pengaturan" : "Atur Distribusi"}
+                         {showSliders ? t('resultCloseDist') : t('resultToggleDist')}
                       </button>
                    )}
                    
@@ -290,9 +291,9 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({ result, questions, o
                 
                 {showSliders && examStyles.length > 1 && (
                     <div className="bg-white/50 p-3 rounded-xl border border-white mt-2 space-y-3">
-                        <p className="text-[10px] font-bold text-slate-500 mb-2 uppercase text-center">Distribusi Soal Baru (100%)</p>
+                        <p className="text-[10px] font-bold text-slate-500 mb-2 uppercase text-center">{t('newQDist')}</p>
                         {examStyles.map((style, i) => {
-                            const levelInfo = BLOOM_LEVELS.find(l => l.id === style);
+                            const levelInfo = getBloomLevels().find(l => l.id === style);
                             const pct = bloomPct[style] || 0;
                             const dotColors = ['bg-blue-500', 'bg-indigo-500', 'bg-violet-500', 'bg-purple-500', 'bg-fuchsia-500'];
                             const colorClass = dotColors[i % dotColors.length].replace('bg-', '');
@@ -328,13 +329,13 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({ result, questions, o
                 <div className="absolute inset-0 bg-rose-50 border-2 border-rose-100 rounded-2xl -z-10 translate-x-1 translate-y-1 group-hover:translate-x-2 group-hover:translate-y-2 transition-transform" />
                 <div className="absolute inset-0 bg-rose-50 border-2 border-rose-100 rounded-2xl -z-20 translate-x-2 translate-y-2 group-hover:translate-x-4 group-hover:translate-y-4 transition-transform" />
                 
-                <RotateCcw size={20} className="mr-2" /> Perbaiki {wrongAnswersCount} Kesalahan
+                <RotateCcw size={20} className="mr-2" /> {t('fixMistakes').replace('{n}', String(wrongAnswersCount))}
             </button>
           )}
 
           <div className="flex gap-3">
              <button onClick={onRetryAll} className="flex-1 py-4 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-2xl font-bold hover:bg-indigo-100 transition-colors flex justify-center items-center">
-               <PlayCircle size={20} className="mr-2" /> Ulangi
+               <PlayCircle size={20} className="mr-2" /> {t('retryAll')}
              </button>
              
              {onRemix && (
@@ -346,10 +347,10 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({ result, questions, o
           
           <div className="flex gap-3 w-full">
             <button onClick={() => setShowOverview(true)} className="btn-tactile flex-1 py-4 bg-teal-600 border-teal-700 text-white rounded-2xl font-bold shadow-lg shadow-teal-500/20 flex justify-center items-center">
-               <FileText size={20} className="mr-2" /> Peta Pemahaman
+               <FileText size={20} className="mr-2" /> {t('conceptMapBtn')}
             </button>
             <button onClick={() => setShowVisualizations(true)} className="btn-tactile flex-1 py-4 bg-purple-600 border-purple-700 text-white rounded-2xl font-bold shadow-lg shadow-purple-500/20 flex justify-center items-center">
-               <Sparkles size={20} className="mr-2" /> Simulasi AI
+               <Sparkles size={20} className="mr-2" /> {t('aiSimBtn')}
             </button>
           </div>
 
@@ -363,7 +364,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({ result, questions, o
               onClick={() => setShowExportMenu(!showExportMenu)} 
               className="btn-tactile w-full py-4 bg-amber-50 border-amber-200 text-amber-700 rounded-2xl font-bold shadow-sm flex justify-center items-center"
             >
-              <Download size={20} className="mr-2" /> Export Bank Soal
+              <Download size={20} className="mr-2" /> {t('exportBank')}
             </button>
             <AnimatePresence>
               {showExportMenu && (
@@ -390,13 +391,13 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({ result, questions, o
                       onClick={() => { exportBankSoalPDF(questions, lastConfig?.config.topic || 'Quiz', { includeAnswers: true }); setShowExportMenu(false); }}
                       className="flex items-center gap-2 px-3 py-2.5 text-sm text-slate-700 hover:bg-amber-50 hover:text-amber-600 rounded-xl transition-colors"
                     >
-                      <Printer size={16} /> PDF + Jawaban
+                      <Printer size={16} /> {t('pdfWithAns')}
                     </button>
                     <button
                       onClick={() => { exportBankSoalPDF(questions, lastConfig?.config.topic || 'Quiz', { includeAnswers: false }); setShowExportMenu(false); }}
                       className="flex items-center gap-2 px-3 py-2.5 text-sm text-slate-700 hover:bg-rose-50 hover:text-rose-600 rounded-xl transition-colors"
                     >
-                      <FileText size={16} /> PDF Tanpa Jawaban
+                      <FileText size={16} /> {t('pdfNoAns')}
                     </button>
                   </div>
                 </motion.div>
@@ -411,11 +412,11 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({ result, questions, o
 
 
           <button onClick={onReset} className="w-full py-4 bg-transparent border-2 border-dashed border-slate-300 text-slate-500 rounded-2xl font-bold hover:border-slate-400 hover:text-slate-600 transition-all flex justify-center items-center">
-            <RefreshCw size={20} className="mr-2" /> Buat Quiz Baru
+            <RefreshCw size={20} className="mr-2" /> {t('newQuiz')}
           </button>
           
           <button onClick={() => { if (onExitToDashboard) onExitToDashboard(); else onReset(); window.scrollTo(0, 0); }} className="w-full py-4 bg-slate-800 text-white rounded-2xl font-bold shadow-lg shadow-slate-900/20 flex justify-center items-center hover:bg-slate-700 transition-colors">
-             <ArrowRight size={20} className="mr-2" /> Selesai & Kembali ke Dashboard
+             <ArrowRight size={20} className="mr-2" /> {t('doneDashboard')}
           </button>
         </motion.div>
       </div>
@@ -423,7 +424,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({ result, questions, o
       <AnimatePresence>
         {showFlashcards && <FlashcardScreen questions={questions} onClose={() => setShowFlashcards(false)} />}
         {showOverview && <MaterialOverviewModal questions={questions} result={result} quizId={activeQuizId || undefined} materialContext={lastConfig?.config.libraryContext || undefined} onClose={() => setShowOverview(false)} />}
-        {showVisualizations && <VisualizationModal questions={questions} title="Simulasi AI" quizId={activeQuizId || undefined} materialContext={lastConfig?.config.libraryContext || undefined} onClose={() => setShowVisualizations(false)} />}
+        {showVisualizations && <VisualizationModal questions={questions} title={t('aiSimBtn')} quizId={activeQuizId || undefined} materialContext={lastConfig?.config.libraryContext || undefined} onClose={() => setShowVisualizations(false)} />}
         {showGraphView && (
           <GraphViewPanel 
             questions={questions}

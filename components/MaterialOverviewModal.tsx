@@ -5,6 +5,7 @@ import { Question, QuizResult, DeepInsightData, VisualizationBlueprint, Visualiz
 import { generateDeepInsight } from '../services/geminiService';
 import { getApiKey, saveQuizAiOverview, saveQuizVisualizations, HISTORY_IDB_KEY } from '../services/storageService';
 import { X } from 'lucide-react';
+import { t } from '../services/i18n';
 
 interface MaterialOverviewModalProps {
   questions: Question[];
@@ -16,7 +17,8 @@ interface MaterialOverviewModalProps {
   onClose: () => void;
 }
 
-export const MaterialOverviewModal: React.FC<MaterialOverviewModalProps> = ({ questions, result, title = "Peta Pemahaman", quizId, initialAiData, materialContext: externalContext, onClose }) => {
+export const MaterialOverviewModal: React.FC<MaterialOverviewModalProps> = ({ questions, result, title, quizId, initialAiData, materialContext: externalContext, onClose }) => {
+  const resolvedTitle = title || t('conceptMapTitle');
   const [aiOverviewData, setAiOverviewData] = useState<DeepInsightData | null>(initialAiData || null);
   const [initialVisualizations, setInitialVisualizations] = useState<{ blueprints: VisualizationBlueprint[], results: VisualizationResult[] } | undefined>();
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
@@ -45,7 +47,7 @@ export const MaterialOverviewModal: React.FC<MaterialOverviewModalProps> = ({ qu
        setAiProgress({ current: 0, total: 1 });
        const apiKey = getApiKey();
        if (!apiKey && !import.meta.env.VITE_USE_VERTEX_EXPRESS && !import.meta.env.VITE_USE_FIREBASE_VERTEX_AI) {
-           throw new Error("API Key tidak ditemukan.");
+           throw new Error("API key not found.");
        }
        
        // Group data
@@ -85,7 +87,7 @@ export const MaterialOverviewModal: React.FC<MaterialOverviewModalProps> = ({ qu
       <div className="bg-slate-50 dark:bg-slate-900 w-full max-w-5xl h-[95vh] sm:h-[90vh] rounded-3xl flex flex-col shadow-2xl relative overflow-hidden">
          <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-950 sticky top-0 z-20 shadow-sm">
             <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-               <span className="text-indigo-600">( •_•)⌐■-■</span> Mode Peta Pemahaman
+               <span className="text-indigo-600">( •_•)⌐■-■</span> {t('conceptMapTitle')}
             </h2>
             <button onClick={onClose} className="p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition-colors">
                <X size={20} />
@@ -95,7 +97,7 @@ export const MaterialOverviewModal: React.FC<MaterialOverviewModalProps> = ({ qu
             <MaterialOverview 
                questions={questions} 
                result={result} 
-               title={title} 
+               title={resolvedTitle} 
                quizId={quizId}
                onGenerateAI={handleGenerateAI}
                aiOverviewData={aiOverviewData}

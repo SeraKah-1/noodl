@@ -1,4 +1,4 @@
-import { t } from '../services/i18n';
+import { t, getLocale } from '../services/i18n';
 import { PageHeader } from './PageHeader';
 import React, { useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -102,7 +102,7 @@ export const MaterialOverview: React.FC<MaterialOverviewProps> = ({
       }
     } catch (err) {
       console.error('PDF Export Error:', err);
-      alert('Gagal export PDF. Silakan coba lagi.');
+      alert('PDF export failed. Try again.');
     } finally {
       setIsExporting(false);
     }
@@ -113,7 +113,7 @@ export const MaterialOverview: React.FC<MaterialOverviewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
         <div>
           <h2 className="text-2xl font-black text-slate-800 dark:text-slate-100 flex items-center gap-2">
-            Peta Pemahaman
+            {t('conceptMapTitle')}
           </h2>
           <p className="text-sm text-slate-500 font-medium">{title}</p>
         </div>
@@ -136,7 +136,7 @@ export const MaterialOverview: React.FC<MaterialOverviewProps> = ({
             className="flex items-center px-4 py-2 bg-slate-800 text-white rounded-xl text-sm font-bold hover:bg-slate-700 transition-colors shadow-sm disabled:opacity-50"
           >
             {isExporting ? <Loader2 size={16} className="mr-2 animate-spin" /> : <Download size={16} className="mr-2" />}
-            {isExporting ? 'Membuat PDF...' : 'Export PDF'}
+            {isExporting ? t('makingPdf') : 'Export PDF'}
           </button>
         </div>
       </div>
@@ -354,7 +354,7 @@ export const MaterialOverview: React.FC<MaterialOverviewProps> = ({
                                  <details className="mt-2 group">
                                     <summary className="text-emerald-600 font-bold text-xs flex items-center cursor-pointer list-none hover:text-emerald-700 transition-colors">
                                       <CheckCircle size={14} className="mr-1" /> 
-                                      Jawaban Benar <span className="ml-2 text-[10px] opacity-70 group-open:hidden">(klik untuk lihat penjelasan)</span>
+                                      {t('correctAnswer')} <span className="ml-2 text-[10px] opacity-70 group-open:hidden">({getLocale() === 'id' ? 'klik untuk lihat penjelasan' : 'click for explanation'})</span>
                                     </summary>
                                     <div className="mt-2 text-xs text-slate-600 bg-emerald-50/50 p-3 rounded-lg border border-emerald-100 leading-relaxed">
                                       <strong className="block text-slate-800 mb-1">{q.options[q.correctIndex]}</strong>

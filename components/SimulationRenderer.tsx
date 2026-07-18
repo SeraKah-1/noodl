@@ -2,14 +2,15 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Maximize2, Minimize2, RotateCcw, AlertTriangle, Loader2, Info, X, PowerOff, Sparkles } from 'lucide-react';
 import type { VisualizationResult } from '../types';
+import { t } from '../services/i18n';
 
 // ─── VIZ TYPE METADATA ───
 const VIZ_TYPE_META: Record<string, { icon: string; label: string; color: string; glow: string }> = {
-  SIMULATION:   { icon: '⚡', label: 'Simulasi',      color: 'from-indigo-500 to-violet-600',   glow: 'shadow-indigo-500/30' },
+  SIMULATION:   { icon: '⚡', label: 'Simulation',    color: 'from-indigo-500 to-violet-600',   glow: 'shadow-indigo-500/30' },
   DIAGRAM:      { icon: '🔬', label: 'Diagram',       color: 'from-emerald-500 to-teal-600',    glow: 'shadow-emerald-500/30' },
-  CHART:        { icon: '📊', label: 'Grafik',        color: 'from-amber-500 to-orange-600',    glow: 'shadow-amber-500/30' },
-  PROCESS_FLOW: { icon: '🔄', label: 'Alur Proses',   color: 'from-cyan-500 to-blue-600',       glow: 'shadow-cyan-500/30' },
-  '3D_MODEL':   { icon: '🧊', label: 'Model 3D',     color: 'from-pink-500 to-rose-600',       glow: 'shadow-pink-500/30' },
+  CHART:        { icon: '📊', label: 'Chart',         color: 'from-amber-500 to-orange-600',    glow: 'shadow-amber-500/30' },
+  PROCESS_FLOW: { icon: '🔄', label: 'Process flow',  color: 'from-cyan-500 to-blue-600',       glow: 'shadow-cyan-500/30' },
+  '3D_MODEL':   { icon: '🧊', label: '3D model',      color: 'from-pink-500 to-rose-600',       glow: 'shadow-pink-500/30' },
 };
 
 interface SimulationRendererProps {
@@ -139,9 +140,9 @@ export const SimulationRenderer: React.FC<SimulationRendererProps> = ({ visualiz
           <div className="w-16 h-16 rounded-full bg-rose-100 dark:bg-rose-900/40 flex items-center justify-center mb-4 border border-rose-200">
             <AlertTriangle size={32} className="text-rose-500" />
           </div>
-          <h4 className="font-black text-rose-800 dark:text-rose-300 text-lg mb-2">(╥﹏╥) Gagal Bikin Simulasi</h4>
+          <h4 className="font-black text-rose-800 dark:text-rose-300 text-lg mb-2">Could not build simulation</h4>
           <p className="text-rose-600/80 dark:text-rose-400/80 text-sm max-w-sm mb-4">
-            {error || 'Terjadi kesalahan saat memproses kode.'}
+            {error || 'Something went wrong processing the code.'}
           </p>
           {onRetry && (
             <button
@@ -223,7 +224,7 @@ export const SimulationRenderer: React.FC<SimulationRendererProps> = ({ visualiz
               <button
                 onClick={() => { setIsKilled(true); setIsLoading(false); }}
                 className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-rose-500 transition-all duration-200 hover:shadow-md hover:shadow-rose-500/30"
-                title="Hentikan Paksa (Jika Macet/Lag)"
+                title="Force stop"
               >
                 <PowerOff size={16} strokeWidth={2.5} />
               </button>
@@ -232,7 +233,7 @@ export const SimulationRenderer: React.FC<SimulationRendererProps> = ({ visualiz
             <button
               onClick={toggleFullscreen}
               className="p-2 rounded-xl text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-white dark:hover:bg-slate-700 transition-all duration-200"
-              title={isFullscreen ? 'Keluar Layar Penuh' : 'Layar Penuh'}
+              title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
             >
               {isFullscreen ? <Minimize2 size={16} strokeWidth={2.5} /> : <Maximize2 size={16} strokeWidth={2.5} />}
             </button>
@@ -245,7 +246,7 @@ export const SimulationRenderer: React.FC<SimulationRendererProps> = ({ visualiz
                     ? 'bg-indigo-500 text-white shadow-md shadow-indigo-500/30' 
                     : 'text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-white dark:hover:bg-slate-700'
                 }`}
-                title="Sempurnakan / Edit dengan AI"
+                title="Improve with AI"
               >
                 <Sparkles size={16} strokeWidth={2.5} />
               </button>
@@ -302,7 +303,7 @@ export const SimulationRenderer: React.FC<SimulationRendererProps> = ({ visualiz
                 <textarea
                   value={userFeedbackInput}
                   onChange={(e) => setUserFeedbackInput(e.target.value)}
-                  placeholder="Tulis instruksi perbaikan (contoh: 'ubah warna latar belakang simulasi menjadi biru gelap dan tambahkan tombol atur kecepatan')"
+                  placeholder="Describe the fix (e.g. darker background, add a speed control…)"
                   className="w-full text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none h-16"
                 />
                 <div className="flex justify-end gap-2">
@@ -359,7 +360,7 @@ export const SimulationRenderer: React.FC<SimulationRendererProps> = ({ visualiz
                 onClick={handleReload}
                 className="px-6 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-rose-500/30"
               >
-                Muat Ulang Simulasi
+                {t('reloadSim')}
               </button>
             </div>
           ) : (

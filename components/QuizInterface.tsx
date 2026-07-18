@@ -1,3 +1,4 @@
+import { t } from '../services/i18n';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Heart, X, ChevronLeft, Hand, Eye, Settings, Power, Trophy, ChevronDown, ChevronUp, Clock } from 'lucide-react';
@@ -20,25 +21,26 @@ interface QuizInterfaceProps {
   onAnswerSubmit?: (questionIndex: number, selectedOption: any, isCorrect: boolean, scoreDelta: number) => void;
 }
 
-const KAO = {
-  IDLE: { face: "( ◕ ‿ ◕ )", color: "bg-white border-slate-200 text-slate-600", msg: "Fokus..." },
+const getKao = () => ({
+  IDLE: { face: "( ◕ ‿ ◕ )", color: "bg-white border-slate-200 text-slate-600", msg: t('focusMsg') },
   THINK: { face: "( . _ . )?", color: "bg-indigo-50 border-indigo-200 text-indigo-500", msg: "Hmm..." },
   CORRECT: [
-    { face: "( ✧ ▽ ✧ )", color: "bg-emerald-100 border-emerald-300 text-emerald-600", msg: "Benar!" },
-    { face: "٩( ◕ ᗜ ◕ )و", color: "bg-teal-100 border-teal-300 text-teal-600", msg: "Nice!" },
-    { face: "( b ᵔ ▽ ᵔ )b", color: "bg-green-100 border-green-300 text-green-600", msg: "Mantap!" }
+    { face: "( ✧ ▽ ✧ )", color: "bg-emerald-100 border-emerald-300 text-emerald-600", msg: t('correctMsg') },
+    { face: "٩( ◕ ᗜ ◕ )و", color: "bg-teal-100 border-teal-300 text-teal-600", msg: t('niceMsg') },
+    { face: "( b ᵔ ▽ ᵔ )b", color: "bg-green-100 border-green-300 text-green-600", msg: t('greatMsg') }
   ],
   WRONG: [
-    { face: "( ≧Д≦)", color: "bg-rose-100 border-rose-300 text-rose-600", msg: "Salah!" },
-    { face: "( ; ω ; )", color: "bg-red-100 border-red-300 text-red-600", msg: "Yah..." },
+    { face: "( ≧Д≦)", color: "bg-rose-100 border-rose-300 text-rose-600", msg: '✗' },
+    { face: "( ; ω ; )", color: "bg-red-100 border-red-300 text-red-600", msg: t('ohNoMsg') },
     { face: "( ◡ _ ◡ )", color: "bg-orange-100 border-orange-300 text-orange-600", msg: "Oops." }
   ],
   STREAK: { face: "( 🔥 ◡ 🔥 )", color: "bg-amber-100 border-amber-300 text-amber-600", msg: "ON FIRE!" },
-  SHOCK: { face: "( ⊙ _ ⊙ )", color: "bg-purple-100 border-purple-300 text-purple-600", msg: "Waduh!" }
-};
+  SHOCK: { face: "( ⊙ _ ⊙ )", color: "bg-purple-100 border-purple-300 text-purple-600", msg: t('shockMsg') }
+});
 
 export const QuizInterface: React.FC<QuizInterfaceProps> = ({ onComplete, onExit, onAnswerSubmit }) => {
   const { questions, activeMode: mode, activeQuizId } = useAppStore();
+  const KAO = getKao();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswer, setUserAnswer] = useState<any>(null); 
   const [isAnswered, setIsAnswered] = useState(false);
@@ -275,7 +277,7 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ onComplete, onExit
                   </div>
                </div>
                <div className="text-center mt-1 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-                  Soal {currentIndex + 1} dari {questions.length}
+                  {t('questionOf').replace('{cur}', String(currentIndex + 1)).replace('{total}', String(questions.length))}
                </div>
             </div>
 

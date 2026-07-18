@@ -36,7 +36,7 @@ export const GlassButton: React.FC<GlassButtonProps> = ({
       {isLoading ? (
         <div className="flex items-center space-x-2">
            <RefreshCw className="animate-spin" size={20} />
-           <span>Memproses...</span>
+           <span>Working…</span>
         </div>
       ) : children}
     </motion.button>

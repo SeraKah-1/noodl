@@ -79,41 +79,66 @@ const fallbackNotify = (title: string, body: string, tag?: string) => {
 // --- SPECIFIC TRIGGERS ---
 
 export const notifyQuizReady = (questionCount: number) => {
+    const id = getLocale() === 'id';
     sendKaomojiNotify(
-        `${getRandomKaomoji('CELEBRATE')} Quiz Siap!`,
-        `${questionCount} soal panas baru saja keluar dari oven AI. Sikat sekarang!`,
+        id
+          ? `${getRandomKaomoji('CELEBRATE')} Kuis siap!`
+          : `${getRandomKaomoji('CELEBRATE')} Quiz ready!`,
+        id
+          ? `${questionCount} soal baru keluar dari oven AI. Gas sekarang!`
+          : `${questionCount} fresh questions just left the AI oven. Dive in!`,
         'quiz-ready'
     );
 };
 
 export const notifySupabaseSuccess = () => {
+    const id = getLocale() === 'id';
     sendKaomojiNotify(
-        `${getRandomKaomoji('LOVE')} Awan Terhubung!`,
-        `Database Supabase connect. Data kamu aman, gak bakal ilang ditelan bumi.`,
+        id
+          ? `${getRandomKaomoji('LOVE')} Awan terhubung!`
+          : `${getRandomKaomoji('LOVE')} Cloud connected!`,
+        id
+          ? `Supabase connect. Data kamu aman lintas perangkat.`
+          : `Supabase is connected. Your data is safe across devices.`,
         'supabase-connect'
     );
 };
 
 export const notifySupabaseError = () => {
+    const id = getLocale() === 'id';
     sendKaomojiNotify(
-        `${getRandomKaomoji('ANGRY')} Koneksi Putus...`,
-        `Kunci Supabase-nya salah atau server lagi ngambek. Cek setting lagi ya.`,
+        id
+          ? `${getRandomKaomoji('ANGRY')} Koneksi putus…`
+          : `${getRandomKaomoji('ANGRY')} Connection failed…`,
+        id
+          ? `Kunci Supabase salah atau server lagi rewel. Cek setelan.`
+          : `Supabase key looks wrong or the server is grumpy. Check Settings.`,
         'supabase-error'
     );
 };
 
 export const notifyReviewDue = (count: number) => {
+    const id = getLocale() === 'id';
     sendKaomojiNotify(
-        `${getRandomKaomoji('DETERMINED')} Waktunya Setor Hafalan!`,
-        `Ada ${count} kartu materi yang otakmu mulai lupa. Review 5 menit biar jadi long-term memory!`,
+        id
+          ? `${getRandomKaomoji('DETERMINED')} Waktunya review!`
+          : `${getRandomKaomoji('DETERMINED')} Review time!`,
+        id
+          ? `Ada ${count} kartu yang mulai pudar. Review 5 menit biar nempel.`
+          : `${count} cards are getting fuzzy. 5 minutes of review locks them in.`,
         'srs-due'
     );
 };
 
 export const notifyStudyReminder = () => {
+    const id = getLocale() === 'id';
     sendKaomojiNotify(
-        `${getRandomKaomoji('STUDY')} Alarm Belajar! (Duolingo Style)`,
-        `Udah janji kan mau pinter? Yuk login sebentar, kerjain satu quiz aja biar streak kamu terjaga!`,
+        id
+          ? `${getRandomKaomoji('STUDY')} Alarm belajar!`
+          : `${getRandomKaomoji('STUDY')} Study ping!`,
+        id
+          ? `Yuk login sebentar — satu kuis biar streak tetap hidup!`
+          : `Pop in for one quiz and keep that streak alive!`,
         'daily-reminder'
     );
 };

@@ -1,3 +1,4 @@
+import { getLocale } from './i18n';
 /**
  * ==========================================
  * BROWSER NOTIFICATION & SCHEDULING SERVICE
@@ -8,7 +9,7 @@ const REMINDER_KEY = 'glassquiz_reminder_time';
 
 export const requestNotificationPermission = async (): Promise<boolean> => {
   if (!("Notification" in window)) {
-    alert("Browser ini tidak mendukung notifikasi desktop.");
+    alert(getLocale() === "id" ? "Browser tidak mendukung notifikasi." : "This browser does not support notifications.");
     return false;
   }
 
@@ -29,7 +30,7 @@ export const scheduleDailyReminder = (time: string) => { // format "HH:MM"
   
   // Send immediate feedback
   if (Notification.permission === "granted") {
-    new Notification("Pengingat Diaktifkan! ⏰", {
+    new Notification(getLocale() === "id" ? "Pengingat aktif ⏰" : "Reminder on ⏰", {
       body: getLocale() === 'id' ? `Pengingat harian jam ${time}` : `Daily reminder at ${time}`,
       icon: "https://cdn-icons-png.flaticon.com/512/3767/3767084.png" // Generic study icon
     });
@@ -94,7 +95,9 @@ export const downloadICSFile = (time: string, topic: string = "Materi Umum") => 
     `DTEND:${formatDate(endDate)}`,
     'RRULE:FREQ=DAILY', // Daily recurrence
     `SUMMARY:Belajar Rutin: ${topic}`,
-    'DESCRIPTION:Waktunya mengasah otak di aplikasi Noodl (-•_•)! Jangan lupa review materi hari ini.',
+    getLocale() === 'id'
+      ? 'DESCRIPTION:Waktunya review di Noodl.'
+      : 'DESCRIPTION:Time to review in Noodl.',
     'STATUS:CONFIRMED',
     'SEQUENCE:0',
     'BEGIN:VALARM',

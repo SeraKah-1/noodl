@@ -7,7 +7,7 @@ import { GlassButton } from './GlassButton';
 import { Question } from '../types';
 import { transformToMixed } from '../services/questionTransformer';
 import { EmptyState } from './EmptyState';
-import { t } from '../services/i18n';
+import { t, getLocale } from '../services/i18n';
 import { PageHeader } from './PageHeader';
 
 interface MixRoomProps {
@@ -102,7 +102,7 @@ export const MixRoom: React.FC<MixRoomProps> = ({ onStartMix, onStartFlashcards 
                           <h3 className={`font-bold text-sm ${isSelected ? 'text-purple-900' : 'text-slate-700'}`}>
                             {quiz.fileName}
                           </h3>
-                          <p className="text-xs text-slate-500">{quiz.questionCount} Soal • {new Date(quiz.date).toLocaleDateString()}</p>
+                          <p className="text-xs text-slate-500">{quiz.questionCount} Q • {new Date(quiz.date).toLocaleDateString()}</p>
                        </div>
                     </div>
                     <div className="pr-2">
@@ -149,7 +149,7 @@ export const MixRoom: React.FC<MixRoomProps> = ({ onStartMix, onStartFlashcards 
                      <span className="font-bold text-slate-800">{selectedIds.length}</span>
                   </div>
                   <div className="flex justify-between text-sm text-slate-500">
-                     <span>Total Soal</span>
+                     <span>Total Q</span>
                      <span className="font-black text-purple-600 text-lg">{totalQuestions}</span>
                   </div>
                </div>
@@ -164,7 +164,7 @@ export const MixRoom: React.FC<MixRoomProps> = ({ onStartMix, onStartFlashcards 
                      </div>
                      <div>
                         <span className={`block text-xs font-bold ${isVariedMode ? 'text-fuchsia-700' : 'text-slate-500'}`}>Auto-Remix</span>
-                        <span className="text-[9px] text-slate-400">Ubah tipe soal (T/F & Isian)</span>
+                        <span className="text-[9px] text-slate-400">{getLocale() === 'id' ? 'Ubah tipe soal (T/F & isian)' : 'Remix types (T/F & fill-in)'}</span>
                      </div>
                   </div>
                   <div className={`w-10 h-6 rounded-full p-1 transition-colors ${isVariedMode ? 'bg-fuchsia-500' : 'bg-slate-300'}`}>

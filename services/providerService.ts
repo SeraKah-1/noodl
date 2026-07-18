@@ -16,7 +16,7 @@ export const PROVIDER_CATALOG: ProviderSetting[] = [
     id: 'gemini',
     name: 'Google Gemini / Vertex AI',
     defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-    description: 'Proses tercepat, mendukung multimodalitas native & Firebase Vertex AI tanpa key (Express Mode).',
+    description: 'Fast multimodal models. Optional Vertex / Express mode without a user key.',
     docsUrl: 'https://aistudio.google.com/',
     requiresKey: false,
     presetModels: [
@@ -32,7 +32,7 @@ export const PROVIDER_CATALOG: ProviderSetting[] = [
     id: 'openrouter',
     name: 'OpenRouter (AgnoStik AI Hub)',
     defaultBaseUrl: 'https://openrouter.ai/api/v1',
-    description: 'Akses 200+ model AI (Claude 3.5, DeepSeek R1, Llama 3.3, GPT-4o) dari satu API Key.',
+    description: 'One key for 200+ models (Claude, DeepSeek, Llama, GPT-4o, and more).',
     docsUrl: 'https://openrouter.ai/keys',
     requiresKey: true,
     presetModels: [
@@ -47,7 +47,7 @@ export const PROVIDER_CATALOG: ProviderSetting[] = [
     id: 'openai',
     name: 'OpenAI (Direct)',
     defaultBaseUrl: 'https://api.openai.com/v1',
-    description: 'Koneksi langsung ke model flagship OpenAI GPT-4o, o3-mini, GPT-4o-mini.',
+    description: 'Direct OpenAI API for GPT-4o, o3-mini, GPT-4o-mini, and more.',
     docsUrl: 'https://platform.openai.com/api-keys',
     requiresKey: true,
     presetModels: [
@@ -60,7 +60,7 @@ export const PROVIDER_CATALOG: ProviderSetting[] = [
     id: 'groq',
     name: 'Groq Cloud LPU',
     defaultBaseUrl: 'https://api.groq.com/openai/v1',
-    description: 'Kecepatan inferensi ultra tinggi (500+ tokens/detik) dengan Llama 3.3 & Mixtral.',
+    description: 'Ultra-fast inference (500+ tok/s) with Llama 3.3 & Mixtral.',
     docsUrl: 'https://console.groq.com/keys',
     requiresKey: true,
     presetModels: [
@@ -73,7 +73,7 @@ export const PROVIDER_CATALOG: ProviderSetting[] = [
     id: 'anthropic',
     name: 'Anthropic Claude Direct',
     defaultBaseUrl: 'https://api.anthropic.com/v1',
-    description: 'Koneksi API langsung ke Anthropic Claude 3.5 Sonnet & Claude 3.5 Haiku.',
+    description: 'Direct Anthropic API (Claude).',
     docsUrl: 'https://console.anthropic.com/settings/keys',
     requiresKey: true,
     presetModels: [
@@ -100,7 +100,7 @@ export const PROVIDER_CATALOG: ProviderSetting[] = [
     id: 'custom',
     name: 'Custom OpenAI REST API / Local Ollama',
     defaultBaseUrl: 'http://localhost:11434/v1',
-    description: 'Hubungkan endpoint lokal Ollama, LM Studio, vLLM, atau proxy server REST API milik Anda.',
+    description: 'Point at local Ollama, LM Studio, vLLM, or any OpenAI-compatible proxy.',
     docsUrl: 'https://ollama.com/',
     requiresKey: false,
     presetModels: [

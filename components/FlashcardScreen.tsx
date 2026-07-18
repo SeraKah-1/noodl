@@ -5,6 +5,7 @@ import { X, BrainCircuit, RotateCcw, Check, HelpCircle, Zap, Star } from 'lucide
 import { Question, SRSItem } from '../types';
 import { processCardReview, addQuestionToSRS } from '../services/srsService';
 import { useGameSound } from '../hooks/useGameSound';
+import { t } from '../services/i18n';
 
 interface FlashcardScreenProps {
   questions: (Question | SRSItem)[];
@@ -257,7 +258,7 @@ export const FlashcardScreen: React.FC<FlashcardScreenProps> = ({ questions, onC
                     </div>
 
                     <p className="mt-6 text-[10px] uppercase tracking-[0.2em] text-theme-muted font-bold animate-pulse">
-                        Tap untuk Balik
+                        {t('tapFlip')}
                     </p>
                 </div>
 
@@ -289,7 +290,7 @@ export const FlashcardScreen: React.FC<FlashcardScreenProps> = ({ questions, onC
                     </div>
 
                     <div className="mt-4 pt-4 border-t border-theme-border flex justify-center text-theme-muted text-[10px] uppercase tracking-widest opacity-60">
-                       Pilih Rating di Bawah
+                       {t('pickRating')}
                     </div>
                 </div>
             </motion.div>

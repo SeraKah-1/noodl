@@ -137,13 +137,13 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
       await loginToExternalNotes();
     } catch (error) {
       showErrorNotification({
-        title: "Login Notes Gagal",
+        title: t('loginNotesFail'),
         action: "handleExternalLogin",
-        whatHappened: "Aplikasi tidak berhasil login ke layanan catatan eksternal.",
+        whatHappened: t('loginNotesWhat'),
         error,
         possibleCauses: [
-          "Domain aplikasi belum di-allowlist pada Firebase Console proyek Notes.",
-          "Popup login diblokir browser atau koneksi/auth provider bermasalah."
+          "App domain not allowlisted for the notes project.",
+          "Login popup blocked or auth provider issue."
         ]
       });
     }
@@ -286,13 +286,13 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
   };
 
   const handleStart = async () => {
-    if (inputMethod === 'library' && selectedLibraryIds.length === 0) return alert("Pilih minimal 1 materi dari Library!");
+    if (inputMethod === 'library' && selectedLibraryIds.length === 0) return alert(t('cfgAlertLib'));
     if (inputMethod === 'upload' && files.length === 0) return alert("Upload file dulu!");
     if (inputMethod === 'topic' && !topic.trim()) return alert("Isi topik dulu!");
     if (inputMethod === 'url' && !urlInput.trim()) return alert("Isi URL dulu!");
-    if (inputMethod === 'external' && !selectedExternalNoteId) return alert("Pilih catatan dari Notes dulu!");
-    if (!topic && (inputMethod === 'library' || inputMethod === 'external')) return alert("Isi 'Fokus Topik' agar AI tidak halusinasi!");
-    if (!modelId) return alert("Pilih model AI terlebih dahulu! Jika opsi kosong, pastikan API Key sudah diatur di Settings.");
+    if (inputMethod === 'external' && !selectedExternalNoteId) return alert(t('cfgAlertNotes'));
+    if (!topic && (inputMethod === 'library' || inputMethod === 'external')) return alert(t('cfgAlertFocus'));
+    if (!modelId) return alert(t('cfgAlertModel'));
 
     setIsGenerating(true);
     
@@ -306,12 +306,12 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
        try {
          const urlContent = await fetchUrlContent(urlInput);
          finalLibraryContext = `[SOURCE: ${urlInput}]\n${urlContent}`;
-         if (!finalTopic) finalTopic = "Materi dari URL";
+         if (!finalTopic) finalTopic = t('cfgUrl');
        } catch (error: any) {
          showErrorNotification({
-           title: "Ambil Konten URL Gagal",
+           title: t('urlFetchFail'),
            action: "handleStart.fetchUrlContent",
-           whatHappened: "Sistem tidak dapat membaca isi dari URL yang diberikan.",
+           whatHappened: t('urlFetchWhat'),
            error
          });
           setIsGenerating(false);
@@ -323,7 +323,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
           // We try to find content in common fields: content, text, note, body
           const content = selectedNote.content || selectedNote.text || selectedNote.note || selectedNote.body || "";
           finalLibraryContext = `[SOURCE: External Note - ${selectedNote.title || 'Untitled'}]\n${content}`;
-          if (!finalTopic) finalTopic = selectedNote.title || "Catatan Eksternal";
+          if (!finalTopic) finalTopic = selectedNote.title || 'External note';
        }
     }
 
@@ -347,13 +347,13 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
   };
 
   const handleFlashcardStart = async () => {
-    if (inputMethod === 'library' && selectedLibraryIds.length === 0) return alert("Pilih minimal 1 materi dari Library!");
+    if (inputMethod === 'library' && selectedLibraryIds.length === 0) return alert(t('cfgAlertLib'));
     if (inputMethod === 'upload' && files.length === 0) return alert("Upload file dulu!");
     if (inputMethod === 'topic' && !topic.trim()) return alert("Isi topik dulu!");
     if (inputMethod === 'url' && !urlInput.trim()) return alert("Isi URL dulu!");
-    if (inputMethod === 'external' && !selectedExternalNoteId) return alert("Pilih catatan dari Notes dulu!");
-    if (!topic && (inputMethod === 'library' || inputMethod === 'external')) return alert("Isi 'Fokus Topik' agar AI tidak halusinasi!");
-    if (!modelId) return alert("Pilih model AI terlebih dahulu!");
+    if (inputMethod === 'external' && !selectedExternalNoteId) return alert(t('cfgAlertNotes'));
+    if (!topic && (inputMethod === 'library' || inputMethod === 'external')) return alert(t('cfgAlertFocus'));
+    if (!modelId) return alert(t('cfgAlertModel'));
 
     setIsGenerating(true);
     
@@ -367,12 +367,12 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
        try {
          const urlContent = await fetchUrlContent(urlInput);
          finalLibraryContext = `[SOURCE: ${urlInput}]\n${urlContent}`;
-         if (!finalTopic) finalTopic = "Materi dari URL";
+         if (!finalTopic) finalTopic = t('cfgUrl');
        } catch (error: any) {
          showErrorNotification({
-           title: "Ambil Konten URL Gagal",
+           title: t('urlFetchFail'),
            action: "handleFlashcardStart.fetchUrlContent",
-           whatHappened: "Sistem tidak dapat membaca isi URL untuk mode flashcard.",
+           whatHappened: t('urlFetchFlashWhat'),
            error
          });
           setIsGenerating(false);
@@ -383,16 +383,16 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
        if (selectedNote) {
           const content = selectedNote.content || selectedNote.text || selectedNote.note || selectedNote.body || "";
           finalLibraryContext = `[SOURCE: External Note - ${selectedNote.title || 'Untitled'}]\n${content}`;
-          if (!finalTopic) finalTopic = selectedNote.title || "Catatan Eksternal";
+          if (!finalTopic) finalTopic = selectedNote.title || 'External note';
        }
     }
 
     const apiKey = getApiKey(provider);
     if (!apiKey && !isAiAvailableWithoutUserKey) {
       showErrorNotification({
-        title: "Generate Flashcard Gagal",
+        title: t('flashGenFail'),
         action: "handleFlashcardStart.apiKeyValidation",
-        whatHappened: "Proses dibatalkan karena API Key tidak tersedia.",
+        whatHappened: t('flashGenNeedKey'),
         error: "API Key missing"
       });
       setIsGenerating(false);
@@ -419,17 +419,17 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
         onStartFlashcards(res.questions);
       } else {
         showErrorNotification({
-          title: "Generate Flashcard Gagal",
+          title: t('flashGenFail'),
           action: "handleFlashcardStart.emptyResult",
-          whatHappened: "AI selesai memproses tetapi tidak mengembalikan soal.",
-          error: "AI tidak menghasilkan soal."
+          whatHappened: t('flashGenEmpty'),
+          error: t('flashGenEmptyErr')
         });
       }
     } catch (err: any) {
       showErrorNotification({
-        title: "Generate Flashcard Gagal",
+        title: t('flashGenFail'),
         action: "handleFlashcardStart.generateQuiz",
-        whatHappened: "Terjadi kegagalan saat meminta soal flashcard ke AI.",
+        whatHappened: t('flashGenCrash'),
         error: err
       });
     } finally {
@@ -551,8 +551,8 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                                 <Settings2 size={32} />
                             </div>
                             <div>
-                                <h3 className="font-bold text-slate-700">Konfigurasi Diperlukan</h3>
-                                <p className="text-xs text-slate-500 px-4">Anda perlu menambahkan API Key Firebase Eksternal di menu <b>Settings (Gear Icon) &rarr; Secrets</b>.</p>
+                                <h3 className="font-bold text-slate-700">Setup needed</h3>
+                                <p className="text-xs text-slate-500 px-4">External Notes is optional and not required for core Noodl. Prefer Library or Text upload.</p>
                             </div>
                             <div className="text-[10px] text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100">
                                 Variabel: <code>VITE_EXTERNAL_FIREBASE_API_KEY</code>
@@ -564,14 +564,14 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                                 <Cloud size={32} />
                             </div>
                             <div>
-                                <h3 className="font-bold text-slate-700">Hubungkan ke Aplikasi Notes</h3>
-                                <p className="text-xs text-slate-500">Login untuk mengakses catatan Anda di proyek gen-lang-client-0781879333</p>
+                                <h3 className="font-bold text-slate-700">Connect external notes</h3>
+                                <p className="text-xs text-slate-500">Optional integration — not required for quizzes.</p>
                             </div>
                             <button 
                                 onClick={handleExternalLogin}
                                 className="px-6 py-2 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all"
                             >
-                                Login dengan Google
+                                {t('loginWithGoogle')}
                             </button>
                         </div>
                     ) : (
@@ -588,10 +588,10 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                                 {isLoadingExternal ? (
                                     <div className="flex flex-col items-center justify-center py-8 space-y-2">
                                         <RefreshCw className="animate-spin text-indigo-600" size={20} />
-                                        <p className="text-[10px] text-slate-500 font-bold">Memuat catatan...</p>
+                                        <p className="text-[10px] text-slate-500 font-bold">Loading notes…</p>
                                     </div>
                                 ) : externalNotes.length === 0 ? (
-                                    <p className="text-center py-8 text-slate-500 text-xs font-medium">Tidak ada catatan ditemukan di koleksi 'notes'.</p>
+                                    <p className="text-center py-8 text-slate-500 text-xs font-medium">No notes found.</p>
                                 ) : (
                                     externalNotes.map((note) => (
                                         <div 
@@ -608,7 +608,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                                                 </div>
                                                 <div className="min-w-0">
                                                     <span className={`block text-sm font-bold truncate ${selectedExternalNoteId === note.id ? 'text-indigo-900' : 'text-slate-600'}`}>
-                                                        {note.title || "Tanpa Judul"}
+                                                        {note.title || t('untitledQuiz')}
                                                     </span>
                                                     <span className="text-[9px] text-slate-500 truncate block">
                                                         {(note.content || note.text || "").substring(0, 40)}...
@@ -623,7 +623,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                                 )}
                             </div>
                             <button onClick={loadExternalNotes} className="w-full py-2 text-[10px] font-bold text-indigo-500 hover:bg-indigo-50 rounded-xl transition-colors flex items-center justify-center gap-1">
-                                <RefreshCw size={10} /> Refresh Daftar Catatan
+                                <RefreshCw size={10} /> {t('refreshNotes')}
                             </button>
                         </div>
                     )}
@@ -749,7 +749,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                  type="text" 
                  value={folder}
                  onChange={(e) => setFolder(e.target.value)}
-                 placeholder="Opsional: Nama folder (misal: Biologi, UTS)"
+                 placeholder={t('folderOptional')}
                  className="flex-1 bg-white border border-slate-200 text-slate-700 font-medium text-sm rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
               />
            </div>
@@ -866,7 +866,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                             <textarea 
                                 value={customPrompt}
                                 onChange={(e) => setCustomPrompt(e.target.value)}
-                                placeholder="Contoh: Buat soal yang lucu, fokus pada tanggal sejarah, atau gunakan bahasa gaul..."
+                                placeholder={t('customPromptPh')}
                                 className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none h-24"
                             />
                         </div>

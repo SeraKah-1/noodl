@@ -1,3 +1,4 @@
+import { getLocale } from '../services/i18n';
 
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -89,10 +90,12 @@ export const GestureControl: React.FC<GestureControlProps> = ({
                 
                 <div className="flex flex-col">
                    <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider mb-0.5">
-                      {detectedGesture === 'NEXT' || detectedGesture === 'BACK' ? 'Navigasi' : 'Pilihan'}
+                      {detectedGesture === 'NEXT' || detectedGesture === 'BACK' ? t('navNavigate') : t('navChoice')}
                    </span>
                    <span className="text-sm font-bold text-slate-700 leading-tight">
-                      {dwellProgress >= 100 ? "Terkonfirmasi" : "Tahan..."}
+                      {dwellProgress >= 100
+                        ? (getLocale() === 'id' ? 'Terkonfirmasi' : 'Confirmed')
+                        : (getLocale() === 'id' ? 'Tahan…' : 'Hold…')}
                    </span>
                 </div>
              </motion.div>

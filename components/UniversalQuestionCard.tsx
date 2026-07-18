@@ -1,3 +1,4 @@
+import { t } from '../services/i18n';
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -106,15 +107,15 @@ export const UniversalQuestionCard: React.FC<UniversalCardProps> = ({
     <div className="w-full">
         <div className="mb-8 p-6 bg-slate-50 border border-slate-100 rounded-3xl text-center shadow-inner relative overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-sky-400 to-indigo-400" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-3">Pernyataan</span>
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-3">{t('statement')}</span>
             <div className="font-serif text-2xl md:text-4xl text-slate-800 leading-snug italic">
                 "<RenderText text={question.proposedAnswer || ''} />"
             </div>
         </div>
         <div className="flex gap-4 h-32">
             {[
-            { label: "Benar", val: 0, color: "emerald", icon: Check, border: "border-emerald-500" },
-            { label: "Salah", val: 1, color: "rose", icon: X, border: "border-rose-500" }
+            { label: t('correct'), val: 0, color: "emerald", icon: Check, border: "border-emerald-500" },
+            { label: t('wrong'), val: 1, color: "rose", icon: X, border: "border-rose-500" }
             ].map((opt) => {
                 const isCorrect = question.correctIndex === opt.val;
                 const isSelected = userAnswer === opt.val;
@@ -165,7 +166,7 @@ export const UniversalQuestionCard: React.FC<UniversalCardProps> = ({
                     value={textInput}
                     onChange={(e) => setTextInput(e.target.value)}
                     disabled={isAnswered}
-                    placeholder="Ketik jawaban di sini..."
+                    placeholder={t('typeAnswer')}
                     autoFocus
                     className={`
                         w-full text-center text-2xl font-bold p-6 rounded-3xl border-b-4 outline-none transition-all shadow-sm
@@ -257,7 +258,7 @@ export const UniversalQuestionCard: React.FC<UniversalCardProps> = ({
                   className="text-sm font-bold text-indigo-500 hover:text-indigo-600 flex items-center gap-2 transition-colors"
                >
                   <span className="bg-indigo-100 p-1.5 rounded-lg"><Lightbulb size={14} /></span>
-                  {showHint ? "Sembunyikan Petunjuk" : "Tampilkan Petunjuk"}
+                  {showHint ? t('hideHint') : t('showHint')}
                </button>
                
                <AnimatePresence>
@@ -299,7 +300,7 @@ export const UniversalQuestionCard: React.FC<UniversalCardProps> = ({
                         onClick={onNext} 
                         className="btn-tactile w-full py-4 bg-slate-900 border-slate-700 text-white rounded-2xl font-bold text-lg shadow-xl hover:bg-slate-800 flex items-center justify-center gap-3"
                     >
-                        Lanjut <ArrowRight size={20} />
+                        {t('next')} <ArrowRight size={20} />
                     </button>
                   )}
                </motion.div>

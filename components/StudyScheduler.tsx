@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, Clock, Bell, Check, Calendar as CalendarIcon, Download } from 'lucide-react';
 import { GlassButton } from './GlassButton';
 import { requestNotificationPermission, scheduleDailyReminder, getReminderTime, downloadICSFile } from '../services/notificationService';
+import { t } from '../services/i18n';
 
 interface StudySchedulerProps {
   isOpen: boolean;
@@ -37,8 +38,8 @@ export const StudyScheduler: React.FC<StudySchedulerProps> = ({ isOpen, onClose,
 
   // Google Calendar Fallback
   const handleGoogleCalendar = () => {
-    const title = encodeURIComponent(`Belajar Rutin: ${defaultTopic || "Materi Umum"}`);
-    const details = encodeURIComponent(`Waktunya mengasah otak di Noodl!`);
+    const title = encodeURIComponent(t('studyRoutine').replace('{topic}', defaultTopic || t('generalMaterial')));
+    const details = encodeURIComponent(t('studyNudge'));
     const gCalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&recur=RRULE:FREQ=DAILY`;
     window.open(gCalUrl, '_blank');
   };
@@ -73,7 +74,7 @@ export const StudyScheduler: React.FC<StudySchedulerProps> = ({ isOpen, onClose,
               <div className="p-4 bg-indigo-100 text-indigo-600 rounded-full mb-3 shadow-sm">
                 <Bell size={32} />
               </div>
-              <h2 className="text-xl font-bold text-slate-800">Aktifkan Notifikasi</h2>
+              <h2 className="text-xl font-bold text-slate-800">Enable notifications</h2>
               <p className="text-sm text-slate-500 mt-1">Kami akan mengingatkanmu untuk belajar setiap hari lewat browser.</p>
             </div>
 
@@ -95,7 +96,7 @@ export const StudyScheduler: React.FC<StudySchedulerProps> = ({ isOpen, onClose,
                 <GlassButton fullWidth onClick={handleActivate} disabled={isScheduled}>
                   <div className="flex items-center justify-center">
                     {isScheduled ? <Check size={18} className="mr-2" /> : <Bell size={18} className="mr-2" />}
-                    {isScheduled ? "Berhasil Diatur!" : "Simpan Jadwal"}
+                    {isScheduled ? t('scheduleOk') : t('saveSchedule')}
                   </div>
                 </GlassButton>
                 

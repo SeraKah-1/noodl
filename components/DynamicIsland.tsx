@@ -1,3 +1,4 @@
+import { t } from '../services/i18n';
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2, CheckCircle2, AlertTriangle, Wifi, WifiOff, Sparkles, BrainCircuit } from 'lucide-react';
@@ -64,7 +65,7 @@ export const DynamicIsland: React.FC = () => {
           {isProcessingQuiz ? (
             <div className="flex items-center px-4 py-2 gap-2 text-xs font-bold text-indigo-300">
               <BrainCircuit size={16} className="animate-pulse text-indigo-400" />
-              <span className="font-mono">{loadingStatus || 'AI Memproses Soal...'}</span>
+              <span className="font-mono">{loadingStatus || t('loadingStatusDefault')}</span>
               <Loader2 size={14} className="animate-spin text-indigo-400 ml-1" />
             </div>
           ) : (
@@ -93,7 +94,7 @@ export const DynamicIsland: React.FC = () => {
               {syncStatus === 'error' && (
                 <div className="flex items-center px-4 py-2 gap-2 text-rose-400">
                   <AlertTriangle size={16} />
-                  <span className="text-xs font-bold">Gagal Sinkronisasi</span>
+                  <span className="text-xs font-bold">{t('syncFailed')}</span>
                 </div>
               )}
             </>

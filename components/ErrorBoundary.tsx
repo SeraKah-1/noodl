@@ -1,4 +1,5 @@
 import { Component, ErrorInfo, ReactNode, createElement } from 'react';
+import { t } from '../services/i18n';
 
 interface Props {
   children?: ReactNode;
@@ -40,11 +41,11 @@ const EB = class ErrorBoundary extends Component<Props, State> {
           { className: 'bg-white p-8 rounded-3xl shadow-xl max-w-md w-full border border-rose-100 relative overflow-hidden' },
           createElement('div', { className: 'absolute top-0 left-0 w-full h-2 bg-rose-500' }),
           createElement('div', { className: 'text-6xl mb-4' }, '(;X_X)'),
-          createElement('h1', { className: 'text-2xl font-black mb-2 text-rose-600' }, 'Aduh, nge-crash!'),
+          createElement('h1', { className: 'text-2xl font-black mb-2 text-rose-600' }, t('errorTitle')),
           createElement(
             'p',
             { className: 'text-sm text-slate-500 mb-6 font-medium' },
-            'Sesuatu yang tidak terduga terjadi. Jangan panik, kamu bisa kembali ke awal.'
+            t('errorUnexpected')
           ),
           createElement(
             'div',
@@ -60,7 +61,7 @@ const EB = class ErrorBoundary extends Component<Props, State> {
                 window.location.reload();
               },
             },
-            'Mulai Ulang Aplikasi'
+            'Reload app'
           )
         )
       );

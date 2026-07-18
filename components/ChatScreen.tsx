@@ -16,7 +16,7 @@ interface ChatScreenProps {
 
 export const ChatScreen: React.FC<ChatScreenProps> = ({ contextText, sourceFile, onClose }) => {
   const [messages, setMessages] = useState<{ role: 'user' | 'model', text: string }[]>([
-    { role: 'model', text: `Halo! Saya sudah membaca ${sourceFile ? sourceFile.name : 'topik ini'}. Ada yang ingin didiskusikan?` }
+    { role: 'model', text: t('chatHello').replace('{source}', sourceFile ? sourceFile.name : t('chatHelloTopic')) }
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -58,12 +58,12 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ contextText, sourceFile,
       setMessages(prev => [...prev, { role: 'model', text: response }]);
     } catch (e: any) {
       showErrorNotification({
-        title: "Chat Assistant Gagal",
+        title: t('chatFailed'),
         action: "ChatScreen.handleSend",
-        whatHappened: "Pesan tidak bisa diproses oleh AI assistant.",
+        whatHappened: t('chatWhatHappened'),
         error: e
       });
-      setMessages(prev => [...prev, { role: 'model', text: "Maaf, chat gagal diproses. Coba lagi sebentar." }]);
+      setMessages(prev => [...prev, { role: 'model', text: 'Sorry — chat failed. Try again in a moment.' }]);
     } finally {
       setLoading(false);
     }
@@ -127,7 +127,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ contextText, sourceFile,
              value={input}
              onChange={(e) => setInput(e.target.value)}
              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-             placeholder="Tanya tentang materi..."
+             placeholder="Ask about the material…"
              className="w-full bg-slate-100 border-none rounded-full px-4 py-3 pr-12 text-sm focus:ring-2 focus:ring-indigo-500/50 outline-none"
            />
            <button 

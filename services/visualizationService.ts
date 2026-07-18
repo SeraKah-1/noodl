@@ -1,4 +1,5 @@
 import { outputLanguageRule } from "./languagePolicy";
+import { getLocale } from "./i18n";
 /**
  * ==========================================
  * VISUALIZATION SERVICE (2-PHASE AI PIPELINE)
@@ -85,7 +86,9 @@ export async function scanForVisualizations(
   materialText: string,
   onProgress?: (msg: string) => void
 ): Promise<VisualizationBlueprint[]> {
-  onProgress?.("🔍 AI sedang memindai materi untuk konsep yang bisa divisualisasikan...");
+  onProgress?.(getLocale() === 'id'
+    ? "🔍 AI sedang memindai materi untuk konsep yang bisa divisualisasikan…"
+    : "🔍 Scanning material for visualizable concepts…");
 
   const prompt = `Analyze the material and list concepts that benefit from interactive visualization.
 
@@ -182,7 +185,9 @@ export async function generateVisualization(
   userFeedback?: string,
   existingHtmlCode?: string
 ): Promise<VisualizationResult> {
-  onProgress?.(userFeedback ? `⚡ Memperbarui visualisasi: ${blueprint.concept}...` : `⚡ Membuat visualisasi: ${blueprint.concept}...`);
+  onProgress?.(userFeedback
+    ? (getLocale() === 'id' ? `⚡ Memperbarui visualisasi: ${blueprint.concept}…` : `⚡ Updating visualization: ${blueprint.concept}…`)
+    : (getLocale() === 'id' ? `⚡ Membuat visualisasi: ${blueprint.concept}…` : `⚡ Building visualization: ${blueprint.concept}…`));
 
   const variablesStr = blueprint.variables.length > 0
     ? `\nINTERACTIVE VARIABLES (wajib ada kontrol untuk masing-masing):\n${blueprint.variables.map((v, i) => `${i + 1}. ${v}`).join('\n')}`
@@ -296,7 +301,9 @@ Generate kode HTML yang lengkap, interaktif, dan indah.`;
     console.warn(`[Phase 2] Primary model (${GENERATION_MODEL}) failed for "${blueprint.concept}": ${primaryErr.message}`);
     
     if (GENERATION_MODEL !== FALLBACK_GENERATION_MODEL) {
-      onProgress?.(`⚡ Mencoba model lanjutan untuk: ${blueprint.concept}...`);
+      onProgress?.(getLocale() === 'id'
+        ? `⚡ Mencoba model lanjutan untuk: ${blueprint.concept}…`
+        : `⚡ Trying a stronger model for: ${blueprint.concept}…`);
       try {
         const fallbackData = await attemptGeneration(FALLBACK_GENERATION_MODEL);
         return {
@@ -344,7 +351,9 @@ export async function generateVisualizations(
 
   // Generate sequentially (not parallel) to avoid rate limits and provide progressive loading
   for (let i = 0; i < blueprints.length; i++) {
-    onProgress?.(`⚡ Membuat visualisasi ${i + 1}/${blueprints.length}: ${blueprints[i].concept}...`);
+    onProgress?.(getLocale() === 'id'
+      ? `⚡ Membuat visualisasi ${i + 1}/${blueprints.length}: ${blueprints[i].concept}…`
+      : `⚡ Building visualization ${i + 1}/${blueprints.length}: ${blueprints[i].concept}…`);
     const result = await generateVisualization(blueprints[i], materialContext, onProgress);
     results.push(result);
     onResult(result, i, blueprints.length);
@@ -360,7 +369,9 @@ export async function scanForAdditionalVisualizations(
   existingConcepts: string[],
   onProgress?: (msg: string) => void
 ): Promise<VisualizationBlueprint[]> {
-  onProgress?.('🔍 Mencari konsep tambahan yang belum divisualisasikan...');
+  onProgress?.(getLocale() === 'id'
+    ? '🔍 Mencari konsep tambahan yang belum divisualisasikan…'
+    : '🔍 Looking for more concepts to visualize…');
 
   const existingList = existingConcepts.map((c, i) => `${i + 1}. ${c}`).join('\n');
 
