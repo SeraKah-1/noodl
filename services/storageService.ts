@@ -621,6 +621,34 @@ export const saveQuizVisualizations = async (
   await pushQuizById(id);
 };
 
+/** Persist knowledge graph (data + HTML) so reopen does not force full regenerate. */
+export const saveQuizKnowledgeGraph = async (
+  id: number | string,
+  knowledgeGraphData: { data: any; htmlCode: string; status?: string }
+) => {
+  await update(HISTORY_IDB_KEY, (val) =>
+    (val || []).map((item: any) =>
+      String(item.id) === String(id) ? { ...item, knowledgeGraphData } : item
+    )
+  );
+  await pushQuizById(id);
+};
+
+export const getQuizKnowledgeGraph = async (
+  id: number | string
+): Promise<{ data: any; htmlCode: string; status?: string } | null> => {
+  try {
+    const history: any[] = (await get(HISTORY_IDB_KEY)) || [];
+    const quiz = history.find((q: any) => String(q.id) === String(id));
+    if (quiz?.knowledgeGraphData?.htmlCode || quiz?.knowledgeGraphData?.data) {
+      return quiz.knowledgeGraphData;
+    }
+  } catch (e) {
+    console.warn('[storage] getQuizKnowledgeGraph failed', e);
+  }
+  return null;
+};
+
 export const getSharedQuiz = async (quizId: string) => searchCloudQuiz(quizId);
 
 export const unifiedSync = async (): Promise<{ synced: boolean; errors: string[] }> => {

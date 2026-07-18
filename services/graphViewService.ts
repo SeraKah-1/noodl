@@ -322,7 +322,11 @@ export async function generateKnowledgeGraph(
       };
     }
 
-    onProgress?.(`✅ Ditemukan ${graphData.nodes.length} konsep dan ${graphData.edges.length} relasi.`);
+    onProgress?.(
+      getLocale() === 'id'
+        ? `✅ Ditemukan ${graphData.nodes.length} konsep dan ${graphData.edges.length} relasi.`
+        : `✅ Found ${graphData.nodes.length} concepts and ${graphData.edges.length} links.`
+    );
 
     // Phase 2: Generate HTML
     const htmlCode = await generateGraphHTML(graphData, title, onProgress);

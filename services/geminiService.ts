@@ -1532,15 +1532,74 @@ export const chatWithDocument = async (apiKey: string, modelId: string, history:
   }
 };
 
+function compactQuestionForInsight(q: any) {
+  const opts = Array.isArray(q.options) ? q.options.slice(0, 6).map((o: any) => String(o).slice(0, 160)) : [];
+  const correct =
+    typeof q.correctIndex === 'number' && opts[q.correctIndex] != null
+      ? opts[q.correctIndex]
+      : undefined;
+  return {
+    text: String(q.text || '').slice(0, 400),
+    options: opts,
+    correct,
+    explanation: String(q.explanation || '').slice(0, 320),
+    keyPoint: String(q.keyPoint || '').slice(0, 120),
+  };
+}
+
+function normalizeInsightCard(
+  topic: string,
+  priority: string,
+  accuracy: number | null,
+  parsed: any,
+  failSummary: string
+): ConceptCardData {
+  const insights = Array.isArray(parsed?.insights)
+    ? parsed.insights
+        .filter((x: any) => x && (x.point || typeof x === 'string'))
+        .map((x: any) =>
+          typeof x === 'string'
+            ? { point: x }
+            : {
+                point: String(x.point || ''),
+                evidence: x.evidence ? String(x.evidence) : undefined,
+                formula: x.formula ? String(x.formula) : undefined,
+              }
+        )
+        .filter((x: any) => x.point)
+    : [];
+  const traps = Array.isArray(parsed?.traps)
+    ? parsed.traps
+        .filter((x: any) => x && x.trap)
+        .map((x: any) => ({
+          trap: String(x.trap),
+          correction: String(x.correction || ''),
+        }))
+    : [];
+  const summary = String(parsed?.summary || '').trim();
+  return {
+    topic,
+    priority,
+    accuracy,
+    summary: summary || failSummary,
+    insights,
+    traps,
+    mnemonic: String(parsed?.mnemonic || ''),
+    connections: Array.isArray(parsed?.connections)
+      ? parsed.connections.map(String)
+      : [],
+  };
+}
+
 export const generateDeepInsight = async (
   groupedData: Record<string, { priority: string; questions: any[]; totalAnswers: number; correctAnswers: number }>,
   apiKey: string,
   onProgress?: (progress: number, total: number) => void
 ): Promise<DeepInsightData> => {
+  const { extractJsonObject } = await import('./jsonExtract');
   const topics = Object.keys(groupedData);
   const resultData: Record<string, ConceptCardData> = {};
 
-  // Sample question text to detect material language (EN materials → EN insights)
   const materialSample = Object.values(groupedData)
     .flatMap((d) => (d.questions || []).map((q: any) => `${q.text || ''} ${q.explanation || ''} ${q.keyPoint || ''}`))
     .join(' ')
@@ -1548,42 +1607,44 @@ export const generateDeepInsight = async (
   const langBlock = outputLanguageRule(materialSample);
   const failSummary =
     getLocale() === 'id'
-      ? 'Gagal memuat insight untuk topik ini.'
-      : 'Could not load insight for this topic.';
+      ? 'Gagal memuat insight untuk topik ini. Coba Regenerate AI.'
+      : 'Could not load insight for this topic. Try Regenerate AI.';
 
-  const systemInstruction = `You are a sharp study tutor for Noodl. Be clear and practical. Output JSON only.\n${langBlock}`;
+  const systemInstruction = [
+    'You are a sharp study tutor for Noodl.',
+    'Return ONE JSON object only. No markdown fences. No prose outside JSON.',
+    langBlock,
+  ].join('\n');
 
   const CONCEPT_SCHEMA = {
     type: "object",
     properties: {
-      summary: { type: "string", description: "2-3 sentence core concept summary. Simple, low jargon. Follow OUTPUT LANGUAGE." },
+      summary: { type: "string" },
       insights: {
         type: "array",
         items: {
           type: "object",
           properties: {
             point: { type: "string" },
-            evidence: { type: "string", description: "Explanation or evidence from the question data" },
-            formula: { type: "string", description: "Optional relevant formula or code" }
+            evidence: { type: "string" },
+            formula: { type: "string" }
           },
           required: ["point"]
         },
-        description: "2-4 specific insights from the question data"
       },
       traps: {
         type: "array",
         items: {
           type: "object",
           properties: {
-            trap: { type: "string", description: "Common misconception or trap" },
-            correction: { type: "string", description: "Correct clarification" }
+            trap: { type: "string" },
+            correction: { type: "string" }
           },
           required: ["trap", "correction"]
         },
-        description: "1-2 common traps based on wrong options"
       },
-      mnemonic: { type: "string", description: "One punchline, analogy, or mnemonic" },
-      connections: { type: "array", items: { type: "string" }, description: "Related concepts" }
+      mnemonic: { type: "string" },
+      connections: { type: "array", items: { type: "string" } }
     },
     required: ["summary", "insights", "traps", "mnemonic", "connections"]
   };
@@ -1592,63 +1653,100 @@ export const generateDeepInsight = async (
   const activeP = getActiveProvider();
   const insightModel = resolveModelName(activeP, getActiveModel(activeP));
 
-  // Phase 1: Generate concepts in parallel (batches of 3)
-  const batchSize = 3;
-  for (let i = 0; i < topics.length; i += batchSize) {
-    const batch = topics.slice(i, i + batchSize);
-    
-    await Promise.all(batch.map(async (topic) => {
-      const data = groupedData[topic];
-      const accuracy = data.totalAnswers > 0 ? Math.round((data.correctAnswers / data.totalAnswers) * 100) : null;
-      
-      const prompt = `Create a deep insight card for topic "${topic}".
-QUESTION DATA:
-${JSON.stringify(data.questions, null, 2)}
+  const generateOneTopic = async (topic: string, attempt = 0): Promise<ConceptCardData> => {
+    const data = groupedData[topic];
+    const accuracy =
+      data.totalAnswers > 0
+        ? Math.round((data.correctAnswers / data.totalAnswers) * 100)
+        : null;
+    // Compact payload — full question dumps blow context and cause empty/fail JSON
+    const compactQs = (data.questions || []).slice(0, 6).map(compactQuestionForInsight);
+    const prompt = `Create a deep insight card for topic: "${topic}".
 
+QUESTION DATA (compact JSON):
+${JSON.stringify(compactQs)}
+
+Return JSON with keys: summary, insights[{point,evidence?,formula?}], traps[{trap,correction}], mnemonic, connections[].
 ${langBlock}`;
 
-      try {
-        const response = await callAI('generateContent', {
-          apiKey,
-          modelName: insightModel,
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          systemInstruction: { role: 'system', parts: [{ text: systemInstruction }] },
-          temperature: 0.3,
-          responseMimeType: "application/json",
-          responseSchema: CONCEPT_SCHEMA
-        });
-        
-        if (response.error) throw new Error(response.error);
-        
-        let parsed = JSON.parse(response.result || "{}");
+    try {
+      const response = await callAI('generateContent', {
+        apiKey,
+        modelName: insightModel,
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        systemInstruction,
+        temperature: 0.3,
+        maxOutputTokens: 2048,
+        responseMimeType: 'application/json',
+        responseSchema: CONCEPT_SCHEMA,
+      });
+      if (response.error) throw new Error(response.error);
+      const raw = String(response.result || '');
+      if (!raw.trim()) throw new Error('Empty model response');
+      const parsed = extractJsonObject(raw);
+      const card = normalizeInsightCard(topic, data.priority, accuracy, parsed, failSummary);
+      if (!card.summary || card.summary === failSummary) {
+        throw new Error('Insight card missing summary');
+      }
+      return card;
+    } catch (err: any) {
+      if (attempt < 1) {
+        console.warn(`[DeepInsight] retry topic "${topic}":`, err?.message || err);
+        return generateOneTopic(topic, attempt + 1);
+      }
+      console.error(`Failed to generate insight for ${topic}`, err);
+      return {
+        topic,
+        priority: data.priority,
+        accuracy,
+        summary: `${failSummary}${err?.message ? ` (${String(err.message).slice(0, 80)})` : ''}`,
+        insights: [],
+        traps: [],
+        mnemonic: '',
+        connections: [],
+      };
+    }
+  };
+
+  // Wave parallel like quiz generate (2 at a time — safer for rate limits)
+  const waveSize = 2;
+  for (let i = 0; i < topics.length; i += waveSize) {
+    const wave = topics.slice(i, i + waveSize);
+    const settled = await Promise.allSettled(wave.map((topic) => generateOneTopic(topic)));
+    settled.forEach((res, idx) => {
+      const topic = wave[idx];
+      const data = groupedData[topic];
+      const accuracy =
+        data.totalAnswers > 0
+          ? Math.round((data.correctAnswers / data.totalAnswers) * 100)
+          : null;
+      if (res.status === 'fulfilled') {
+        resultData[topic] = res.value;
+      } else {
         resultData[topic] = {
           topic,
           priority: data.priority,
           accuracy,
-          ...parsed
-        };
-      } catch (err) {
-        console.error(`Failed to generate insight for ${topic}`, err);
-        resultData[topic] = {
-          topic, priority: data.priority, accuracy,
           summary: failSummary,
-          insights: [], traps: [], mnemonic: "", connections: []
+          insights: [],
+          traps: [],
+          mnemonic: '',
+          connections: [],
         };
       }
-      
       completed++;
       if (onProgress) onProgress(completed, topics.length + 1);
-    }));
+    });
   }
 
   // Phase 2: Overall Summary
   const SUMMARY_SCHEMA = {
     type: "object",
     properties: {
-      overallAssessment: { type: "string", description: "Short overall assessment of the learner" },
+      overallAssessment: { type: "string" },
       strongAreas: { type: "array", items: { type: "string" } },
       weakAreas: { type: "array", items: { type: "string" } },
-      studyPlan: { type: "string", description: "Concrete study advice" },
+      studyPlan: { type: "string" },
       motivationalQuote: { type: "string" }
     },
     required: ["overallAssessment", "strongAreas", "weakAreas", "studyPlan", "motivationalQuote"]
@@ -1668,42 +1766,61 @@ ${langBlock}`;
           strongAreas: [] as string[],
           weakAreas: [] as string[],
           studyPlan: 'Keep practicing the weak topics.',
-          motivationalQuote: 'You’ve got this.',
+          motivationalQuote: "You've got this.",
         };
 
   let summaryData: any = { ...summaryFallback };
 
   try {
-    const summaryPrompt = `Write a final wrap-up for this quiz result.
-TOPIC & ACCURACY DATA:
+    const okTopics = Object.values(resultData).filter(
+      (d) => d.summary && !d.summary.startsWith(failSummary.slice(0, 20))
+    );
+    const summaryPrompt = `Write a final wrap-up for this quiz analysis.
+TOPIC SNAPSHOT:
 ${JSON.stringify(
-    Object.values(resultData).map(d => ({ topic: d.topic, accuracy: d.accuracy, priority: d.priority })), null, 2
+  Object.values(resultData).map((d) => ({
+    topic: d.topic,
+    accuracy: d.accuracy,
+    priority: d.priority,
+    hasInsight: okTopics.includes(d),
+  })),
+  null,
+  2
 )}
 
+Return JSON: overallAssessment, strongAreas[], weakAreas[], studyPlan, motivationalQuote.
 ${langBlock}`;
 
     const response = await callAI('generateContent', {
       apiKey,
       modelName: insightModel,
       contents: [{ role: 'user', parts: [{ text: summaryPrompt }] }],
-      systemInstruction: { role: 'system', parts: [{ text: systemInstruction }] },
+      systemInstruction,
       temperature: 0.3,
-      responseMimeType: "application/json",
-      responseSchema: SUMMARY_SCHEMA
+      maxOutputTokens: 1024,
+      responseMimeType: 'application/json',
+      responseSchema: SUMMARY_SCHEMA,
     });
 
-    if (!response.error) {
-       summaryData = JSON.parse(response.result || "{}");
+    if (!response.error && response.result) {
+      const parsed = extractJsonObject(String(response.result));
+      summaryData = {
+        overallAssessment: String(parsed.overallAssessment || summaryFallback.overallAssessment),
+        strongAreas: Array.isArray(parsed.strongAreas) ? parsed.strongAreas.map(String) : [],
+        weakAreas: Array.isArray(parsed.weakAreas) ? parsed.weakAreas.map(String) : [],
+        studyPlan: String(parsed.studyPlan || summaryFallback.studyPlan),
+        motivationalQuote: String(parsed.motivationalQuote || summaryFallback.motivationalQuote),
+      };
     }
   } catch (err) {
-    console.error("Failed to generate overall summary", err);
+    console.error('Failed to generate overall summary', err);
   }
-  
+
   if (onProgress) onProgress(topics.length + 1, topics.length + 1);
 
   return {
     summary: summaryData,
-    topics: resultData
+    topics: resultData,
   };
 };
 

@@ -520,6 +520,8 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onS
               title={graphViewModal.quiz.fileName || graphViewModal.quiz.topicSummary || 'Knowledge Graph'}
               materialContext={graphViewModal.quiz.libraryContext}
               quizId={graphViewModal.quiz.id}
+              initialData={graphViewModal.quiz.knowledgeGraphData?.data}
+              initialHtml={graphViewModal.quiz.knowledgeGraphData?.htmlCode}
               onClose={() => setGraphViewModal({ isOpen: false, quiz: null })} 
           />
       )}

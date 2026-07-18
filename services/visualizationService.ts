@@ -269,114 +269,171 @@ ${langBlock}
 Generate complete, interactive, polished HTML. All visible UI text must follow OUTPUT LANGUAGE.`;
   }
 
-  // Helper function to execute AI and parse the output
-  const attemptGeneration = async (modelName: string) => {
+  const expFallback =
+    getLocale() === 'id' ? 'Visualisasi interaktif' : 'Interactive visualization';
+  const guideFallback =
+    getLocale() === 'id'
+      ? 'Gunakan kontrol di layar untuk berinteraksi'
+      : 'Use the on-screen controls to interact';
+
+  // Per-concept generation (NOT one giant multi-sim oneshot).
+  // 1) JSON envelope  2) raw HTML fallback if JSON fails
+  const attemptGeneration = async (modelName: string, mode: 'json' | 'html' = 'json') => {
+    if (mode === 'html') {
+      const htmlPrompt = `${prompt}
+
+OUTPUT RULES:
+- Return ONLY a complete HTML document starting with <!DOCTYPE html>.
+- No markdown fences. No JSON. No commentary.`;
+      const data = await callVisualizationAI({
+        modelName,
+        contents: [{ role: 'user', parts: [{ text: htmlPrompt }] }],
+        systemInstruction: generationSystemInstruction(materialContext),
+        temperature: 0.35,
+        maxOutputTokens: 12000,
+      });
+      if (data.error) throw new Error(data.error);
+      let html = String(data.result || '');
+      if (html.includes('```')) {
+        html = html.replace(/```html/gi, '').replace(/```/g, '').trim();
+      }
+      const docAt = html.search(/<!DOCTYPE\s+html|<html/i);
+      if (docAt > 0) html = html.slice(docAt);
+      if (!html || html.length < 100) throw new Error('HTML output too short');
+      return { htmlCode: html, explanation: expFallback, interactionGuide: guideFallback };
+    }
+
     const data = await callVisualizationAI({
-      modelName: modelName,
+      modelName,
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       systemInstruction: generationSystemInstruction(materialContext),
       responseSchema: GENERATION_SCHEMA,
-      temperature: 0.4,
-      maxOutputTokens: 16384
+      temperature: 0.35,
+      maxOutputTokens: 12000,
     });
+    if (data.error) throw new Error(data.error);
+    if (!data.result) throw new Error('Empty response from AI');
 
-    if (data.error) {
-      throw new Error(data.error);
+    const { extractJsonObject, stripCodeFences } = await import('./jsonExtract');
+    let parsed: any;
+    try {
+      parsed = extractJsonObject(data.result);
+    } catch {
+      // Maybe the model returned raw HTML inside the "JSON" response
+      const raw = stripCodeFences(data.result);
+      if (/<!DOCTYPE|<html/i.test(raw)) {
+        const docAt = raw.search(/<!DOCTYPE\s+html|<html/i);
+        return {
+          htmlCode: docAt >= 0 ? raw.slice(docAt) : raw,
+          explanation: expFallback,
+          interactionGuide: guideFallback,
+        };
+      }
+      throw new Error('Could not parse visualization JSON');
     }
 
-    let jsonStr = data.result;
-    if (!jsonStr) {
-      throw new Error("Empty response from AI");
-    }
-
-    // Clean up potential markdown code block backticks
-    if (jsonStr.includes('```')) {
-      jsonStr = jsonStr.replace(/```json/gi, '').replace(/```/g, '').trim();
-    }
-    if (jsonStr.includes('<thinking>')) {
-      jsonStr = jsonStr.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').trim();
-    }
-
-    const firstBrace = jsonStr.indexOf('{');
-    const lastBrace = jsonStr.lastIndexOf('}');
-    if (firstBrace === -1 || lastBrace === -1) {
-      throw new Error("No object found in response");
-    }
-
-    const parsed = JSON.parse(jsonStr.substring(firstBrace, lastBrace + 1));
-    const htmlCode = String(parsed.htmlCode || '');
+    const htmlCode = String(parsed.htmlCode || parsed.html || '');
     if (!htmlCode || htmlCode.length < 100) {
-      throw new Error("Generated HTML is too short or empty");
+      throw new Error('Generated HTML is too short or empty');
     }
-
     return {
       htmlCode,
-      explanation: String(parsed.explanation || 'Visualisasi interaktif'),
-      interactionGuide: String(parsed.interactionGuide || 'Gunakan kontrol di layar untuk berinteraksi')
+      explanation: String(parsed.explanation || expFallback),
+      interactionGuide: String(parsed.interactionGuide || guideFallback),
     };
   };
 
   try {
-    // Try primary model first
-    const parsedData = await attemptGeneration(genModel());
+    try {
+      const parsedData = await attemptGeneration(genModel(), 'json');
+      return {
+        id: blueprint.id,
+        blueprint,
+        htmlCode: parsedData.htmlCode,
+        explanation: parsedData.explanation,
+        interactionGuide: parsedData.interactionGuide,
+        status: 'success',
+      };
+    } catch (jsonErr: any) {
+      console.warn(`[Phase 2] JSON mode failed for "${blueprint.concept}":`, jsonErr?.message);
+      onProgress?.(
+        getLocale() === 'id'
+          ? `⚡ Retry HTML langsung: ${blueprint.concept}…`
+          : `⚡ Retry as raw HTML: ${blueprint.concept}…`
+      );
+      const htmlData = await attemptGeneration(genModel(), 'html');
+      return {
+        id: blueprint.id,
+        blueprint,
+        htmlCode: htmlData.htmlCode,
+        explanation: htmlData.explanation,
+        interactionGuide: htmlData.interactionGuide,
+        status: 'success',
+      };
+    }
+  } catch (err: any) {
+    console.error(`[Phase 2] Failed for "${blueprint.concept}":`, err);
     return {
       id: blueprint.id,
       blueprint,
-      htmlCode: parsedData.htmlCode,
-      explanation: parsedData.explanation,
-      interactionGuide: parsedData.interactionGuide,
-      status: 'success'
+      htmlCode: '',
+      explanation: '',
+      interactionGuide: '',
+      status: 'error',
+      error:
+        getLocale() === 'id'
+          ? `Gagal memproses visualisasi: ${err?.message || 'unknown'}`
+          : `Visualization failed: ${err?.message || 'unknown'}`,
     };
-  } catch (primaryErr: any) {
-    console.warn(`[Phase 2] Primary model failed for "${blueprint.concept}": ${primaryErr.message}`);
-    onProgress?.(getLocale() === 'id'
-      ? `⚡ Mencoba model lanjutan untuk: ${blueprint.concept}…`
-      : `⚡ Trying a stronger model for: ${blueprint.concept}…`);
-    try {
-      const fallbackData = await attemptGeneration(fallbackModel());
-      return {
-        id: blueprint.id,
-        blueprint,
-        htmlCode: fallbackData.htmlCode,
-        explanation: fallbackData.explanation,
-        interactionGuide: fallbackData.interactionGuide,
-        status: 'success'
-      };
-    } catch (fallbackErr: any) {
-      console.error(`[Phase 2] Fallback model also failed for "${blueprint.concept}":`, fallbackErr);
-      return {
-        id: blueprint.id,
-        blueprint,
-        htmlCode: '',
-        explanation: '',
-        interactionGuide: '',
-        status: 'error',
-        error: `Gagal memproses visualisasi: ${fallbackErr.message || primaryErr.message}`
-      };
-    }
   }
 }
 
-// ─── BATCH GENERATION (Progressive) ───
+// ─── BATCH GENERATION: per-concept, parallel waves (like quiz generate) ───
 export async function generateVisualizations(
   blueprints: VisualizationBlueprint[],
   materialContext: string,
   onResult: (result: VisualizationResult, index: number, total: number) => void,
   onProgress?: (msg: string) => void
 ): Promise<VisualizationResult[]> {
-  const results: VisualizationResult[] = [];
+  const results: VisualizationResult[] = new Array(blueprints.length);
+  const total = blueprints.length;
+  const waveSize = 2; // parallel like quiz batches — not one giant oneshot
+  let done = 0;
 
-  // Generate sequentially (not parallel) to avoid rate limits and provide progressive loading
-  for (let i = 0; i < blueprints.length; i++) {
-    onProgress?.(getLocale() === 'id'
-      ? `⚡ Membuat visualisasi ${i + 1}/${blueprints.length}: ${blueprints[i].concept}…`
-      : `⚡ Building visualization ${i + 1}/${blueprints.length}: ${blueprints[i].concept}…`);
-    const result = await generateVisualization(blueprints[i], materialContext, onProgress);
-    results.push(result);
-    onResult(result, i, blueprints.length);
+  for (let i = 0; i < blueprints.length; i += waveSize) {
+    const wave = blueprints.slice(i, i + waveSize);
+    onProgress?.(
+      getLocale() === 'id'
+        ? `⚡ Parallel wave ${Math.floor(i / waveSize) + 1}: ${wave.map((b) => b.concept).join(', ')}`
+        : `⚡ Parallel wave ${Math.floor(i / waveSize) + 1}: ${wave.map((b) => b.concept).join(', ')}`
+    );
+
+    const settled = await Promise.allSettled(
+      wave.map((bp) => generateVisualization(bp, materialContext, onProgress))
+    );
+
+    settled.forEach((res, j) => {
+      const index = i + j;
+      const bp = wave[j];
+      const result: VisualizationResult =
+        res.status === 'fulfilled'
+          ? res.value
+          : {
+              id: bp.id,
+              blueprint: bp,
+              htmlCode: '',
+              explanation: '',
+              interactionGuide: '',
+              status: 'error',
+              error: String((res as PromiseRejectedResult).reason?.message || res.status),
+            };
+      results[index] = result;
+      done++;
+      onResult(result, done - 1, total);
+    });
   }
 
-  return results;
+  return results.filter(Boolean);
 }
 
 // ─── FITUR 4: SCAN FOR ADDITIONAL VISUALIZATIONS ───
@@ -392,25 +449,26 @@ export async function scanForAdditionalVisualizations(
 
   const existingList = existingConcepts.map((c, i) => `${i + 1}. ${c}`).join('\n');
 
-  const prompt = `Analisis materi berikut dan identifikasi konsep-konsep BARU yang bisa divisualisasikan.
+  const langBlock = outputLanguageRule(materialText);
+  const prompt = `Analyze the material and identify NEW concepts that benefit from interactive visualization.
 
-KONSEP YANG SUDAH DIBUAT (JANGAN ULANGI):
+ALREADY VISUALIZED (do not repeat):
 """
 ${existingList}
 """
 
-MATERI:
+MATERIAL:
 """
 ${materialText.substring(0, 100000)}
 """
 
-Cari konsep yang BERBEDA dari yang sudah ada di atas. Fokus pada sub-topik, detail, atau perspektif yang belum di-cover.
-Kembalikan array JSON berisi konsep-konsep BARU yang bisa divisualisasikan.`;
+${langBlock}
+Return a JSON array of NEW visualization concepts only.`;
 
   const data = await callVisualizationAI({
     modelName: scanModel(),
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    systemInstruction: scanSystemInstruction(),
+    systemInstruction: scanSystemInstruction(materialText),
     responseSchema: SCAN_SCHEMA,
     temperature: 0.3,
     maxOutputTokens: 4096
