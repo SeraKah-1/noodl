@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Github, LogIn, LogOut, Cloud, User as UserIcon, RefreshCw, Chrome } from 'lucide-react';
+import { Github, LogOut, Cloud, User as UserIcon, RefreshCw, Chrome } from 'lucide-react';
 import {
   auth,
   signInWithGitHub,
@@ -9,6 +9,8 @@ import {
   pingSupabase,
 } from '../supabase';
 import { runFullSync, getDeviceId, type SyncReport } from '../services/syncService';
+import { TurnstileWidget, isTurnstileConfigured, resetTurnstile } from './TurnstileWidget';
+import { verifyTurnstileToken } from '../services/turnstileService';
 
 /**
  * Cloud account + cross-device sync controls.
@@ -20,6 +22,7 @@ export const AuthWidget: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [lastSync, setLastSync] = useState<SyncReport | null>(null);
   const [health, setHealth] = useState<string | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   useEffect(() => {
     return auth.onAuthStateChanged((u) => setUser(u));
@@ -30,14 +33,32 @@ export const AuthWidget: React.FC = () => {
     pingSupabase().then((r) => setHealth(r.ok ? `Cloud: ${r.message}` : `Cloud issue: ${r.message}`));
   }, []);
 
+  const ensureHuman = async () => {
+    if (!isTurnstileConfigured) return true;
+    const result = await verifyTurnstileToken(turnstileToken);
+    if (!result.ok) {
+      setError(result.message || 'Complete the human check');
+      resetTurnstile();
+      setTurnstileToken(null);
+      return false;
+    }
+    return true;
+  };
+
   const handleGitHub = async () => {
     setBusy(true);
     setError(null);
     try {
+      if (!(await ensureHuman())) {
+        setBusy(false);
+        return;
+      }
       await signInWithGitHub();
     } catch (e: any) {
       setError(e?.message || 'GitHub sign-in failed');
       setBusy(false);
+      resetTurnstile();
+      setTurnstileToken(null);
     }
   };
 
@@ -45,10 +66,16 @@ export const AuthWidget: React.FC = () => {
     setBusy(true);
     setError(null);
     try {
+      if (!(await ensureHuman())) {
+        setBusy(false);
+        return;
+      }
       await signInWithGoogle();
     } catch (e: any) {
       setError(e?.message || 'Google sign-in failed');
       setBusy(false);
+      resetTurnstile();
+      setTurnstileToken(null);
     }
   };
 
@@ -147,15 +174,16 @@ export const AuthWidget: React.FC = () => {
       </p>
       {health && <p className="text-[11px] text-theme-muted">{health}</p>}
       {error && <p className="text-xs text-rose-600">{error}</p>}
+      <TurnstileWidget onToken={setTurnstileToken} className="my-1" />
       <button
-        disabled={busy}
+        disabled={busy || (isTurnstileConfigured && !turnstileToken)}
         onClick={handleGitHub}
         className="w-full flex items-center justify-center gap-2 bg-slate-900 text-white font-bold text-sm py-2.5 rounded-xl hover:bg-slate-800 disabled:opacity-60"
       >
         <Github size={16} /> {busy ? 'Redirecting…' : 'Continue with GitHub'}
       </button>
       <button
-        disabled={busy}
+        disabled={busy || (isTurnstileConfigured && !turnstileToken)}
         onClick={handleGoogle}
         className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-800 font-bold text-sm py-2.5 rounded-xl hover:bg-slate-50 disabled:opacity-60"
       >
