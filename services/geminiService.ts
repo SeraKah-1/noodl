@@ -23,8 +23,39 @@ export function getActiveProvider(): AiProvider {
   return fetchActiveProvider();
 }
 
-// Model Cepat untuk "Generation" (Membuat Soal)
-const DEFAULT_GENERATION_MODEL = 'gemini-3.5-flash';
+// Default model IDs — MUST match the active provider (never force Gemini on OpenRouter).
+const DEFAULT_GENERATION_MODEL = 'gemini-2.0-flash';
+
+function defaultModelForProvider(provider: AiProvider): string {
+  switch (provider) {
+    case 'openrouter':
+      return 'openai/gpt-4o-mini';
+    case 'openai':
+      return 'gpt-4o-mini';
+    case 'groq':
+      return 'llama-3.3-70b-versatile';
+    case 'ninerouter':
+      return 'sv/mimo-v2.5-pro';
+    case 'anthropic':
+      return 'claude-3-5-sonnet-latest';
+    case 'custom':
+      return 'gpt-4o-mini';
+    case 'gemini':
+    default:
+      return DEFAULT_GENERATION_MODEL;
+  }
+}
+
+/** Resolve a model id that is valid for the provider. Avoids sending "gemini-*" to OpenRouter. */
+function resolveModelName(provider: AiProvider, modelName?: string): string {
+  const raw = (modelName || '').trim();
+  if (!raw) return defaultModelForProvider(provider);
+  if (provider !== 'gemini' && /^gemini/i.test(raw)) {
+    console.warn(`[AIService] Model "${raw}" is Gemini-only; falling back for provider=${provider}`);
+    return defaultModelForProvider(provider);
+  }
+  return raw;
+}
 
 // Internal helper for AI Call Routing
 async function callAI(action: string, payload: any): Promise<any> {
@@ -33,44 +64,68 @@ async function callAI(action: string, payload: any): Promise<any> {
   const provider = explicitProvider || getActiveProvider();
   const apiKey = customApiKey || getProviderApiKey(provider);
   const baseUrl = getProviderBaseUrl(provider);
+  const resolvedModel = resolveModelName(provider, modelName);
 
-  console.log(`[AIService] Routing ${action} via provider: ${provider} (model: ${modelName || 'default'})...`);
+  console.log(`[AIService] Routing ${action} via provider: ${provider} (model: ${resolvedModel})...`);
 
   // 1. OPENAI-COMPATIBLE PROVIDERS (OpenRouter, OpenAI, Groq, 9Router, Custom REST, Ollama)
   if (provider === 'openai' || provider === 'openrouter' || provider === 'groq' || provider === 'ninerouter' || provider === 'custom') {
+    if (!apiKey) {
+      throw new Error(`[${provider}] API key missing. Open Settings → AI providers, paste the key for ${provider}, Save.`);
+    }
     let endpoint = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://noodl.app',
+      'HTTP-Referer': typeof window !== 'undefined' ? window.location.origin : 'https://noodl.app',
       'X-Title': 'Noodl'
     };
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
-    // Extract text from parts / contents
+    // Extract text from parts / contents (binary PDF/images are Gemini-only for now)
     let userPromptText = '';
+    let droppedBinary = false;
     if (parts && Array.isArray(parts)) {
-      userPromptText = parts.map((p: any) => typeof p === 'string' ? p : (p.text || '')).join('\n');
+      userPromptText = parts.map((p: any) => {
+        if (typeof p === 'string') return p;
+        if (p?.text) return p.text;
+        if (p?.inlineData) { droppedBinary = true; return ''; }
+        return '';
+      }).join('\n');
     } else if (contents && Array.isArray(contents)) {
       userPromptText = contents.map((c: any) => {
         if (c.parts && Array.isArray(c.parts)) {
-          return c.parts.map((p: any) => typeof p === 'string' ? p : (p.text || '')).join('\n');
+          return c.parts.map((p: any) => {
+            if (typeof p === 'string') return p;
+            if (p?.text) return p.text;
+            if (p?.inlineData) { droppedBinary = true; return ''; }
+            return '';
+          }).join('\n');
         }
         return c.text || '';
       }).join('\n');
+    }
+
+    if (droppedBinary && !userPromptText.trim()) {
+      throw new Error(
+        `[${provider}] This provider path only accepts text. Paste notes as text/topic, or switch to Gemini for PDF/image upload.`
+      );
+    }
+    if (droppedBinary) {
+      console.warn(`[AIService] ${provider}: binary file parts were dropped; using text/topic only.`);
     }
 
     const messages: any[] = [];
     if (systemInstruction) {
       messages.push({ role: 'system', content: typeof systemInstruction === 'string' ? systemInstruction : (systemInstruction.parts?.[0]?.text || String(systemInstruction)) });
     }
-    messages.push({ role: 'user', content: userPromptText || 'Hasilkan respon sesuai instruksi.' });
+    messages.push({ role: 'user', content: userPromptText || 'Generate a response following the system instructions.' });
 
     const reqBody: any = {
-      model: modelName || (provider === 'ninerouter' ? 'sv/mimo-v2.5-pro' : provider === 'openrouter' ? 'anthropic/claude-3.5-sonnet' : provider === 'groq' ? 'llama-3.3-70b-versatile' : 'gpt-4o'),
+      model: resolvedModel,
       messages,
       temperature: temperature ?? 0.7,
       max_tokens: maxOutputTokens || 4096,
-      stream: true
+      stream: false // non-stream JSON is more reliable across proxies
     };
 
     if (responseSchema) {
@@ -128,6 +183,9 @@ async function callAI(action: string, payload: any): Promise<any> {
 
   // 2. ANTHROPIC CLAUDE DIRECT
   if (provider === 'anthropic') {
+    if (!apiKey) {
+      throw new Error('[anthropic] API key missing. Add it in Settings → AI providers.');
+    }
     const endpoint = `${baseUrl.replace(/\/+$/, '')}/messages`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -141,7 +199,7 @@ async function callAI(action: string, payload: any): Promise<any> {
     }
 
     const reqBody: any = {
-      model: modelName || 'claude-3-5-sonnet-latest',
+      model: resolvedModel,
       max_tokens: maxOutputTokens || 4096,
       system: systemInstruction ? (typeof systemInstruction === 'string' ? systemInstruction : systemInstruction.parts?.[0]?.text) : undefined,
       messages: [{ role: 'user', content: userPromptText }]
@@ -177,15 +235,30 @@ async function callAI(action: string, payload: any): Promise<any> {
       config.responseSchema = responseSchema;
     }
 
-    const response = await ai.models.generateContent({
-      model: modelName || DEFAULT_GENERATION_MODEL,
-      contents: reqContents,
-      config
-    });
-    return { result: response.text };
+    try {
+      const response = await ai.models.generateContent({
+        model: resolvedModel,
+        contents: reqContents,
+        config
+      });
+      return { result: response.text };
+    } catch (err: any) {
+      // Retry once with a widely available model if the selected id is unknown
+      const msg = String(err?.message || err || '');
+      if (/not found|404|INVALID_ARGUMENT|model/i.test(msg) && resolvedModel !== 'gemini-2.0-flash') {
+        console.warn(`[Gemini] Model ${resolvedModel} failed (${msg.slice(0, 120)}). Retrying gemini-2.0-flash…`);
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.0-flash',
+          contents: reqContents,
+          config
+        });
+        return { result: response.text };
+      }
+      throw err;
+    }
   }
 
-  // 4. GOOGLE GEMINI FALLBACK (FIREBASE VERTEX AI - EXPRESS MODE)
+  // 4. GOOGLE GEMINI FALLBACK (Firebase/Vertex) — stubbed in Noodl public build
   console.log(`[Gemini] Routing ${action} via Firebase Vertex AI (Express Mode)...`);
   const genConfig: Partial<FirebaseGenerationConfig> = {};
   if (responseSchema) {
@@ -196,10 +269,20 @@ async function callAI(action: string, payload: any): Promise<any> {
   if (maxOutputTokens) genConfig.maxOutputTokens = maxOutputTokens;
 
   const model = getFirebaseVertexAIModel(
-    modelName || DEFAULT_GENERATION_MODEL,
+    resolvedModel,
     genConfig,
     systemInstruction
-  );
+  ) as any;
+
+  // Noodl replaced Firebase with Supabase: getFirebaseVertexAIModel() always returns null.
+  // Without a user Gemini key this path used to crash as "Cannot read properties of null".
+  if (!model || typeof model.generateContent !== 'function') {
+    throw new Error(
+      'Gemini needs an API key in this build (Vertex/Firebase AI was removed). ' +
+      'Settings → AI providers → Gemini → paste Google AI Studio key, Save. ' +
+      'Or switch provider to OpenRouter / OpenAI / Groq and use that key.'
+    );
+  }
 
   const requestContents = contents || [{ role: 'user', parts }];
   const result = await model.generateContent({ contents: requestContents });
@@ -681,7 +764,17 @@ export const generateQuiz = async (
 ): Promise<{ questions: Question[], contextText: string, conceptMap?: ConceptNode[] }> => {
   const isVertexExpress = import.meta.env.VITE_USE_VERTEX_EXPRESS === 'true';
   const isFirebaseVertexAI = import.meta.env.VITE_USE_FIREBASE_VERTEX_AI === 'true';
-  if (!apiKey && !isVertexExpress && !isFirebaseVertexAI) throw new Error("API key is not set.");
+  const activeProv = getActiveProvider();
+  // Vertex env flags only help Gemini when a real Vertex client exists (not in Noodl stub).
+  if (!apiKey) {
+    if (activeProv !== 'gemini' || (!isVertexExpress && !isFirebaseVertexAI)) {
+      throw new Error(
+        getLocale() === 'id'
+          ? `API key ${activeProv} belum diisi. Buka Setelan → Provider AI.`
+          : `API key for ${activeProv} is not set. Open Settings → AI providers.`
+      );
+    }
+  }
   
   // --- PREPARE CONTEXT ---
   const baseParts: any[] = [];
@@ -899,8 +992,9 @@ DISTRACTOR RULES untuk C5:
   ];
   let allGeneratedQuestions: Question[] = [];
 
-  // Gunakan model yang dipilih user. Jika kosong, default ke Flash.
-  const selectedModel = modelId || DEFAULT_GENERATION_MODEL;
+  // Model yang dipilih user; if empty / wrong family, resolve per active provider.
+  const activeProvider = getActiveProvider();
+  const selectedModel = resolveModelName(activeProvider, modelId);
   
   // Define Schema
   const responseSchema: Schema = {
