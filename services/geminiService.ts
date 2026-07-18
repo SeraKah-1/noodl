@@ -120,15 +120,24 @@ async function callAI(action: string, payload: any): Promise<any> {
     }
     messages.push({ role: 'user', content: userPromptText || 'Generate a response following the system instructions.' });
 
+    // Cap completion tokens — many OpenRouter/Groq models reject huge max_tokens
+    // or truncate mid-JSON, which often surfaces as a late "Smart Overflow" failure.
+    const safeMaxTokens = Math.min(
+      Math.max(1024, maxOutputTokens || 4096),
+      provider === 'groq' ? 8192 : provider === 'openrouter' ? 12000 : 16384
+    );
+
     const reqBody: any = {
       model: resolvedModel,
       messages,
       temperature: temperature ?? 0.7,
-      max_tokens: maxOutputTokens || 4096,
+      max_tokens: safeMaxTokens,
       stream: false // non-stream JSON is more reliable across proxies
     };
 
     if (responseSchema) {
+      // json_object requires a top-level object (not a raw array). Models that
+      // ignore this often fail only on large late-stage overflow calls.
       reqBody.response_format = { type: 'json_object' };
     }
 
@@ -1098,9 +1107,9 @@ VIOLATION EXAMPLES (DO NOT DO THIS):
         ═══ END ANTI-OVERCOMPLIFICATION ═══
 
         INSTRUCTIONS:
-        1. GENERATE EXACTLY ${count} JSON objects.
-        2. USE the provided material strictly. SETIAP soal harus bisa dijawab dari materi yang diberikan.
-        3. SEQUENCE: Campurkan soal tentang detail mikro (angka, nama, lokasi) dengan soal konseptual.
+        1. GENERATE EXACTLY ${count} questions.
+        2. USE the provided material strictly. Every question must be answerable from the material.
+        3. SEQUENCE: Mix micro-detail questions (numbers, names, locations) with conceptual ones.
         4. STRUCTURE & DIAGNOSTIC QUALITY:
            - Option A: Must be the Correct Option.
            - Option B, C, D: Must be DIAGNOSTIC DISTRACTORS.
@@ -1108,31 +1117,30 @@ VIOLATION EXAMPLES (DO NOT DO THIS):
         5. FEEDBACK (EXPLANATION):
            - Explain exactly why Option A is correct, REFERENCING the material.
            - Briefly explain why B, C, D are wrong.
-           - CRITICAL: Do NOT mention option letters like "Pilihan A", "Opsi B", "C", "D" in the explanation text because the options will be shuffled. Refer directly to the text of the options instead (e.g. write "Jawaban yang benar adalah [Isi Jawaban] karena..." instead of "Pilihan A benar karena...").
+           - CRITICAL: Do NOT mention option letters like "Pilihan A", "Opsi B", "C", "D" in the explanation text because the options will be shuffled. Refer directly to the text of the options instead.
         6. KEYPOINT FIELD:
            - The 'keyPoint' field MUST be a specific, granular sub-topic name (e.g., "Fiksasi Karbon", NOT just "Fotosintesis"). Max 3-4 words.
         7. ${outputLanguageRule()}
            - Keep technical terms/abbreviations as they appear in the source when natural.
     
-        OUTPUT JSON format only.
+        OUTPUT: one JSON object shaped as {"questions":[ ... ${count} items ... ]}. No markdown.
         ${avoidancePrompt}
       `;
 
       const parts = [...baseParts, { text: batchPrompt }];
 
       const attemptGenerate = async (useFallbackPrompt: boolean): Promise<Question[]> => {
-         const FALLBACK_JSON_INSTRUCTION = `\n\nIMPORTANT: Output ONLY a raw JSON array, e.g. [{"text":...,"options":[...],"correctIndex":0,"explanation":"...","hint":"...","keyPoint":"..."}]. No markdown, no wrapper object.`;
-         const finalParts = useFallbackPrompt
-           ? [...baseParts, { text: batchPrompt + FALLBACK_JSON_INSTRUCTION }]
-           : parts;
-
+         const JSON_SHAPE_HINT = `\n\nCRITICAL OUTPUT SHAPE: Return ONE JSON object: {"questions":[...exactly ${count} items...]}. Each item needs text, options (4 strings), correctIndex (0-3), explanation, hint, keyPoint. No markdown.`;
+         const FALLBACK_JSON_INSTRUCTION = `\n\nIMPORTANT: Output ONLY valid JSON as {"questions":[{"text":...,"options":[...],"correctIndex":0,"explanation":"...","hint":"...","keyPoint":"..."}]}. No markdown fences.`;
+         const promptExtra = useFallbackPrompt ? (FALLBACK_JSON_INSTRUCTION + JSON_SHAPE_HINT) : JSON_SHAPE_HINT;
          const data = await callAI('generateQuizBatch', { 
             apiKey, 
             modelName: selectedModel, 
-            parts: useFallbackPrompt ? [...baseParts, { text: batchPrompt + "\nJSON ONLY" }] : parts, 
+            parts: [...baseParts, { text: batchPrompt + promptExtra }], 
+            // Prefer schema on first try; fallback drops schema so free-form JSON still parses
             responseSchema: useFallbackPrompt ? undefined : responseSchema, 
             temperature: Math.min(0.5 + (batchIndex * 0.05), 0.85),
-            maxOutputTokens: 16384
+            maxOutputTokens: Math.min(8192, 1200 + count * 700)
          });
 
          if (data.error) throw new Error(data.error);
@@ -1144,6 +1152,7 @@ VIOLATION EXAMPLES (DO NOT DO THIS):
          if (!Array.isArray(rawQuestions)) throw new Error("Format AI salah.");
          
          const validQuestions = rawQuestions.filter((q: any) => q.text && q.options && q.options.length > 1);
+         if (validQuestions.length === 0) throw new Error("No valid questions in AI response");
          return validQuestions.map((q: any) => {
             const sanitized = sanitizeQuestion(q);
             return {
@@ -1161,7 +1170,8 @@ VIOLATION EXAMPLES (DO NOT DO THIS):
             return await attemptGenerate(true);
          } catch (retryErr: any) {
             console.error(`Batch ${batchIndex} retry also failed:`, retryErr.message);
-            throw retryErr;
+            // Soft-fail: empty batch is better than killing the whole generation wave
+            return [];
          }
       }
   };
@@ -1182,17 +1192,30 @@ VIOLATION EXAMPLES (DO NOT DO THIS):
     }
   };
 
+  // Parallel waves must not hard-fail the whole quiz if one batch dies (rate limit / JSON).
   const runWave = async (plans: Array<{ batchIndex: number; count: number; bloomLevel?: ExamStyle; conceptTier?: ConceptPriority; tierConcepts?: ConceptNode[] }>, waveLabel: string) => {
     if (plans.length === 0) return;
     onProgress(getLocale() === 'id'
       ? `${waveLabel}: menjalankan ${plans.length} batch paralel…`
       : `${waveLabel}: running ${plans.length} parallel batches…`);
     const knownQuestionTexts = allGeneratedQuestions.map(q => q.text);
-    const waveResults = await Promise.all(
+    const settled = await Promise.allSettled(
       plans.map(plan => generateBatch(plan.batchIndex, plan.count, knownQuestionTexts, plan.bloomLevel, plan.conceptTier, plan.tierConcepts))
     );
-    const flattened = waveResults.flat();
-    addUniqueQuestions(flattened as Question[]);
+    const flattened: Question[] = [];
+    let failCount = 0;
+    for (const r of settled) {
+      if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+        flattened.push(...(r.value as Question[]));
+      } else if (r.status === 'rejected') {
+        failCount += 1;
+        console.warn(`[runWave] ${waveLabel} batch rejected:`, r.reason?.message || r.reason);
+      }
+    }
+    if (failCount > 0) {
+      console.warn(`[runWave] ${waveLabel}: ${failCount}/${plans.length} batch(es) failed; keeping partial results.`);
+    }
+    addUniqueQuestions(flattened);
   };
 
   // --- EXECUTE: 2-PHASE PRIORITY PIPELINE ---
@@ -1304,7 +1327,7 @@ VIOLATION EXAMPLES (DO NOT DO THIS):
         }
       }
 
-      // Top-up if deduplication removed too many questions
+      // Top-up if deduplication removed too many questions (never abort whole quiz)
       let topUpRound = 0;
       let syntheticBatchIndex = globalBatchIdx;
       while (allGeneratedQuestions.length < questionCount && topUpRound < MAX_TOP_UP_ROUNDS) {
@@ -1312,13 +1335,15 @@ VIOLATION EXAMPLES (DO NOT DO THIS):
         let madeProgressInRound = false;
         while (allGeneratedQuestions.length < questionCount) {
           const remaining = questionCount - allGeneratedQuestions.length;
-          const waveSize = Math.min(PARALLEL_BATCHES, Math.ceil(remaining / BATCH_SIZE));
+          // Smaller waves late-stage: lower rate-limit / truncated-JSON risk
+          const topUpBatchSize = Math.min(BATCH_SIZE, 6);
+          const waveSize = Math.min(Math.min(PARALLEL_BATCHES, 3), Math.ceil(remaining / topUpBatchSize));
           if (waveSize <= 0) break;
 
           const plans: Array<{ batchIndex: number; count: number }> = [];
           for (let slot = 0; slot < waveSize; slot++) {
-            const slotRemaining = remaining - (slot * BATCH_SIZE);
-            const countForBatch = Math.min(BATCH_SIZE, slotRemaining);
+            const slotRemaining = remaining - (slot * topUpBatchSize);
+            const countForBatch = Math.min(topUpBatchSize, slotRemaining);
             if (countForBatch > 0) {
               plans.push({ batchIndex: syntheticBatchIndex, count: countForBatch });
               syntheticBatchIndex += 1;
@@ -1327,7 +1352,12 @@ VIOLATION EXAMPLES (DO NOT DO THIS):
 
           if (plans.length === 0) break;
           const beforeWaveCount = allGeneratedQuestions.length;
-          await runWave(plans, `Top-up ${topUpRound}`);
+          try {
+            await runWave(plans, `Top-up ${topUpRound}`);
+          } catch (topUpErr: any) {
+            console.warn(`[Top-up ${topUpRound}] soft-fail:`, topUpErr?.message || topUpErr);
+            break;
+          }
           const addedThisWave = allGeneratedQuestions.length - beforeWaveCount;
           if (addedThisWave <= 0) {
             break;
@@ -1337,57 +1367,78 @@ VIOLATION EXAMPLES (DO NOT DO THIS):
         if (!madeProgressInRound) break;
       }
 
-      // Smart Overflow: If we still don't have enough questions, escalate Bloom level
+      // Smart Overflow: still short → escalate Bloom, but in SMALL batches via generateBatch
+      // (old path requested ALL remaining in one 16k-token call → JSON truncate / rate limit → hard fail)
       if (allGeneratedQuestions.length < questionCount) {
-         const remaining = questionCount - allGeneratedQuestions.length;
+         const remainingTotal = questionCount - allGeneratedQuestions.length;
          onProgress(getLocale() === 'id'
-      ? `Materi hampir habis. Membuat ${remaining} soal tambahan (Smart Overflow)…`
-      : `Material nearly exhausted. Adding ${remaining} more questions (Smart Overflow)…`);
+           ? `Materi hampir habis. Membuat ${remainingTotal} soal tambahan (Smart Overflow)…`
+           : `Material nearly exhausted. Adding ${remainingTotal} more questions (Smart Overflow)…`);
          
-         const escalateBloom = (styles: ExamStyle[]) => {
-            if (styles.includes(ExamStyle.C5_EVALUATION)) return [ExamStyle.C5_EVALUATION, ExamStyle.C4_ANALYSIS];
-            if (styles.includes(ExamStyle.C4_ANALYSIS)) return [ExamStyle.C5_EVALUATION];
-            if (styles.includes(ExamStyle.C3_APPLICATION)) return [ExamStyle.C4_ANALYSIS];
-            if (styles.includes(ExamStyle.C2_CONCEPT)) return [ExamStyle.C3_APPLICATION];
-            return [ExamStyle.C2_CONCEPT]; // C1 -> C2
+         const escalateBloom = (styles: ExamStyle[]): ExamStyle => {
+            if (styles.includes(ExamStyle.C5_EVALUATION)) return ExamStyle.C5_EVALUATION;
+            if (styles.includes(ExamStyle.C4_ANALYSIS)) return ExamStyle.C5_EVALUATION;
+            if (styles.includes(ExamStyle.C3_APPLICATION)) return ExamStyle.C4_ANALYSIS;
+            if (styles.includes(ExamStyle.C2_CONCEPT)) return ExamStyle.C3_APPLICATION;
+            return ExamStyle.C2_CONCEPT; // C1 -> C2
          };
          
-         const escalatedStyles = escalateBloom(examStyles);
-         const escalatedBloomInstruction = escalatedStyles.map(s => getBloomPromptSingle(s)).join('\n');
-         
-         const overflowBatchPrompt = `
-           GOAL: Create ${remaining} multiple-choice questions about: "${topic || 'Context'}".
-           SMART OVERFLOW ACTIVE: Material exhausted at lower cognitive levels. Escalate concepts.
-           
-           ${escalatedBloomInstruction}
-           
-           INSTRUCTIONS:
-           1. GENERATE EXACTLY ${remaining} JSON objects.
-           2. OPTIONS: A Correct, B-D Distractors.
-           ${outputLanguageRule()}
-           OUTPUT JSON format only.
-         `;
-         const overflowParts = [...baseParts, { text: overflowBatchPrompt }];
-         try {
-             const data = await callAI('generateQuizBatch', { 
-                apiKey, 
-                modelName: selectedModel, 
-                parts: overflowParts, 
-                responseSchema, 
-                temperature: 0.7,
-                maxOutputTokens: 16384
-             });
-             const rawQuestions = cleanAndParseJSON(data.result || "");
-             const validQuestions = rawQuestions.filter((q: any) => q.text && q.options && q.options.length > 1);
-             const overflowQuestions = validQuestions.map(sanitizeQuestion) as any[];
-             addUniqueQuestions(overflowQuestions);
-         } catch (e) {
-             console.warn("Smart Overflow failed:", e);
+         const overflowStyle = escalateBloom(examStyles);
+         const OVERFLOW_BATCH = 5;
+         const OVERFLOW_ROUNDS = 4;
+         let overflowRound = 0;
+         let stagnant = 0;
+
+         while (allGeneratedQuestions.length < questionCount && overflowRound < OVERFLOW_ROUNDS && stagnant < 2) {
+           overflowRound += 1;
+           const remaining = questionCount - allGeneratedQuestions.length;
+           const countForBatch = Math.min(OVERFLOW_BATCH, remaining);
+           const before = allGeneratedQuestions.length;
+           try {
+             onProgress(getLocale() === 'id'
+               ? `Smart Overflow ${overflowRound}: +${countForBatch} soal (${overflowStyle})…`
+               : `Smart Overflow ${overflowRound}: +${countForBatch} questions (${overflowStyle})…`);
+             const known = allGeneratedQuestions.map(q => q.text);
+             const more = await generateBatch(
+               syntheticBatchIndex++,
+               countForBatch,
+               known,
+               overflowStyle,
+               'FILLER'
+             );
+             addUniqueQuestions(more as Question[]);
+           } catch (e: any) {
+             console.warn(`Smart Overflow round ${overflowRound} failed:`, e?.message || e);
+             stagnant += 1;
+             continue;
+           }
+           if (allGeneratedQuestions.length <= before) {
+             stagnant += 1;
+           } else {
+             stagnant = 0;
+           }
+         }
+
+         if (allGeneratedQuestions.length < questionCount) {
+           onProgress(getLocale() === 'id'
+             ? `Smart Overflow selesai partial: ${allGeneratedQuestions.length}/${questionCount} soal.`
+             : `Smart Overflow finished partial: ${allGeneratedQuestions.length}/${questionCount} questions.`);
          }
       }
 
       if (allGeneratedQuestions.length < 1) {
-         throw new Error(`Gagal generate soal dengan model ${selectedModel}. Coba ganti model atau kurangi materi.`);
+         throw new Error(
+           getLocale() === 'id'
+             ? `Gagal generate soal dengan model ${selectedModel}. Coba ganti model, kurangi jumlah soal, atau perjelas materi.`
+             : `Could not generate questions with model ${selectedModel}. Try another model, fewer questions, or clearer material.`
+         );
+      }
+
+      // Partial success is OK — never throw just because count < target
+      if (allGeneratedQuestions.length < questionCount) {
+        console.warn(
+          `[QuizGen] Returning ${allGeneratedQuestions.length}/${questionCount} questions (partial fill after top-up/overflow).`
+        );
       }
 
       const finalQuestions = allGeneratedQuestions.slice(0, questionCount).map((q, index) => ({
@@ -1399,6 +1450,22 @@ VIOLATION EXAMPLES (DO NOT DO THIS):
 
   } catch (err: any) {
       console.error("Gemini Fatal Error:", err);
+      // Last-chance salvage: if we already collected some questions, return them
+      // instead of showing a full failure after a long successful run.
+      if (allGeneratedQuestions.length > 0) {
+        console.warn(
+          `[QuizGen] Recovering ${allGeneratedQuestions.length} questions after late error:`,
+          err?.message || err
+        );
+        onProgress(getLocale() === 'id'
+          ? `Menyimpan ${allGeneratedQuestions.length} soal yang berhasil…`
+          : `Saving ${allGeneratedQuestions.length} questions that succeeded…`);
+        const finalQuestions = allGeneratedQuestions.slice(0, questionCount).map((q, index) => ({
+          ...q,
+          id: index + 1
+        }));
+        return { questions: finalQuestions, contextText, conceptMap };
+      }
       throw err;
   }
 };

@@ -33,12 +33,14 @@ export const transformToMixed = (questions: Question[]): Question[] => {
 export const shuffleOptions = (questions: Question[]): Question[] => {
   return questions.map(q => {
     // Hanya acak Multiple Choice. T/F biasanya urutannya tetap (Benar/Salah).
-    if (q.type && q.type !== 'MULTIPLE_CHOICE') return q; 
+    if (q.type && q.type !== 'MULTIPLE_CHOICE') return q;
+    if (!Array.isArray(q.options) || q.options.length < 2) return q;
 
     // Deep copy options agar aman
     const currentOptions = [...q.options];
     const originalOptions = [...q.options];
-    const correctAnswerText = currentOptions[q.correctIndex];
+    const safeCorrect = Math.max(0, Math.min(currentOptions.length - 1, Number(q.correctIndex) || 0));
+    const correctAnswerText = currentOptions[safeCorrect];
 
     // Fisher-Yates Shuffle
     for (let i = currentOptions.length - 1; i > 0; i--) {
@@ -47,7 +49,8 @@ export const shuffleOptions = (questions: Question[]): Question[] => {
     }
 
     // Cari index baru untuk jawaban yang benar
-    const newCorrectIndex = currentOptions.indexOf(correctAnswerText);
+    let newCorrectIndex = currentOptions.indexOf(correctAnswerText);
+    if (newCorrectIndex < 0) newCorrectIndex = 0;
 
     // Map old indices to new letters (A -> new letter, B -> new letter, etc.)
     const mapping: Record<string, string> = {};
