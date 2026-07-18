@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { AnimatePresence } from 'framer-motion';
 import { useCamera } from '../contexts/CameraContext';
+import { DwellIndicator, DwellRingBadge } from './DwellIndicator';
+import { getLocale } from '../services/i18n';
 
 /**
  * Nose pointer — comfort-first head mouse (micromovement).
@@ -446,16 +449,18 @@ export const NoseTrackingManager: React.FC<NoseTrackingManagerProps> = ({
 
     // Direct DOM Mutation for Zero Latency
     if (pointerRef.current) {
-      pointerRef.current.style.transform = `translate3d(${targetX}px, ${targetY}px, 0) translate(-50%, -50%)`;
+      const scale = isSmilingRef.current ? 1.12 : 1;
+      pointerRef.current.style.transform = `translate3d(${targetX}px, ${targetY}px, 0) translate(-50%, -50%) scale(${scale})`;
       pointerRef.current.style.opacity = showCursor ? '1' : '0';
-      
-      if (isSmilingRef.current) {
-          pointerRef.current.style.borderColor = '#10b981';
-          pointerRef.current.style.boxShadow = '0 0 15px rgba(16, 185, 129, 0.8)';
-          pointerRef.current.style.transform += ' scale(1.2)';
-      } else {
-          pointerRef.current.style.borderColor = 'rgba(255,255,255,0.9)';
-          pointerRef.current.style.boxShadow = '0 0 0 1px rgba(0,0,0,0.25)';
+      const ring = pointerRef.current.firstElementChild as HTMLElement | null;
+      if (ring) {
+        if (isSmilingRef.current) {
+          ring.style.borderColor = '#10b981';
+          ring.style.boxShadow = '0 0 0 1px rgba(16,185,129,0.35), 0 0 16px rgba(16,185,129,0.45)';
+        } else {
+          ring.style.borderColor = 'rgba(255,255,255,0.95)';
+          ring.style.boxShadow = '0 0 0 1px rgba(0,0,0,0.2), 0 4px 14px rgba(0,0,0,0.15)';
+        }
       }
     }
 
@@ -596,129 +601,246 @@ export const NoseTrackingManager: React.FC<NoseTrackingManagerProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // --- APPLY VISUAL FEEDBACK ---
+  // Option highlight: ring + soft border only (never paint text over / scale sloppy)
   useEffect(() => {
     const optionElements = document.querySelectorAll('[data-option-index]');
-    
     optionElements.forEach((el) => {
       const htmlEl = el as HTMLElement;
       const idx = parseInt(htmlEl.getAttribute('data-option-index') || '-1', 10);
-      
-      if (idx === hoveredOption) {
-        htmlEl.style.background = `linear-gradient(to right, rgba(16, 185, 129, 0.2) ${dwellProgress}%, transparent ${dwellProgress}%)`;
-        htmlEl.style.transform = `scale(${1 + (dwellProgress / 100) * 0.05})`;
-        htmlEl.style.transition = 'none';
+      // ensure host can pin a badge
+      if (getComputedStyle(htmlEl).position === 'static') {
+        htmlEl.style.position = 'relative';
+      }
+      let badge = htmlEl.querySelector('[data-dwell-badge]') as HTMLElement | null;
+      if (idx === hoveredOption && typeof hoveredOption === 'number') {
+        htmlEl.style.boxShadow = '0 0 0 2px rgba(16,185,129,0.55), 0 8px 24px rgba(16,185,129,0.12)';
+        htmlEl.style.borderColor = 'rgba(16,185,129,0.45)';
+        if (!badge) {
+          badge = document.createElement('div');
+          badge.setAttribute('data-dwell-badge', '1');
+          badge.style.cssText =
+            'position:absolute;top:10px;right:10px;z-index:5;pointer-events:none;';
+          htmlEl.appendChild(badge);
+        }
+        // progress via CSS variable for the ring drawn in React portal instead —
+        // keep DOM badge as thin bar only
+        badge.innerHTML = '';
+        const bar = document.createElement('div');
+        bar.style.cssText =
+          'width:36px;height:3px;border-radius:999px;background:rgba(226,232,240,0.95);overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.06)';
+        const fill = document.createElement('div');
+        fill.style.cssText = `height:100%;width:${dwellProgress}%;background:linear-gradient(90deg,#34d399,#10b981);border-radius:999px;transition:width 50ms linear`;
+        bar.appendChild(fill);
+        badge.appendChild(bar);
       } else {
-        htmlEl.style.background = '';
-        htmlEl.style.transform = '';
-        htmlEl.style.transition = 'all 0.2s ease';
+        htmlEl.style.boxShadow = '';
+        htmlEl.style.borderColor = '';
+        if (badge) badge.remove();
       }
     });
   }, [hoveredOption, dwellProgress]);
 
   const resetPointer = () => recenterFromCurrentNose();
+  const id = getLocale() === 'id';
+
+  const dwellTitle =
+    typeof hoveredOption === 'number'
+      ? id
+        ? `Pilihan ${['A', 'B', 'C', 'D'][hoveredOption] || hoveredOption + 1}`
+        : `Option ${['A', 'B', 'C', 'D'][hoveredOption] || hoveredOption + 1}`
+      : hoveredNav === 'next'
+        ? id
+          ? 'Lanjut'
+          : 'Next'
+        : hoveredNav === 'prev'
+          ? id
+            ? 'Kembali'
+            : 'Back'
+          : '';
+
+  const dwellGlyph =
+    typeof hoveredOption === 'number'
+      ? ['A', 'B', 'C', 'D'][hoveredOption] || String(hoveredOption + 1)
+      : hoveredNav === 'next'
+        ? '→'
+        : hoveredNav === 'prev'
+          ? '←'
+          : '';
+
+  const activeDwell =
+    typeof hoveredOption === 'number'
+      ? dwellProgress
+      : hoveredNav
+        ? navDwellProgress
+        : 0;
+
+  const showDwellHud =
+    (typeof hoveredOption === 'number' && dwellProgress > 0) ||
+    (hoveredNav !== null && navDwellProgress > 0);
 
   // Portal to body so Framer Motion transform ancestors cannot trap `fixed`
   const ui = (
     <>
+      {/* Top status — glass, not loud emerald brick */}
       <div
-        className="fixed z-[300] bg-emerald-500 text-white px-3 py-1.5 rounded-xl shadow-lg text-[11px] font-bold flex items-center gap-2 pointer-events-none"
-        style={{ top: 'max(0.75rem, env(safe-area-inset-top))', left: 'max(0.75rem, env(safe-area-inset-left))' }}
+        className="fixed z-[300] pointer-events-none flex items-center gap-2"
+        style={{
+          top: 'max(0.75rem, env(safe-area-inset-top))',
+          left: 'max(0.75rem, env(safe-area-inset-left))',
+        }}
       >
-        <span className="animate-pulse">👃</span>
-        {status}
+        <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-white/80 shadow-lg text-[11px] font-medium text-slate-700 dark:text-slate-200 tracking-tight">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          {status}
+        </div>
       </div>
 
       <div
-        className="fixed z-[300] flex gap-2 pointer-events-none"
+        className="fixed z-[300] pointer-events-none"
         style={{
           top: 'max(0.75rem, env(safe-area-inset-top))',
           left: '50%',
           transform: 'translateX(-50%)',
         }}
       >
-        <div className="bg-slate-900/90 text-white px-3 py-1.5 rounded-full shadow-lg text-[11px] font-bold flex items-center gap-2">
-          {isSmiling ? (
-            <span className="text-emerald-300">😊 Recenter…</span>
-          ) : (
-            <span>Micro-move neck · Smile/R = rest pose</span>
-          )}
+        <div className="px-3 py-1.5 rounded-full bg-slate-900/85 backdrop-blur-md text-white/90 text-[11px] font-medium tracking-tight shadow-lg border border-white/10">
+          {isSmiling
+            ? id
+              ? '😊 Menyetel ulang pose…'
+              : '😊 Recentering…'
+            : id
+              ? 'Gerakan kecil · Senyum / R = istirahat'
+              : 'Micro-move · Smile / R = rest'}
         </div>
       </div>
 
       <button
         type="button"
         onClick={resetPointer}
-        className="fixed z-[300] bg-white/95 backdrop-blur border border-slate-200 text-slate-700 px-3 py-2 rounded-xl shadow text-xs font-bold hover:bg-emerald-50 pointer-events-auto"
+        className="fixed z-[300] px-3 py-1.5 rounded-xl bg-white/95 backdrop-blur border border-slate-200/80 text-slate-700 text-[11px] font-semibold tracking-tight shadow-lg hover:bg-emerald-50 pointer-events-auto transition-colors"
         style={{
           top: 'max(0.75rem, env(safe-area-inset-top))',
           right: 'max(0.75rem, env(safe-area-inset-right))',
         }}
       >
-        Recenter
+        {id ? 'Recenter' : 'Recenter'}
       </button>
 
-      {/* GHOST POINTER */}
+      {/* Floating dwell card — same language as hand mode */}
+      <div
+        className="fixed z-[360] pointer-events-none"
+        style={{
+          top: 'max(3.5rem, calc(env(safe-area-inset-top) + 2.75rem))',
+          left: '50%',
+          transform: 'translateX(-50%)',
+        }}
+      >
+        <AnimatePresence mode="wait">
+          {showDwellHud && (
+            <DwellIndicator
+              key={`${hoveredOption}-${hoveredNav}`}
+              progress={activeDwell}
+              glyph={dwellGlyph}
+              title={dwellTitle}
+              subtitle={
+                activeDwell >= 100
+                  ? id
+                    ? 'Terkonfirmasi'
+                    : 'Confirmed'
+                  : id
+                    ? 'Tahan untuk konfirmasi'
+                    : 'Hold to confirm'
+              }
+              tone={hoveredNav ? 'indigo' : 'emerald'}
+              showPercent
+            />
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* GHOST POINTER — ring progress lives on pointer, not on option text */}
       <div
         ref={pointerRef}
-        className="fixed top-0 left-0 pointer-events-none z-[400]"
+        className="fixed top-0 left-0 pointer-events-none z-[400] flex items-center justify-center"
         style={{
-          width: '28px',
-          height: '28px',
-          border: '2.5px solid rgba(255,255,255,0.95)',
-          backdropFilter: 'invert(1)',
-          borderRadius: '50%',
-          opacity: 0,
-          transition: 'opacity 0.2s ease',
+          width: 36,
+          height: 36,
           willChange: 'transform',
+          opacity: 0,
         }}
-      />
+      >
+        <div
+          className="absolute inset-0 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.2),0_4px_14px_rgba(0,0,0,0.15)]"
+          style={{ backdropFilter: 'invert(1)' }}
+        />
+        {showDwellHud && (
+          <div className="absolute -top-1 -right-1">
+            <DwellRingBadge
+              progress={activeDwell}
+              tone={hoveredNav ? 'indigo' : 'emerald'}
+              size={22}
+            />
+          </div>
+        )}
+      </div>
 
-      {/* Prev/Next — full height edges (any vertical position) */}
+      {/* Prev/Next edges — thin rail + label pill, not full wash */}
       <div
-        className={`fixed inset-y-0 left-0 w-14 pointer-events-none z-[350] transition-opacity duration-200 flex items-center justify-start pl-1 ${
+        className={`fixed inset-y-0 left-0 w-12 pointer-events-none z-[350] flex flex-col items-center justify-center gap-2 transition-opacity duration-200 ${
           hoveredNav === 'prev' ? 'opacity-100' : 'opacity-0'
         }`}
-        style={{
-          background: `linear-gradient(to right, rgba(99, 102, 241, 0.32) ${navDwellProgress}%, transparent ${navDwellProgress}%)`,
-        }}
       >
-        <div className="text-indigo-500 font-bold text-xs opacity-80 rotate-0">PREV</div>
+        <div className="absolute inset-y-8 left-0 w-1 rounded-full bg-slate-200/80 overflow-hidden">
+          <div
+            className="absolute bottom-0 left-0 right-0 bg-indigo-500 transition-[height] duration-75"
+            style={{ height: `${navDwellProgress}%` }}
+          />
+        </div>
+        <span className="text-[10px] font-semibold tracking-wide text-indigo-600 bg-white/90 px-2 py-1 rounded-lg shadow border border-indigo-100">
+          {id ? 'Kembali' : 'Back'}
+        </span>
       </div>
 
       <div
-        className={`fixed inset-y-0 right-0 w-14 pointer-events-none z-[350] transition-opacity duration-200 flex items-center justify-end pr-1 ${
+        className={`fixed inset-y-0 right-0 w-12 pointer-events-none z-[350] flex flex-col items-center justify-center gap-2 transition-opacity duration-200 ${
           hoveredNav === 'next' ? 'opacity-100' : 'opacity-0'
         }`}
-        style={{
-          background: `linear-gradient(to left, rgba(99, 102, 241, 0.32) ${navDwellProgress}%, transparent ${navDwellProgress}%)`,
-        }}
       >
-        <div className="text-indigo-500 font-bold text-xs opacity-80">NEXT</div>
+        <div className="absolute inset-y-8 right-0 w-1 rounded-full bg-slate-200/80 overflow-hidden">
+          <div
+            className="absolute bottom-0 left-0 right-0 bg-indigo-500 transition-[height] duration-75"
+            style={{ height: `${navDwellProgress}%` }}
+          />
+        </div>
+        <span className="text-[10px] font-semibold tracking-wide text-indigo-600 bg-white/90 px-2 py-1 rounded-lg shadow border border-indigo-100">
+          {id ? 'Lanjut' : 'Next'}
+        </span>
       </div>
 
-      {/* Thin scroll hints (8% zones) */}
+      {/* Scroll hints — subtle, not shouting */}
       <div
-        className={`fixed top-0 left-0 w-full h-14 pointer-events-none z-[340] transition-opacity duration-200 flex justify-center items-start pt-2 ${
+        className={`fixed top-0 left-0 w-full h-10 pointer-events-none z-[340] transition-opacity duration-200 flex justify-center items-start pt-1.5 ${
           hoveredScroll === 'up' ? 'opacity-100' : 'opacity-0'
         }`}
-        style={{ background: 'linear-gradient(to bottom, rgba(16, 185, 129, 0.18), transparent)' }}
       >
-        <div className="text-emerald-600 font-bold text-[10px] opacity-80">SCROLL UP</div>
+        <span className="text-[10px] font-medium text-emerald-700/80 bg-white/80 px-2.5 py-0.5 rounded-full border border-emerald-100 shadow-sm tracking-tight">
+          {id ? 'Gulir atas' : 'Scroll up'}
+        </span>
       </div>
 
       <div
-        className={`fixed bottom-0 left-0 w-full h-14 pointer-events-none z-[340] transition-opacity duration-200 flex justify-center items-end pb-2 ${
+        className={`fixed bottom-0 left-0 w-full h-10 pointer-events-none z-[340] transition-opacity duration-200 flex justify-center items-end pb-1.5 ${
           hoveredScroll === 'down' ? 'opacity-100' : 'opacity-0'
         }`}
-        style={{ background: 'linear-gradient(to top, rgba(16, 185, 129, 0.18), transparent)' }}
       >
-        <div className="text-emerald-600 font-bold text-[10px] opacity-80">SCROLL DOWN</div>
+        <span className="text-[10px] font-medium text-emerald-700/80 bg-white/80 px-2.5 py-0.5 rounded-full border border-emerald-100 shadow-sm tracking-tight">
+          {id ? 'Gulir bawah' : 'Scroll down'}
+        </span>
       </div>
 
-      {/* Camera preview — viewport-fixed, above bottom chrome, object-contain for 1:1 guide */}
+      {/* Camera preview */}
       <div
-        className="fixed z-[300] w-[9.5rem] h-[7.25rem] md:w-[12.5rem] md:h-[9.5rem] rounded-2xl overflow-hidden border-2 border-emerald-400 shadow-2xl bg-black ring-2 ring-emerald-500/25"
+        className="fixed z-[300] w-[9.5rem] h-[7.25rem] md:w-[12.5rem] md:h-[9.25rem] rounded-[1.25rem] overflow-hidden border border-white/25 shadow-2xl bg-slate-950 ring-1 ring-emerald-400/35"
         style={{
           right: 'max(0.75rem, env(safe-area-inset-right))',
           bottom: 'max(5.5rem, calc(env(safe-area-inset-bottom) + 4.5rem))',
@@ -735,9 +857,11 @@ export const NoseTrackingManager: React.FC<NoseTrackingManagerProps> = ({
           ref={canvasRef}
           className="absolute inset-0 w-full h-full object-contain transform -scale-x-100"
         />
-        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1">
-          <p className="text-[8px] text-white font-semibold text-center leading-tight">
-            Tiny neck moves · white cross = rest · left/right edge = prev/next
+        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/75 to-transparent px-2 py-1.5">
+          <p className="text-[9px] text-white/80 font-medium text-center leading-snug tracking-tight">
+            {id
+              ? 'Silang = istirahat · tepi kiri/kanan = navigasi'
+              : 'Cross = rest · side edges = navigate'}
           </p>
         </div>
       </div>
