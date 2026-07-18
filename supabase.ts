@@ -81,14 +81,38 @@ function mapUser(u: SbUser | null) {
   };
 }
 
+/**
+ * CRITICAL: only notify when identity changes (signed in/out / different uid).
+ * TOKEN_REFRESHED and other noise must NOT re-trigger App/History "login sync"
+ * (that was the fatal re-entrancy bug: sync "never finished").
+ */
+function notifyIfIdentityChanged(next: SbUser | null, reason: string) {
+  const prevId = _user?.id ?? null;
+  const nextId = next?.id ?? null;
+  _user = next;
+  if (prevId === nextId) {
+    // Still update in-memory user (metadata) but do not spam listeners
+    if (prevId && next) {
+      // no listener fan-out on pure token refresh
+      return;
+    }
+    return;
+  }
+  console.log(`[auth] identity ${reason}: ${prevId ?? 'out'} → ${nextId ?? 'out'}`);
+  listeners.forEach((cb) => cb(_user));
+}
+
 if (supabase) {
   supabase.auth.getSession().then(({ data }) => {
-    _user = data.session?.user ?? null;
-    listeners.forEach((cb) => cb(_user));
+    notifyIfIdentityChanged(data.session?.user ?? null, 'getSession');
   });
-  supabase.auth.onAuthStateChange((_event, session) => {
-    _user = session?.user ?? null;
-    listeners.forEach((cb) => cb(_user));
+  supabase.auth.onAuthStateChange((event, session) => {
+    // Ignore token refresh / user updated for app-level lifecycle
+    if (event === 'TOKEN_REFRESHED') {
+      _user = session?.user ?? _user;
+      return;
+    }
+    notifyIfIdentityChanged(session?.user ?? null, event);
   });
 }
 
@@ -99,12 +123,13 @@ export const auth = {
   onAuthStateChanged(callback: (user: any) => void) {
     const wrapped: AuthListener = (u) => callback(mapUser(u));
     listeners.add(wrapped);
+    // Immediate current snapshot (may be null until getSession resolves)
     wrapped(_user);
     return () => listeners.delete(wrapped);
   },
   async signOut() {
     if (supabase) await supabase.auth.signOut();
-    _user = null;
+    notifyIfIdentityChanged(null, 'signOut');
   },
 };
 

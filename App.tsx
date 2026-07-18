@@ -27,9 +27,7 @@ import {
   updateLocalQuizQuestions,
   searchCloudQuiz,
   downloadQuizFromCloud,
-  unifiedSync,
   registerNetworkSyncListener,
-  subscribeToQuizzes,
   flushPendingUploads
 } from './services/storageService'; 
 import { createRetentionSequence, NeuroSync } from './services/srsService'; 
@@ -42,7 +40,7 @@ import { QuizState, Question, QuizResult, ModelConfig, QuizMode, AppView, ExamSt
 import { Info, CreditCard, AlertTriangle, Play, RotateCcw, X as XIcon } from 'lucide-react';
 import { useAppStore } from './store/useAppStore';
 import { auth, isSupabaseConfigured } from './supabase';
-import { startRealtimeSync, stopRealtimeSync, runFullSync } from './services/syncService';
+import { onSignedIn, onSignedOut } from './services/syncService';
 // auth.onAuthStateChanged provided by supabase shim
 
 import { useAutoSave } from './hooks/useAutoSave';
@@ -129,41 +127,26 @@ const App: React.FC = () => {
        flushPendingUploads().catch(e => console.log("Flush pending background error:", e));
     }, 60000); // Check every minute
 
-    let unsubQuizzes = () => {};
-
-    // Auth listener (Supabase shim)
-    const unsubscribe = auth.onAuthStateChanged(async (user) => {
+    // Auth: fires only on real identity change (see supabase.ts).
+    // Login → one background pull. Never re-subscribe full sync on token refresh.
+    const unsubscribe = auth.onAuthStateChanged((user) => {
       if (user) {
-        try {
-          setCurrentUser({
-            ...user,
-            email: user.email,
-            uid: user.uid,
-            displayName: user.displayName,
-            photoURL: user.photoURL,
-            isAdmin: false
-          });
-          // Local IDB is ready immediately. Cloud sync is background-only
-          // (subscribeToQuizzes emits local first, then single-flight sync + realtime).
-          console.log("User logged in — UI unlocked; cloud sync in background…");
-          setAuthLoading(false);
-          unsubQuizzes();
-          unsubQuizzes = subscribeToQuizzes(() => {
-            /* history updated after bg sync / realtime */
-          });
-        } catch (authError) {
-          console.error("Auth token refresh or verification failed, user might be deleted/kicked:", authError);
-          await auth.signOut();
-          setCurrentUser(null);
-          setAuthLoading(false);
-        }
+        setCurrentUser({
+          ...user,
+          email: user.email,
+          uid: user.uid,
+          displayName: user.displayName,
+          photoURL: user.photoURL,
+          isAdmin: false,
+        });
+        setAuthLoading(false);
+        console.log('[auth] signed in — local UI ready; cloud pull in background');
+        onSignedIn().catch((e) => console.warn('[auth] cloud pull', e));
       } else {
         setCurrentUser(null);
-        unsubQuizzes();
-        stopRealtimeSync();
+        onSignedOut();
         setAuthLoading(false);
       }
-      setAuthLoading(false);
     });
 
     // --- SETUP IDLE REMINDER ---

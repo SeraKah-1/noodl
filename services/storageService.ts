@@ -13,6 +13,11 @@ import {
   registerNetworkSyncListener as registerSyncNetwork,
   startRealtimeSync,
   stopRealtimeSync,
+  subscribeLocalHistory,
+  onSignedIn,
+  onSignedOut,
+  pullQuizDeltas,
+  drainOutbox,
 } from "./syncService";
 import { KEYS, migrateLegacyKeys, lsGet } from "./storageKeys";
 import { getProviderApiKey, setProviderApiKey } from "./providerService";
@@ -291,8 +296,7 @@ export const updateLibraryItem = async (id: string | number, updates: Partial<Li
       String(item.id) === String(id) ? { ...item, ...updates } : item
     );
   });
-  // library cloud push via full sync
-  if (auth.currentUser) runFullSync().catch(() => {});
+  // Local-only for now — do not kick full quiz sync on library edits
 };
 
 export const saveToLibrary = async (
@@ -313,7 +317,6 @@ export const saveToLibrary = async (
   };
   try {
     await update(LIBRARY_IDB_KEY, (val) => [newItem, ...(val || [])]);
-    if (auth.currentUser) runFullSync().catch(() => {});
   } catch (err) {
     console.error(err);
     alert("Could not save material. Check browser storage.");
@@ -327,14 +330,7 @@ export const getLibraryItems = async (): Promise<LibraryItem[]> => {
   } catch {
     localItems = [];
   }
-  if ((!localItems || localItems.length === 0) && auth.currentUser) {
-    try {
-      await runFullSync();
-      localItems = (await get(LIBRARY_IDB_KEY)) || [];
-    } catch {
-      /* ignore */
-    }
-  }
+  // Never block library UI on cloud — return local immediately
   return (localItems || []).sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
@@ -344,7 +340,6 @@ export const deleteLibraryItem = async (id: string | number) => {
   await update(LIBRARY_IDB_KEY, (val) =>
     (val || []).filter((item: LibraryItem) => String(item.id) !== String(id))
   );
-  if (auth.currentUser) runFullSync().catch(() => {});
 };
 
 // ── Quizzes ───────────────────────────────────────────────
@@ -434,38 +429,29 @@ export const flushPendingUploads = async () => {
 };
 
 export const getSavedQuizzes = async (): Promise<any[]> => {
-  let localHistory: any[] = (await get(HISTORY_IDB_KEY)) || [];
-  if ((!localHistory || localHistory.length === 0) && auth.currentUser) {
-    try {
-      await runFullSync();
-      localHistory = (await get(HISTORY_IDB_KEY)) || [];
-    } catch (e) {
-      console.error(e);
-    }
-  }
-  return localHistory || [];
+  // Local-only. Cloud pull is owned by onSignedIn / manual sync — never await here.
+  return ((await get(HISTORY_IDB_KEY)) as any[]) || [];
 };
 
+/**
+ * Subscribe to local quiz history.
+ * Does NOT start full cloud sync (that was the fatal double-subscribe bug).
+ * Cloud: App calls onSignedIn once; realtime is single-channel in syncService.
+ */
 export const subscribeToQuizzes = (callback: (quizzes: any[]) => void) => {
-  if (!auth.currentUser) {
-    get(HISTORY_IDB_KEY).then((h: any) => callback(h || []));
-    return () => {};
-  }
-  let cancelled = false;
-  const emit = async () => {
-    const history = (await get(HISTORY_IDB_KEY)) || [];
-    if (!cancelled) callback(history);
-  };
-  // Local first so UI/generate never wait on cloud
-  emit();
-  // Background merge only (single-flight inside runFullSync)
-  runFullSync().then(emit).catch(() => emit());
-  const stop = startRealtimeSync(() => emit());
-  return () => {
-    cancelled = true;
-    stop?.();
-  };
+  return subscribeLocalHistory(callback);
 };
+
+/** @deprecated use onSignedIn from syncService — kept for call sites */
+export const ensureCloudSession = async () => {
+  if (!auth.currentUser) {
+    onSignedOut();
+    return;
+  }
+  return onSignedIn();
+};
+
+export { onSignedIn, onSignedOut, pullQuizDeltas, drainOutbox };
 
 export const deleteQuiz = async (id: number | string) => {
   await update(HISTORY_IDB_KEY, (val) =>
@@ -566,9 +552,9 @@ export const downloadQuizFromCloud = async (quiz: any) => {
 
 export const getCloudQuizzes = async (filter: "public" | "mine" = "public"): Promise<any[]> => {
   if (!auth.currentUser) return [];
-  // Use local immediately — do not await full cloud re-upload
   const all = (await get(HISTORY_IDB_KEY)) || [];
-  runFullSync().catch(() => {});
+  // Background pull only — never block list rendering
+  pullQuizDeltas().catch(() => {});
   if (filter === "mine") {
     return all.filter(
       (q: any) => q.userId === auth.currentUser?.uid || q.authorId === auth.currentUser?.uid

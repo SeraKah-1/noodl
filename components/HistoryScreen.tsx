@@ -71,28 +71,26 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onS
     return () => unsubscribe();
   }, []);
 
+  // Depend on uid string only — not whole user object (avoids reload on every auth noise)
+  const uid = currentUser?.uid || null;
+
   useEffect(() => {
     let unsub = () => {};
-    
+
     if (viewMode === 'local') {
+      // Local IDB first — never gate Files on cloud
       setIsLoading(true);
-      if (auth.currentUser) {
-         unsub = subscribeToQuizzes((data) => {
-            setQuizHistory(data);
-            setIsLoading(false);
-         });
-      } else {
-         getSavedQuizzes().then(data => {
-            setQuizHistory(data);
-            setIsLoading(false);
-         });
-      }
+      unsub = subscribeToQuizzes((data) => {
+        setQuizHistory(data);
+        setIsLoading(false);
+      });
     } else {
       refreshCloudQuizzes();
     }
-    
+
     return () => unsub();
-  }, [viewMode, cloudFilter, currentUser]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, cloudFilter, uid]);
 
   const refreshCloudQuizzes = async () => {
     if (viewMode === 'cloud' && !auth.currentUser && cloudFilter === 'mine') {

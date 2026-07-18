@@ -1,21 +1,16 @@
 /**
- * Cross-device sync (offline-first + Supabase) — FAST PATH
+ * Noodl cloud sync — local-first, event-driven (NOT bulk full-mirror).
  *
- * Why old sync took 20+ minutes:
- * - Re-uploaded EVERY quiz (full questions + meta + sim HTML) every time
- * - No per-request / global timeout → one hung upsert freezes forever
- * - select('*') pull of mega JSON rows
- * - Realtime re-triggered full re-upload storms
+ * Fundamental model (small student data finishes in seconds):
+ * 1. IndexedDB is always the UI source of truth
+ * 2. On real login (uid change): pull missing/newer rows once
+ * 3. On local write: push THAT quiz only (outbox if offline)
+ * 4. Realtime: pull the changed id only — never re-upload everything
+ * 5. Manual "Sync now": drain outbox + pull deltas
  *
- * New rules:
- * 1. Local IDB always usable; sync is best-effort background
- * 2. Light index pull (id + timestamps) first
- * 3. Push only dirty rows, slim payload, max N per cycle
- * 4. Soft-timeout whole sync + each request
- * 5. Never ship visualization HTML / graph HTML in cloud meta
- * 6. Single-flight; progress listeners for UI
+ * See Documents/grok/noodl/SYNC_FUNDAMENTAL_AUDIT.md
  */
-import { get, set } from 'idb-keyval';
+import { get, set, update } from 'idb-keyval';
 import { auth, supabase, isSupabaseConfigured } from '../supabase';
 import { KEYS } from './storageKeys';
 
@@ -25,19 +20,9 @@ export const PENDING_DELETIONS_KEY = KEYS.pendingDeletions;
 const LIBRARY_IDB_KEY = KEYS.libraryIdb;
 const SRS_IDB_KEY = KEYS.srsIdb;
 const DEVICE_KEY = 'noodl_device_id';
-const LAST_SYNC_KEY = 'noodl_last_full_sync_at';
 
-const PUSH_CONCURRENCY = 4;
-/** Hard cap so one cycle never runs 20 minutes */
-const SYNC_BUDGET_MS = 45_000;
-const REQUEST_TIMEOUT_MS = 12_000;
-/** Max heavy rows pushed per cycle — rest waits for next sync */
-const MAX_QUIZ_PUSH = 12;
-const MAX_LIBRARY_PUSH = 8;
-const MAX_SRS_PUSH = 40;
-/** Soft payload limit (chars of JSON) — strip more if over */
-const MAX_PAYLOAD_CHARS = 350_000;
-const MAX_LIBRARY_CONTENT = 80_000;
+const REQ_MS = 15_000;
+const MANUAL_BUDGET_MS = 30_000;
 
 export type SyncReport = {
   synced: boolean;
@@ -51,20 +36,20 @@ export type SyncReport = {
   remainingDirty?: number;
 };
 
-export type SyncProgress = {
-  phase: string;
-  detail?: string;
-  pushed?: number;
-  skipped?: number;
-};
+export type SyncProgress = { phase: string; detail?: string };
 
-let _syncPromise: Promise<SyncReport> | null = null;
+type QuizRow = any;
+
+let _pullPromise: Promise<SyncReport> | null = null;
+let _manualPromise: Promise<SyncReport> | null = null;
 let _realtimeUnsub: (() => void) | null = null;
 let _networkHooked = false;
+let _loginPullDoneForUid: string | null = null;
+const _historyListeners = new Set<(quizzes: any[]) => void>();
 const _progressListeners = new Set<(p: SyncProgress) => void>();
 
 export function isSyncInProgress(): boolean {
-  return _syncPromise != null;
+  return _pullPromise != null || _manualPromise != null;
 }
 
 export function onSyncProgress(fn: (p: SyncProgress) => void): () => void {
@@ -82,8 +67,8 @@ function emitProgress(p: SyncProgress) {
   });
 }
 
-function cloudReady() {
-  return Boolean(isSupabaseConfigured && supabase && auth.currentUser);
+function cloudReady(): boolean {
+  return Boolean(isSupabaseConfigured && supabase && auth.currentUser?.uid);
 }
 
 export function getDeviceId(): string {
@@ -107,36 +92,56 @@ function ts(v: any): number {
 
 function clientUpdated(row: any): string {
   return (
-    row.client_updated_at ||
-    row.updatedAt ||
-    row.updated_at ||
-    row.date ||
-    row.created_at ||
+    row?.client_updated_at ||
+    row?.updatedAt ||
+    row?.updated_at ||
+    row?.date ||
+    row?.created_at ||
     new Date(0).toISOString()
   );
 }
 
-function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error(`Timeout ${ms}ms: ${label}`)), ms);
-    p.then(
-      (v) => {
-        clearTimeout(t);
-        resolve(v);
-      },
-      (e) => {
-        clearTimeout(t);
-        reject(e);
-      }
-    );
+/** Normalize any thenable (Supabase builder) + hard timeout. */
+async function sb<T = any>(query: any, label: string, ms = REQ_MS): Promise<T> {
+  const run = Promise.resolve(query) as Promise<T>;
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Timeout ${ms}ms: ${label}`)), ms);
+  });
+  try {
+    return await Promise.race([run, timeout]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
+
+async function emitHistory() {
+  const history = ((await get(HISTORY_IDB_KEY)) as any[]) || [];
+  _historyListeners.forEach((cb) => {
+    try {
+      cb(history);
+    } catch {
+      /* ignore */
+    }
   });
 }
 
-/** Meta for cloud: drop megabyte blobs (sim HTML, graph HTML, huge context). */
-function slimQuizMeta(q: any): Record<string, unknown> {
-  if (!q || typeof q !== 'object') return {};
-  const out: Record<string, unknown> = {};
-  const keep = [
+/** UI subscribes to local history only — does NOT start cloud sync. */
+export function subscribeLocalHistory(callback: (quizzes: any[]) => void): () => void {
+  _historyListeners.add(callback);
+  get(HISTORY_IDB_KEY)
+    .then((h: any) => callback(h || []))
+    .catch(() => callback([]));
+  return () => {
+    _historyListeners.delete(callback);
+  };
+}
+
+// ── payload: keep normal quiz size; drop only known multi-MB regenerable HTML ──
+
+function buildQuizPayload(q: QuizRow, uid: string) {
+  const meta: Record<string, unknown> = {};
+  for (const k of [
     'fileName',
     'file_name',
     'title',
@@ -149,75 +154,37 @@ function slimQuizMeta(q: any): Record<string, unknown> {
     'lastScore',
     'lastPlayed',
     'questionCount',
-    'isPublic',
     'visibility',
     'accessCode',
     'date',
-    'updatedAt',
-    'client_updated_at',
-    'authorId',
-    'userId',
-  ] as const;
-  for (const k of keep) {
-    if (q[k] !== undefined) out[k] = q[k];
+    'aiOverviewData',
+  ]) {
+    if (q[k] !== undefined) meta[k] = q[k];
   }
-  // Keep AI overview (usually small JSON) — drop huge viz/graph HTML
-  if (q.aiOverviewData) out.aiOverviewData = q.aiOverviewData;
-  if (q.visualizationsData?.blueprints) {
-    out.visualizationsData = {
-      blueprints: q.visualizationsData.blueprints,
-      // results html is multi-MB — keep only status stubs
-      results: Array.isArray(q.visualizationsData.results)
-        ? q.visualizationsData.results.map((r: any) => ({
-            id: r.id,
-            status: r.status,
-            explanation: r.explanation,
-            // htmlCode intentionally omitted from cloud
-          }))
-        : [],
-    };
-  }
+  // Graph structure OK; HTML rebuilt client-side
   if (q.knowledgeGraphData?.data) {
-    out.knowledgeGraphData = {
+    meta.knowledgeGraphData = {
       data: q.knowledgeGraphData.data,
       generatedAt: q.knowledgeGraphData.generatedAt,
-      // htmlCode rebuilt client-side
     };
   }
-  // Cap libraryContext
-  if (typeof q.libraryContext === 'string' && q.libraryContext.length) {
-    out.libraryContext = q.libraryContext.slice(0, 20_000);
+  // Viz blueprints only — HTML sims are regenerable and optional
+  if (q.visualizationsData?.blueprints) {
+    meta.visualizationsData = {
+      blueprints: q.visualizationsData.blueprints,
+      results: [],
+    };
   }
-  return out;
-}
+  if (typeof q.libraryContext === 'string') {
+    meta.libraryContext = q.libraryContext.slice(0, 50_000);
+  }
 
-/** Cap questions array size for a single upsert */
-function slimQuestions(questions: any[]): any[] {
-  if (!Array.isArray(questions)) return [];
-  // Hard limit: 200 questions max per cloud row
-  return questions.slice(0, 200).map((q) => ({
-    text: String(q.text || '').slice(0, 2000),
-    options: Array.isArray(q.options)
-      ? q.options.slice(0, 6).map((o: any) => String(o).slice(0, 500))
-      : [],
-    correctIndex: q.correctIndex ?? 0,
-    explanation: String(q.explanation || '').slice(0, 1500),
-    hint: String(q.hint || '').slice(0, 400),
-    keyPoint: String(q.keyPoint || q.conceptName || '').slice(0, 120),
-    conceptName: q.conceptName,
-    conceptPriority: q.conceptPriority,
-  }));
-}
-
-function buildQuizPayload(q: any, uid: string) {
-  let questions = slimQuestions(q.questions || []);
-  let meta = slimQuizMeta(q);
-  let payload: any = {
+  return {
     id: String(q.id),
     user_id: uid,
     title: q.title || q.fileName || q.file_name || 'Untitled',
     topic: q.topic || q.topicSummary || null,
-    questions,
+    questions: Array.isArray(q.questions) ? q.questions : [],
     meta,
     folder: q.folder || '',
     tags: Array.isArray(q.tags) ? q.tags : [],
@@ -227,333 +194,373 @@ function buildQuizPayload(q: any, uid: string) {
     client_updated_at: clientUpdated(q),
     deleted_at: q.deleted_at || null,
   };
-  // If still huge, drop questions tails then meta AI
-  let size = JSON.stringify(payload).length;
-  if (size > MAX_PAYLOAD_CHARS) {
-    questions = questions.slice(0, 80);
-    payload.questions = questions;
-    size = JSON.stringify(payload).length;
-  }
-  if (size > MAX_PAYLOAD_CHARS) {
-    delete meta.aiOverviewData;
-    delete meta.visualizationsData;
-    delete meta.knowledgeGraphData;
-    delete meta.libraryContext;
-    payload.meta = meta;
-  }
-  return payload;
 }
 
-async function mapPool<T, R>(
-  items: T[],
-  concurrency: number,
-  fn: (item: T, index: number) => Promise<R>
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let next = 0;
-  const workers = Array.from(
-    { length: Math.min(concurrency, Math.max(items.length, 1)) },
-    async () => {
-      while (next < items.length) {
-        const i = next++;
-        results[i] = await fn(items[i], i);
-      }
-    }
+function mapQuizRow(row: any): QuizRow {
+  const meta = row.meta && typeof row.meta === 'object' ? row.meta : {};
+  return {
+    ...meta,
+    id: row.id,
+    title: row.title,
+    fileName: row.title || meta.fileName,
+    file_name: row.title || meta.file_name,
+    topic: row.topic,
+    questions: row.questions || meta.questions || [],
+    folder: row.folder || '',
+    tags: row.tags || meta.tags || [],
+    lastScore: row.last_score,
+    visibility: row.visibility,
+    accessCode: row.access_code,
+    authorId: row.user_id,
+    userId: row.user_id,
+    date: row.created_at || meta.date,
+    updatedAt: row.client_updated_at || row.updated_at,
+    client_updated_at: row.client_updated_at || row.updated_at,
+  };
+}
+
+function mergeQuiz(local: QuizRow | undefined, remote: QuizRow): QuizRow {
+  if (!local) return remote;
+  if (ts(clientUpdated(local)) >= ts(clientUpdated(remote))) {
+    return {
+      ...remote,
+      ...local,
+      // Keep richer local caches
+      aiOverviewData: local.aiOverviewData || remote.aiOverviewData,
+      visualizationsData: local.visualizationsData || remote.visualizationsData,
+      knowledgeGraphData: local.knowledgeGraphData || remote.knowledgeGraphData,
+      libraryContext: local.libraryContext || remote.libraryContext,
+      questions:
+        local.questions?.length >= (remote.questions?.length || 0)
+          ? local.questions
+          : remote.questions,
+    };
+  }
+  return {
+    ...local,
+    ...remote,
+    visualizationsData: local.visualizationsData || remote.visualizationsData,
+    knowledgeGraphData: local.knowledgeGraphData || remote.knowledgeGraphData,
+    libraryContext: local.libraryContext || remote.libraryContext,
+  };
+}
+
+// ── single-row push (primary write path) ──
+
+export async function cloudUpsertQuizRow(quiz: QuizRow): Promise<void> {
+  if (!cloudReady() || !supabase || !auth.currentUser) {
+    await queueQuiz(quiz);
+    return;
+  }
+  const uid = auth.currentUser.uid;
+  const payload = buildQuizPayload(
+    {
+      ...quiz,
+      client_updated_at: quiz.client_updated_at || new Date().toISOString(),
+    },
+    uid
   );
-  await Promise.all(workers);
-  return results;
+  try {
+    const { error } = await sb(
+      supabase.from('quizzes').upsert(payload),
+      `upsert quiz ${payload.id}`
+    );
+    if (error) throw new Error(error.message);
+    console.log(`[Noodl sync] pushed quiz ${payload.id}`);
+  } catch (e: any) {
+    console.warn('[Noodl sync] push failed → outbox', payload.id, e?.message || e);
+    await queueQuiz(quiz);
+    throw e;
+  }
 }
 
-export async function registerDevice() {
-  if (!cloudReady() || !supabase || !auth.currentUser) return;
-  const id = getDeviceId();
-  const label =
-    typeof navigator !== 'undefined'
-      ? `${navigator.platform || 'web'} · ${navigator.language}`
-      : 'web';
-  await withTimeout(
-    supabase.from('devices').upsert({
-      id,
-      user_id: auth.currentUser.uid,
-      label,
-      platform: typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 180) : 'web',
-      last_sync_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }) as unknown as Promise<any>,
-    REQUEST_TIMEOUT_MS,
-    'registerDevice'
-  ).catch((e) => console.warn('[sync] device', e?.message || e));
+export async function cloudSoftDeleteQuiz(id: string): Promise<void> {
+  if (!cloudReady() || !supabase || !auth.currentUser) {
+    await update(PENDING_DELETIONS_KEY, (val) => [...new Set([...(val || []), String(id)])]);
+    return;
+  }
+  const { error } = await sb(
+    supabase
+      .from('quizzes')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', String(id))
+      .eq('user_id', auth.currentUser.uid),
+    `delete quiz ${id}`
+  );
+  if (error) throw new Error(error.message);
 }
 
-type RemoteIndex = { id: string; client_updated_at: string; updated_at?: string };
+async function queueQuiz(quiz: QuizRow) {
+  await update(PENDING_UPLOADS_KEY, (val) => {
+    const pending = (val || []).filter((p: any) => String(p.id) !== String(quiz.id));
+    return [...pending, quiz];
+  });
+}
 
-async function pullQuizIndex(uid: string): Promise<RemoteIndex[]> {
+// ── pull path ──
+
+async function pullQuizIndex(uid: string): Promise<{ id: string; t: number }[]> {
   if (!supabase) return [];
-  const { data, error } = await withTimeout(
+  const { data, error } = await sb(
     supabase
       .from('quizzes')
       .select('id, client_updated_at, updated_at')
       .eq('user_id', uid)
-      .is('deleted_at', null) as unknown as Promise<any>,
-    REQUEST_TIMEOUT_MS,
-    'pullQuizIndex'
+      .is('deleted_at', null),
+    'quiz index'
   );
   if (error) throw new Error(error.message);
   return (data || []).map((r: any) => ({
     id: String(r.id),
-    client_updated_at: r.client_updated_at || r.updated_at || '',
-    updated_at: r.updated_at,
+    t: ts(r.client_updated_at || r.updated_at),
   }));
 }
 
-async function pullQuizRowsByIds(uid: string, ids: string[]): Promise<any[]> {
+async function pullQuizzesByIds(uid: string, ids: string[]): Promise<QuizRow[]> {
   if (!supabase || !ids.length) return [];
-  const chunks: string[][] = [];
-  for (let i = 0; i < ids.length; i += 20) chunks.push(ids.slice(i, i + 20));
-  const out: any[] = [];
-  for (const chunk of chunks) {
-    const { data, error } = await withTimeout(
-      supabase
-        .from('quizzes')
-        .select('id, title, topic, questions, meta, folder, tags, last_score, visibility, access_code, client_updated_at, updated_at, created_at, user_id')
-        .eq('user_id', uid)
-        .in('id', chunk) as unknown as Promise<any>,
-      REQUEST_TIMEOUT_MS,
-      `pullQuizRows ${chunk.length}`
-    );
-    if (error) throw new Error(error.message);
-    for (const row of data || []) {
-      const meta = row.meta && typeof row.meta === 'object' ? row.meta : {};
-      out.push({
-        ...meta,
-        id: row.id,
-        title: row.title,
-        fileName: row.title || meta.fileName,
-        file_name: row.title || meta.file_name,
-        topic: row.topic,
-        questions: row.questions || meta.questions || [],
-        folder: row.folder || '',
-        tags: row.tags || meta.tags || [],
-        lastScore: row.last_score,
-        visibility: row.visibility,
-        accessCode: row.access_code,
-        authorId: row.user_id,
-        userId: row.user_id,
-        date: row.created_at || meta.date,
-        updatedAt: row.client_updated_at || row.updated_at,
-        client_updated_at: row.client_updated_at || row.updated_at,
-      });
-    }
-  }
-  return out;
+  const { data, error } = await sb(
+    supabase
+      .from('quizzes')
+      .select(
+        'id, title, topic, questions, meta, folder, tags, last_score, visibility, access_code, client_updated_at, updated_at, created_at, user_id'
+      )
+      .eq('user_id', uid)
+      .in('id', ids),
+    `quiz rows x${ids.length}`
+  );
+  if (error) throw new Error(error.message);
+  return (data || []).map(mapQuizRow);
 }
 
-function isLocalNewer(local: any, remoteTs: number): boolean {
-  // +2s skew so same-second writes don't thrash
-  return ts(clientUpdated(local)) > remoteTs + 2000;
-}
+/** Pull remote quizzes that are missing or newer than local. */
+export async function pullQuizDeltas(): Promise<SyncReport> {
+  const report: SyncReport = {
+    synced: false,
+    pushed: 0,
+    pulled: 0,
+    skipped: 0,
+    errors: [],
+    at: new Date().toISOString(),
+  };
+  const t0 = Date.now();
 
-async function pushQuizzes(
-  local: any[],
-  uid: string,
-  remoteIndex: Map<string, number>,
-  budgetEnd: number,
-  force?: boolean
-): Promise<{ pushed: number; skipped: number; remaining: number; errors: string[] }> {
-  if (!supabase) return { pushed: 0, skipped: 0, remaining: 0, errors: [] };
-
-  const dirty: any[] = [];
-  let skipped = 0;
-  for (const q of local) {
-    if (q.deleted_at) {
-      dirty.push(q);
-      continue;
-    }
-    if (!force && remoteIndex.has(String(q.id))) {
-      const rTs = remoteIndex.get(String(q.id)) || 0;
-      if (!isLocalNewer(q, rTs)) {
-        skipped++;
-        continue;
-      }
-    }
-    if (!force && !remoteIndex.has(String(q.id))) {
-      // new local — dirty
-      dirty.push(q);
-      continue;
-    }
-    if (force || isLocalNewer(q, remoteIndex.get(String(q.id)) || 0)) dirty.push(q);
+  if (!cloudReady() || !supabase || !auth.currentUser) {
+    report.errors.push('Not signed in');
+    return report;
   }
 
-  // Prefer smaller / newer first so cycle finishes with useful work
-  dirty.sort((a, b) => {
-    const sa = JSON.stringify(a.questions || []).length;
-    const sb = JSON.stringify(b.questions || []).length;
-    return sa - sb;
-  });
+  // Single-flight pull
+  if (_pullPromise) return _pullPromise;
 
-  const batch = dirty.slice(0, MAX_QUIZ_PUSH);
-  const remaining = Math.max(0, dirty.length - batch.length);
-  const errors: string[] = [];
-  let pushed = 0;
-
-  emitProgress({
-    phase: 'push-quizzes',
-    detail: `${batch.length} of ${dirty.length} dirty (${skipped} up-to-date)`,
-  });
-
-  await mapPool(batch, PUSH_CONCURRENCY, async (q) => {
-    if (Date.now() > budgetEnd) return;
+  _pullPromise = (async () => {
     try {
-      if (q.deleted_at) {
-        await withTimeout(
-          supabase!
-            .from('quizzes')
-            .update({ deleted_at: q.deleted_at, updated_at: new Date().toISOString() })
-            .eq('id', String(q.id))
-            .eq('user_id', uid) as unknown as Promise<any>,
-          REQUEST_TIMEOUT_MS,
-          `del quiz ${q.id}`
+      emitProgress({ phase: 'pull', detail: 'index' });
+      const uid = auth.currentUser!.uid;
+      const local = ((await get(HISTORY_IDB_KEY)) as QuizRow[]) || [];
+      const localMap = new Map(local.map((q) => [String(q.id), q]));
+
+      const index = await pullQuizIndex(uid);
+      const need = index
+        .filter((r) => {
+          const l = localMap.get(r.id);
+          if (!l) return true;
+          return r.t > ts(clientUpdated(l)) + 1500;
+        })
+        .map((r) => r.id);
+
+      report.skipped = index.length - need.length;
+
+      // Chunk pulls (avoid giant IN lists)
+      const chunkSize = 30;
+      const remoteRows: QuizRow[] = [];
+      for (let i = 0; i < need.length; i += chunkSize) {
+        emitProgress({ phase: 'pull', detail: `${Math.min(i + chunkSize, need.length)}/${need.length}` });
+        const part = await pullQuizzesByIds(uid, need.slice(i, i + chunkSize));
+        remoteRows.push(...part);
+      }
+      report.pulled = remoteRows.length;
+
+      if (remoteRows.length) {
+        const map = new Map(localMap);
+        for (const r of remoteRows) {
+          map.set(String(r.id), mergeQuiz(map.get(String(r.id)), r));
+        }
+        const merged = Array.from(map.values()).sort(
+          (a, b) => ts(b.date || b.updatedAt) - ts(a.date || a.updatedAt)
         );
-        pushed++;
-        return;
+        await set(HISTORY_IDB_KEY, merged);
+        await emitHistory();
       }
-      const payload = buildQuizPayload(q, uid);
-      const { error } = await withTimeout(
-        supabase!.from('quizzes').upsert(payload) as unknown as Promise<any>,
-        REQUEST_TIMEOUT_MS,
-        `upsert quiz ${q.id}`
+
+      report.synced = true;
+      report.ms = Date.now() - t0;
+      console.log(
+        `[Noodl sync] pull ${report.ms}ms got=${report.pulled} unchanged=${report.skipped}`
       );
-      if (error) throw new Error(error.message);
-      pushed++;
-      emitProgress({ phase: 'push-quizzes', detail: `pushed ${pushed}/${batch.length}`, pushed });
+      emitProgress({ phase: 'pull-done', detail: `${report.ms}ms` });
+      return report;
     } catch (e: any) {
-      errors.push(`quiz ${q.id}: ${e?.message || e}`);
-      console.warn('[sync] quiz push fail', q.id, e?.message || e);
+      report.errors.push(e?.message || String(e));
+      report.ms = Date.now() - t0;
+      console.warn('[Noodl sync] pull failed', report.errors);
+      return report;
+    } finally {
+      _pullPromise = null;
     }
-  });
+  })();
 
-  return { pushed, skipped, remaining, errors };
+  return _pullPromise;
 }
 
-function mergeById(local: any[], remote: any[], idKey = 'id'): any[] {
-  const map = new Map<string, any>();
-  for (const r of remote) map.set(String(r[idKey]), r);
-  for (const l of local) {
-    const id = String(l[idKey]);
-    const r = map.get(id);
-    if (!r) {
-      map.set(id, l);
-      continue;
-    }
-    if (ts(clientUpdated(l)) >= ts(clientUpdated(r))) {
-      map.set(id, {
-        ...r,
-        ...l,
-        // Prefer local heavy caches (not always on cloud)
-        aiOverviewData: l.aiOverviewData || r.aiOverviewData,
-        visualizationsData: l.visualizationsData || r.visualizationsData,
-        knowledgeGraphData: l.knowledgeGraphData || r.knowledgeGraphData,
-        libraryContext: l.libraryContext || r.libraryContext,
-      });
-    } else {
-      map.set(id, {
-        ...l,
-        ...r,
-        aiOverviewData: r.aiOverviewData || l.aiOverviewData,
-        visualizationsData: l.visualizationsData || r.visualizationsData,
-        knowledgeGraphData: l.knowledgeGraphData || r.knowledgeGraphData,
-        libraryContext: l.libraryContext || r.libraryContext,
-      });
-    }
-  }
-  return Array.from(map.values());
-}
-
-async function pushLibrary(
-  local: any[],
-  uid: string,
-  remoteById: Map<string, number>,
-  budgetEnd: number,
-  force?: boolean
-): Promise<{ pushed: number; skipped: number; errors: string[] }> {
-  if (!supabase) return { pushed: 0, skipped: 0, errors: [] };
-  const dirty: any[] = [];
-  let skipped = 0;
-  for (const item of local) {
-    if (!force && remoteById.has(String(item.id)) && !isLocalNewer(item, remoteById.get(String(item.id)) || 0)) {
-      skipped++;
-      continue;
-    }
-    dirty.push(item);
-  }
-  const batch = dirty.slice(0, MAX_LIBRARY_PUSH);
+/** Drain outbox: pending uploads + deletions only (not whole library). */
+export async function drainOutbox(): Promise<{ pushed: number; errors: string[] }> {
   const errors: string[] = [];
   let pushed = 0;
+  if (!cloudReady() || !supabase || !auth.currentUser) {
+    return { pushed: 0, errors: ['Not signed in'] };
+  }
+  const uid = auth.currentUser.uid;
 
-  await mapPool(batch, PUSH_CONCURRENCY, async (item) => {
-    if (Date.now() > budgetEnd) return;
+  const pending = ((await get(PENDING_UPLOADS_KEY)) as QuizRow[]) || [];
+  const still: QuizRow[] = [];
+  for (const q of pending) {
     try {
-      const content = String(item.content || '').slice(0, MAX_LIBRARY_CONTENT);
-      const processed = String(item.processedContent || item.processed_content || '').slice(
-        0,
-        MAX_LIBRARY_CONTENT
-      );
-      const payload = {
-        id: String(item.id),
-        user_id: uid,
-        title: item.title || 'Untitled',
-        content,
-        processed_content: processed || null,
-        type: item.type || 'text',
-        tags: Array.isArray(item.tags) ? item.tags : [],
-        client_updated_at: clientUpdated(item),
-        deleted_at: item.deleted_at || null,
-      };
-      const { error } = await withTimeout(
-        supabase!.from('library_items').upsert(payload) as unknown as Promise<any>,
-        REQUEST_TIMEOUT_MS,
-        `library ${item.id}`
-      );
+      const payload = buildQuizPayload(q, uid);
+      const { error } = await sb(supabase.from('quizzes').upsert(payload), `outbox ${payload.id}`);
       if (error) throw new Error(error.message);
       pushed++;
     } catch (e: any) {
-      errors.push(`library ${item.id}: ${e?.message || e}`);
+      errors.push(e?.message || String(e));
+      still.push(q);
     }
-  });
-  return { pushed, skipped, errors };
+  }
+  await set(PENDING_UPLOADS_KEY, still);
+
+  const dels = ((await get(PENDING_DELETIONS_KEY)) as string[]) || [];
+  const stillDel: string[] = [];
+  for (const id of dels) {
+    try {
+      await cloudSoftDeleteQuiz(id);
+      pushed++;
+    } catch (e: any) {
+      errors.push(e?.message || String(e));
+      stillDel.push(id);
+    }
+  }
+  await set(PENDING_DELETIONS_KEY, stillDel);
+
+  if (pushed) console.log(`[Noodl sync] outbox drained pushed=${pushed}`);
+  return { pushed, errors };
 }
 
-async function pullLibraryIndex(uid: string): Promise<RemoteIndex[]> {
-  if (!supabase) return [];
-  const { data, error } = await withTimeout(
+/**
+ * Login hook: pull once per uid. Idempotent.
+ * Does NOT re-upload all local quizzes.
+ */
+export async function onSignedIn(): Promise<SyncReport> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) {
+    return {
+      synced: false,
+      pushed: 0,
+      pulled: 0,
+      skipped: 0,
+      errors: ['No user'],
+      at: new Date().toISOString(),
+    };
+  }
+
+  startRealtimeSync();
+
+  if (_loginPullDoneForUid === uid && !_manualPromise) {
+    // Already pulled this session — only drain outbox quietly
+    const out = await drainOutbox().catch((e) => ({
+      pushed: 0,
+      errors: [e?.message || String(e)],
+    }));
+    return {
+      synced: out.errors.length === 0,
+      pushed: out.pushed,
+      pulled: 0,
+      skipped: 0,
+      errors: out.errors,
+      at: new Date().toISOString(),
+      ms: 0,
+    };
+  }
+
+  emitProgress({ phase: 'login-sync' });
+  const outbox = await drainOutbox();
+  const pull = await pullQuizDeltas();
+  // Light library/SRS optional — don't block if tables missing
+  await pullLibraryLight().catch((e) => console.warn('[sync] library', e));
+  await pullSrsLight().catch((e) => console.warn('[sync] srs', e));
+
+  _loginPullDoneForUid = uid;
+  registerDevice().catch(() => {});
+
+  return {
+    synced: pull.synced,
+    pushed: outbox.pushed,
+    pulled: pull.pulled,
+    skipped: pull.skipped,
+    errors: [...outbox.errors, ...pull.errors],
+    at: new Date().toISOString(),
+    ms: pull.ms,
+  };
+}
+
+export function onSignedOut() {
+  _loginPullDoneForUid = null;
+  stopRealtimeSync();
+}
+
+async function registerDevice() {
+  if (!cloudReady() || !supabase || !auth.currentUser) return;
+  await sb(
+    supabase.from('devices').upsert({
+      id: getDeviceId(),
+      user_id: auth.currentUser.uid,
+      label:
+        typeof navigator !== 'undefined'
+          ? `${navigator.platform || 'web'} · ${navigator.language}`
+          : 'web',
+      platform: typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 180) : 'web',
+      last_sync_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }),
+    'device',
+    8000
+  ).catch(() => {});
+}
+
+async function pullLibraryLight() {
+  if (!cloudReady() || !supabase || !auth.currentUser) return;
+  const uid = auth.currentUser.uid;
+  const local = ((await get(LIBRARY_IDB_KEY)) as any[]) || [];
+  const localIds = new Set(local.map((x) => String(x.id)));
+  const { data, error } = await sb(
     supabase
       .from('library_items')
       .select('id, client_updated_at, updated_at')
       .eq('user_id', uid)
-      .is('deleted_at', null) as unknown as Promise<any>,
-    REQUEST_TIMEOUT_MS,
-    'pullLibraryIndex'
+      .is('deleted_at', null),
+    'library index',
+    10000
   );
   if (error) throw new Error(error.message);
-  return (data || []).map((r: any) => ({
-    id: String(r.id),
-    client_updated_at: r.client_updated_at || r.updated_at || '',
-  }));
-}
-
-async function pullLibraryFull(uid: string, ids: string[]): Promise<any[]> {
-  if (!supabase || !ids.length) return [];
-  const { data, error } = await withTimeout(
-    supabase
-      .from('library_items')
-      .select('*')
-      .eq('user_id', uid)
-      .in('id', ids.slice(0, 30)) as unknown as Promise<any>,
-    REQUEST_TIMEOUT_MS,
-    'pullLibraryFull'
+  const need = (data || [])
+    .filter((r: any) => !localIds.has(String(r.id)))
+    .map((r: any) => String(r.id))
+    .slice(0, 20);
+  if (!need.length) return;
+  const full = await sb(
+    supabase.from('library_items').select('*').eq('user_id', uid).in('id', need),
+    'library rows',
+    15000
   );
-  if (error) throw new Error(error.message);
-  return (data || []).map((row: any) => ({
+  if (full.error) throw new Error(full.error.message);
+  const rows = (full.data || []).map((row: any) => ({
     id: row.id,
     title: row.title,
     content: row.content,
@@ -563,403 +570,192 @@ async function pullLibraryFull(uid: string, ids: string[]): Promise<any[]> {
     created_at: row.created_at,
     client_updated_at: row.client_updated_at || row.updated_at,
   }));
+  await set(LIBRARY_IDB_KEY, [...rows, ...local]);
 }
 
-async function pushSrs(
-  local: any[],
-  uid: string,
-  remoteById: Map<string, number>,
-  budgetEnd: number
-): Promise<{ pushed: number; skipped: number; errors: string[] }> {
-  if (!supabase) return { pushed: 0, skipped: 0, errors: [] };
-  const dirty: any[] = [];
-  let skipped = 0;
-  for (const item of local) {
-    if (remoteById.has(String(item.id)) && !isLocalNewer(item, remoteById.get(String(item.id)) || 0)) {
-      skipped++;
-      continue;
-    }
-    dirty.push(item);
-  }
-  const batch = dirty.slice(0, MAX_SRS_PUSH);
-  const errors: string[] = [];
-  let pushed = 0;
-  await mapPool(batch, PUSH_CONCURRENCY, async (item) => {
-    if (Date.now() > budgetEnd) return;
-    try {
-      const payload = {
-        id: String(item.id),
-        user_id: uid,
-        keycard_id: item.keycard_id || 'global',
-        item_id: String(item.item_id),
-        item_type: item.item_type || 'quiz_question',
-        content: item.content,
-        easiness: item.easiness ?? 2.5,
-        interval: item.interval ?? 0,
-        repetition: item.repetition ?? 0,
-        next_review: item.next_review || new Date().toISOString(),
-        client_updated_at: clientUpdated(item),
-        deleted_at: item.deleted_at || null,
-      };
-      const { error } = await withTimeout(
-        supabase!.from('srs_items').upsert(payload) as unknown as Promise<any>,
-        REQUEST_TIMEOUT_MS,
-        `srs ${item.id}`
-      );
-      if (error) throw new Error(error.message);
-      pushed++;
-    } catch (e: any) {
-      errors.push(`srs ${item.id}: ${e?.message || e}`);
-    }
-  });
-  return { pushed, skipped, errors };
-}
-
-async function pullSrsIndex(uid: string): Promise<RemoteIndex[]> {
-  if (!supabase) return [];
-  const { data, error } = await withTimeout(
-    supabase
-      .from('srs_items')
-      .select('id, client_updated_at, updated_at')
-      .eq('user_id', uid)
-      .is('deleted_at', null) as unknown as Promise<any>,
-    REQUEST_TIMEOUT_MS,
-    'pullSrsIndex'
-  );
-  if (error) throw new Error(error.message);
-  return (data || []).map((r: any) => ({
-    id: String(r.id),
-    client_updated_at: r.client_updated_at || r.updated_at || '',
-  }));
-}
-
-async function pullSrsFull(uid: string, ids: string[]): Promise<any[]> {
-  if (!supabase || !ids.length) return [];
-  const { data, error } = await withTimeout(
-    supabase.from('srs_items').select('*').eq('user_id', uid).in('id', ids.slice(0, 80)) as unknown as Promise<any>,
-    REQUEST_TIMEOUT_MS,
-    'pullSrsFull'
-  );
-  if (error) throw new Error(error.message);
-  return (data || []).map((row: any) => ({
-    id: row.id,
-    keycard_id: row.keycard_id,
-    item_id: row.item_id,
-    item_type: row.item_type,
-    content: row.content,
-    easiness: row.easiness,
-    interval: row.interval,
-    repetition: row.repetition,
-    next_review: row.next_review,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-    client_updated_at: row.client_updated_at || row.updated_at,
-  }));
-}
-
-async function doFullSync(opts?: { force?: boolean }): Promise<SyncReport> {
-  const t0 = Date.now();
-  const budgetEnd = t0 + SYNC_BUDGET_MS;
-  const report: SyncReport = {
-    synced: false,
-    pushed: 0,
-    pulled: 0,
-    skipped: 0,
-    errors: [],
-    at: new Date().toISOString(),
-    remainingDirty: 0,
-  };
-
-  if (!cloudReady() || !supabase || !auth.currentUser) {
-    report.errors.push('Not signed in or Supabase not configured');
-    return report;
-  }
-
+async function pullSrsLight() {
+  if (!cloudReady() || !supabase || !auth.currentUser) return;
   const uid = auth.currentUser.uid;
-  const force = Boolean(opts?.force);
-
-  try {
-    emitProgress({ phase: 'start', detail: force ? 'force' : 'incremental' });
-    registerDevice().catch(() => {});
-
-    // Pending queue (capped)
-    try {
-      const pending = ((await get(PENDING_UPLOADS_KEY)) as any[]) || [];
-      if (pending.length && Date.now() < budgetEnd) {
-        const emptyIdx = new Map<string, number>();
-        const r = await pushQuizzes(pending.slice(0, MAX_QUIZ_PUSH), uid, emptyIdx, budgetEnd, true);
-        report.pushed += r.pushed;
-        report.errors.push(...r.errors);
-        if (r.pushed >= pending.length) await set(PENDING_UPLOADS_KEY, []);
-        else await set(PENDING_UPLOADS_KEY, pending.slice(r.pushed));
-      }
-      const pendingDel = ((await get(PENDING_DELETIONS_KEY)) as string[]) || [];
-      if (pendingDel.length && Date.now() < budgetEnd) {
-        await mapPool(pendingDel.slice(0, 20), 4, async (id) => {
-          try {
-            await withTimeout(
-              supabase!
-                .from('quizzes')
-                .update({ deleted_at: new Date().toISOString() })
-                .eq('id', String(id))
-                .eq('user_id', uid) as unknown as Promise<any>,
-              REQUEST_TIMEOUT_MS,
-              `pending del ${id}`
-            );
-          } catch (e: any) {
-            report.errors.push(`del ${id}: ${e?.message || e}`);
-          }
-        });
-        await set(PENDING_DELETIONS_KEY, pendingDel.slice(20));
-      }
-    } catch (e: any) {
-      report.errors.push(`pending: ${e.message}`);
-    }
-
-    // ── QUIZZES: light index → push dirty slim → pull only missing/newer ──
-    if (Date.now() < budgetEnd) {
-      try {
-        emitProgress({ phase: 'quiz-index' });
-        const localQ = ((await get(HISTORY_IDB_KEY)) as any[]) || [];
-        const index = await pullQuizIndex(uid);
-        const remoteTs = new Map(index.map((r) => [r.id, ts(r.client_updated_at)]));
-
-        const pushResult = await pushQuizzes(localQ, uid, remoteTs, budgetEnd, force);
-        report.pushed += pushResult.pushed;
-        report.skipped += pushResult.skipped;
-        report.remainingDirty = (report.remainingDirty || 0) + pushResult.remaining;
-        report.errors.push(...pushResult.errors);
-
-        // Pull only: remote ids missing locally OR remote newer
-        const localMap = new Map(localQ.map((q) => [String(q.id), q]));
-        const needPull = index
-          .filter((r) => {
-            const l = localMap.get(r.id);
-            if (!l) return true;
-            return ts(r.client_updated_at) > ts(clientUpdated(l)) + 2000;
-          })
-          .map((r) => r.id)
-          .slice(0, 25);
-
-        emitProgress({ phase: 'quiz-pull', detail: `${needPull.length} rows` });
-        const remoteFull = needPull.length
-          ? await pullQuizRowsByIds(uid, needPull)
-          : [];
-        report.pulled += remoteFull.length;
-
-        if (remoteFull.length || pushResult.pushed) {
-          // Re-read local in case UI wrote during sync
-          const localNow = ((await get(HISTORY_IDB_KEY)) as any[]) || localQ;
-          const merged = mergeById(localNow, remoteFull).sort(
-            (a, b) => ts(b.date || b.updatedAt) - ts(a.date || a.updatedAt)
-          );
-          await set(HISTORY_IDB_KEY, merged);
-        }
-      } catch (e: any) {
-        report.errors.push(`quizzes: ${e.message}`);
-      }
-    }
-
-    // ── LIBRARY ──
-    if (Date.now() < budgetEnd) {
-      try {
-        emitProgress({ phase: 'library' });
-        const localL = ((await get(LIBRARY_IDB_KEY)) as any[]) || [];
-        const idx = await pullLibraryIndex(uid);
-        const remoteTs = new Map(idx.map((r) => [r.id, ts(r.client_updated_at)]));
-        const pushResult = await pushLibrary(localL, uid, remoteTs, budgetEnd, force);
-        report.pushed += pushResult.pushed;
-        report.skipped += pushResult.skipped;
-        report.errors.push(...pushResult.errors);
-
-        const localMap = new Map(localL.map((x) => [String(x.id), x]));
-        const need = idx
-          .filter((r) => {
-            const l = localMap.get(r.id);
-            return !l || ts(r.client_updated_at) > ts(clientUpdated(l)) + 2000;
-          })
-          .map((r) => r.id)
-          .slice(0, 15);
-        const remoteFull = await pullLibraryFull(uid, need);
-        report.pulled += remoteFull.length;
-        if (remoteFull.length || pushResult.pushed) {
-          const localNow = ((await get(LIBRARY_IDB_KEY)) as any[]) || localL;
-          await set(LIBRARY_IDB_KEY, mergeById(localNow, remoteFull));
-        }
-      } catch (e: any) {
-        report.errors.push(`library: ${e.message}`);
-      }
-    }
-
-    // ── SRS ──
-    if (Date.now() < budgetEnd) {
-      try {
-        emitProgress({ phase: 'srs' });
-        const localS = ((await get(SRS_IDB_KEY)) as any[]) || [];
-        const idx = await pullSrsIndex(uid);
-        const remoteTs = new Map(idx.map((r) => [r.id, ts(r.client_updated_at)]));
-        const pushResult = await pushSrs(localS, uid, remoteTs, budgetEnd);
-        report.pushed += pushResult.pushed;
-        report.skipped += pushResult.skipped;
-        report.errors.push(...pushResult.errors);
-
-        const localMap = new Map(localS.map((x) => [String(x.id), x]));
-        const need = idx
-          .filter((r) => {
-            const l = localMap.get(r.id);
-            return !l || ts(r.client_updated_at) > ts(clientUpdated(l)) + 2000;
-          })
-          .map((r) => r.id)
-          .slice(0, 60);
-        const remoteFull = await pullSrsFull(uid, need);
-        report.pulled += remoteFull.length;
-        if (remoteFull.length || pushResult.pushed) {
-          const localNow = ((await get(SRS_IDB_KEY)) as any[]) || localS;
-          await set(SRS_IDB_KEY, mergeById(localNow, remoteFull));
-        }
-      } catch (e: any) {
-        report.errors.push(`srs: ${e.message}`);
-      }
-    }
-
-    // Profile heartbeat (optional, short timeout)
-    if (Date.now() < budgetEnd) {
-      try {
-        await withTimeout(
-          supabase.from('user_profiles').upsert({
-            user_id: uid,
-            last_device_id: getDeviceId(),
-            last_seen_at: new Date().toISOString(),
-            display_name: auth.currentUser.displayName,
-            avatar_url: auth.currentUser.photoURL,
-          }) as unknown as Promise<any>,
-          5000,
-          'profile'
-        );
-      } catch {
-        /* non-critical */
-      }
-    }
-
-    if (Date.now() >= budgetEnd) {
-      report.timedOut = true;
-      report.errors.push(`Sync budget ${SYNC_BUDGET_MS}ms reached (will continue next cycle)`);
-    }
-
-    try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(LAST_SYNC_KEY, new Date().toISOString());
-      }
-    } catch {
-      /* ignore */
-    }
-
-    report.ms = Date.now() - t0;
-    // "synced" means cycle finished without hard failure — partial is OK
-    report.synced = !report.errors.some((e) => e.startsWith('Not signed'));
-    emitProgress({
-      phase: 'done',
-      detail: `${report.ms}ms push=${report.pushed} skip=${report.skipped} pull=${report.pulled}`,
-      pushed: report.pushed,
-      skipped: report.skipped,
-    });
-    console.log(
-      `[Noodl sync] ${report.ms}ms push=${report.pushed} skip=${report.skipped} pull=${report.pulled}` +
-        (report.remainingDirty ? ` remainingDirty=${report.remainingDirty}` : '') +
-        (report.timedOut ? ' BUDGET' : ''),
-      report.errors.length ? report.errors.slice(0, 5) : 'ok'
+  const local = ((await get(SRS_IDB_KEY)) as any[]) || [];
+  if (local.length > 0) return; // already have SRS locally — skip bulk
+  const { data, error } = await sb(
+    supabase.from('srs_items').select('*').eq('user_id', uid).is('deleted_at', null).limit(200),
+    'srs pull',
+    12000
+  );
+  if (error) throw new Error(error.message);
+  if (data?.length) {
+    await set(
+      SRS_IDB_KEY,
+      data.map((row: any) => ({
+        id: row.id,
+        keycard_id: row.keycard_id,
+        item_id: row.item_id,
+        item_type: row.item_type,
+        content: row.content,
+        easiness: row.easiness,
+        interval: row.interval,
+        repetition: row.repetition,
+        next_review: row.next_review,
+        client_updated_at: row.client_updated_at || row.updated_at,
+      }))
     );
-
-    // Schedule leftover dirty pushes soon (non-blocking)
-    if ((report.remainingDirty || 0) > 0 && auth.currentUser) {
-      setTimeout(() => runFullSyncBackground(), 3000);
-    }
-
-    return report;
-  } catch (e: any) {
-    report.errors.push(e?.message || String(e));
-    report.ms = Date.now() - t0;
-    emitProgress({ phase: 'error', detail: e?.message });
-    return report;
   }
 }
 
 /**
- * Single-flight sync. Concurrent callers share the same promise.
- * Hard outer timeout so UI never waits > ~50s.
+ * Manual "Sync now" / legacy runFullSync API.
+ * = drain outbox + pull deltas. Never re-uploads entire history.
  */
-export async function runFullSync(opts?: { force?: boolean }): Promise<SyncReport> {
-  if (_syncPromise) {
-    if (!opts?.force) return _syncPromise;
-    await _syncPromise.catch(() => {});
+export async function runFullSync(_opts?: { force?: boolean }): Promise<SyncReport> {
+  if (_manualPromise) return _manualPromise;
+
+  const t0 = Date.now();
+  _manualPromise = (async () => {
+    const report: SyncReport = {
+      synced: false,
+      pushed: 0,
+      pulled: 0,
+      skipped: 0,
+      errors: [],
+      at: new Date().toISOString(),
+    };
+    try {
+      if (!cloudReady()) {
+        report.errors.push('Not signed in or Supabase not configured');
+        return report;
+      }
+      emitProgress({ phase: 'manual', detail: 'outbox' });
+      const budget = t0 + MANUAL_BUDGET_MS;
+
+      const outbox = await drainOutbox();
+      report.pushed = outbox.pushed;
+      report.errors.push(...outbox.errors);
+
+      if (Date.now() < budget) {
+        emitProgress({ phase: 'manual', detail: 'pull' });
+        const pull = await pullQuizDeltas();
+        report.pulled = pull.pulled;
+        report.skipped = pull.skipped;
+        report.errors.push(...pull.errors);
+      }
+
+      // Optional: push local quizzes that were never on server (missing from index)
+      if (Date.now() < budget && _opts?.force) {
+        await pushMissingLocalOnly(report, budget);
+      } else if (Date.now() < budget) {
+        await pushMissingLocalOnly(report, budget);
+      }
+
+      report.synced = report.errors.length === 0;
+      report.ms = Date.now() - t0;
+      report.timedOut = Date.now() >= budget;
+      emitProgress({ phase: 'done', detail: `${report.ms}ms` });
+      console.log(
+        `[Noodl sync] manual ${report.ms}ms push=${report.pushed} pull=${report.pulled} skip=${report.skipped}`,
+        report.errors.length ? report.errors.slice(0, 3) : 'ok'
+      );
+      return report;
+    } catch (e: any) {
+      report.errors.push(e?.message || String(e));
+      report.ms = Date.now() - t0;
+      return report;
+    } finally {
+      _manualPromise = null;
+    }
+  })();
+
+  return _manualPromise;
+}
+
+/** Push local quizzes whose ids are absent on server (true first-time upload). */
+async function pushMissingLocalOnly(report: SyncReport, budget: number) {
+  if (!supabase || !auth.currentUser) return;
+  const uid = auth.currentUser.uid;
+  const local = ((await get(HISTORY_IDB_KEY)) as QuizRow[]) || [];
+  if (!local.length) return;
+  const index = await pullQuizIndex(uid);
+  const remoteIds = new Set(index.map((r) => r.id));
+  const missing = local.filter((q) => !remoteIds.has(String(q.id)) && !q.deleted_at);
+  report.skipped += local.length - missing.length;
+
+  for (const q of missing) {
+    if (Date.now() > budget) {
+      report.remainingDirty = (report.remainingDirty || 0) + 1;
+      continue;
+    }
+    try {
+      await cloudUpsertQuizRow(q);
+      report.pushed++;
+    } catch (e: any) {
+      report.errors.push(`push ${q.id}: ${e?.message || e}`);
+    }
   }
-
-  const work = doFullSync(opts);
-  _syncPromise = withTimeout(work, SYNC_BUDGET_MS + 8_000, 'runFullSync outer')
-    .catch((e: any) => {
-      console.warn('[Noodl sync] outer stop', e?.message || e);
-      return {
-        synced: false,
-        pushed: 0,
-        pulled: 0,
-        skipped: 0,
-        errors: [e?.message || 'Sync stopped'],
-        at: new Date().toISOString(),
-        ms: SYNC_BUDGET_MS,
-        timedOut: true,
-      } as SyncReport;
-    })
-    .finally(() => {
-      _syncPromise = null;
-    });
-
-  return _syncPromise;
 }
 
 export function runFullSyncBackground(opts?: { force?: boolean }): void {
   runFullSync(opts).catch((e) => console.warn('[Noodl sync bg]', e));
 }
 
+// ── realtime: single channel, pull one id ──
+
 export function startRealtimeSync(onChange?: () => void) {
-  stopRealtimeSync();
   if (!cloudReady() || !supabase || !auth.currentUser) return () => {};
+  // Already subscribed
+  if (_realtimeUnsub) {
+    return _realtimeUnsub;
+  }
 
   const uid = auth.currentUser.uid;
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  const schedule = () => {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    // Long debounce — avoid storm after our own pushes
-    debounceTimer = setTimeout(() => {
-      runFullSync()
-        .then(() => onChange?.())
-        .catch(() => onChange?.());
-    }, 5000);
+  let debounce: ReturnType<typeof setTimeout> | null = null;
+  const pendingIds = new Set<string>();
+
+  const flush = () => {
+    const ids = Array.from(pendingIds);
+    pendingIds.clear();
+    if (!ids.length) {
+      onChange?.();
+      return;
+    }
+    pullQuizzesByIds(uid, ids)
+      .then(async (rows) => {
+        if (!rows.length) return;
+        const local = ((await get(HISTORY_IDB_KEY)) as QuizRow[]) || [];
+        const map = new Map(local.map((q) => [String(q.id), q]));
+        for (const r of rows) map.set(String(r.id), mergeQuiz(map.get(String(r.id)), r));
+        await set(
+          HISTORY_IDB_KEY,
+          Array.from(map.values()).sort(
+            (a, b) => ts(b.date || b.updatedAt) - ts(a.date || a.updatedAt)
+          )
+        );
+        await emitHistory();
+        onChange?.();
+        console.log(`[Noodl sync] realtime merged ${rows.length} quiz(es)`);
+      })
+      .catch((e) => console.warn('[Noodl sync] realtime pull', e));
   };
 
   const channel = supabase
-    .channel(`noodl-sync-${uid}`)
+    .channel(`noodl-quiz-${uid}`)
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'quizzes', filter: `user_id=eq.${uid}` },
-      schedule
-    )
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'srs_items', filter: `user_id=eq.${uid}` },
-      schedule
-    )
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'library_items', filter: `user_id=eq.${uid}` },
-      schedule
+      (payload: any) => {
+        const id = payload.new?.id || payload.old?.id;
+        if (id) pendingIds.add(String(id));
+        if (debounce) clearTimeout(debounce);
+        debounce = setTimeout(flush, 800);
+      }
     )
     .subscribe((status) => {
-      if (status === 'SUBSCRIBED') console.log('[Noodl realtime] subscribed');
+      if (status === 'SUBSCRIBED') console.log('[Noodl realtime] quizzes subscribed');
     });
 
   _realtimeUnsub = () => {
-    if (debounceTimer) clearTimeout(debounceTimer);
+    if (debounce) clearTimeout(debounce);
     supabase.removeChannel(channel);
+    _realtimeUnsub = null;
   };
   return _realtimeUnsub;
 }
@@ -973,39 +769,9 @@ export function registerNetworkSyncListener() {
   if (_networkHooked || typeof window === 'undefined') return;
   _networkHooked = true;
   window.addEventListener('online', () => {
-    setTimeout(() => runFullSyncBackground(), 800);
+    setTimeout(() => {
+      drainOutbox().catch(() => {});
+      pullQuizDeltas().catch(() => {});
+    }, 500);
   });
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && auth.currentUser) {
-      runFullSyncBackground();
-    }
-  });
-}
-
-/** Immediate single-quiz upsert (used by save) — slim + timeout */
-export async function cloudUpsertQuizRow(quiz: any) {
-  if (!cloudReady() || !supabase || !auth.currentUser) return;
-  const payload = buildQuizPayload(
-    { ...quiz, client_updated_at: clientUpdated(quiz) || new Date().toISOString() },
-    auth.currentUser.uid
-  );
-  const { error } = await withTimeout(
-    supabase.from('quizzes').upsert(payload) as unknown as Promise<any>,
-    REQUEST_TIMEOUT_MS,
-    `cloudUpsert ${payload.id}`
-  );
-  if (error) throw new Error(error.message);
-}
-
-export async function cloudSoftDeleteQuiz(id: string) {
-  if (!cloudReady() || !supabase || !auth.currentUser) return;
-  await withTimeout(
-    supabase
-      .from('quizzes')
-      .update({ deleted_at: new Date().toISOString() })
-      .eq('id', String(id))
-      .eq('user_id', auth.currentUser.uid) as unknown as Promise<any>,
-    REQUEST_TIMEOUT_MS,
-    `softDelete ${id}`
-  );
 }

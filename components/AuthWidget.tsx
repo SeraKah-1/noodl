@@ -68,19 +68,12 @@ export const AuthWidget: React.FC = () => {
   const handleSync = async () => {
     setSyncing(true);
     setError(null);
-    setSyncPhase('starting…');
+    setSyncPhase('outbox + pull…');
     try {
-      // Never hang the button forever — outer budget ~45s
+      // Manual sync = drain outbox + pull deltas (seconds), NOT re-upload all history
       const report = await runFullSync({ force: false });
       setLastSync(report);
-      if (report.timedOut) {
-        setError(
-          `Sync cycle timed out after ~${Math.round((report.ms || 45000) / 1000)}s` +
-            (report.remainingDirty ? ` (${report.remainingDirty} left — will continue in background)` : '')
-        );
-      } else if (report.errors.length) {
-        setError(report.errors.slice(0, 3).join(' · '));
-      }
+      if (report.errors.length) setError(report.errors.slice(0, 3).join(' · '));
       setSyncPhase(null);
     } catch (e: any) {
       setError(e?.message || 'Sync failed');
@@ -141,23 +134,21 @@ export const AuthWidget: React.FC = () => {
           className="w-full flex items-center justify-center gap-2 text-sm font-bold bg-indigo-50 text-indigo-700 py-2.5 rounded-xl hover:bg-indigo-100 disabled:opacity-60"
         >
           <RefreshCw size={15} className={syncing ? 'animate-spin' : ''} />
-          {syncing ? 'Syncing…' : 'Sync now (all devices)'}
+          {syncing ? 'Syncing…' : 'Sync now'}
         </button>
         {syncing && syncPhase && (
           <p className="text-[10px] text-indigo-600 font-mono truncate">{syncPhase}</p>
         )}
         <p className="text-[10px] text-theme-muted leading-relaxed">
-          Local data stays usable. Each cycle max ~45s; only changed quizzes (no sim HTML). Leftovers continue in background.
+          Local-first: Files/generate never wait on cloud. Sync only uploads pending saves and pulls changes from other devices.
         </p>
 
         {lastSync && (
           <p className="text-[11px] text-theme-muted">
-            Last: push {lastSync.pushed}
-            {typeof lastSync.skipped === 'number' ? ` · skip ${lastSync.skipped}` : ''}
-            {' '}· pull {lastSync.pulled}
+            Last: push {lastSync.pushed} · pull {lastSync.pulled}
+            {typeof lastSync.skipped === 'number' ? ` · up-to-date ${lastSync.skipped}` : ''}
             {typeof lastSync.ms === 'number' ? ` · ${lastSync.ms}ms` : ''}
-            {lastSync.remainingDirty ? ` · ${lastSync.remainingDirty} queued` : ''}
-            {lastSync.timedOut ? ' · partial' : lastSync.errors.length ? ` · ${lastSync.errors.length} warnings` : ' · ok'}
+            {lastSync.errors.length ? ` · ${lastSync.errors.length} warnings` : ' · ok'}
           </p>
         )}
         {health && <p className="text-[11px] text-theme-muted">{health}</p>}
