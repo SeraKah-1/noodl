@@ -6,7 +6,9 @@ import { SRSItem } from "../types";
 import { auth, supabase, isSupabaseConfigured } from "../supabase";
 import { get, set } from "idb-keyval";
 
-const SRS_IDB_KEY = "noodl_srs_store";
+import { KEYS } from "./storageKeys";
+
+const SRS_IDB_KEY = KEYS.srsIdb;
 
 async function loadLocal(): Promise<SRSItem[]> {
   return (await get(SRS_IDB_KEY)) || [];
@@ -198,6 +200,19 @@ export const NeuroSync = {
     await saveLocal(items);
     if (cloudOn() && supabase && auth.currentUser) {
       await supabase.from("srs_items").delete().eq("id", id).eq("user_id", auth.currentUser.uid);
+    }
+  },
+
+  async clearSyncData() {
+    try {
+      await saveLocal([]);
+      if (cloudOn() && supabase && auth.currentUser) {
+        await supabase.from("srs_items").delete().eq("user_id", auth.currentUser.uid);
+      }
+      return true;
+    } catch (e) {
+      console.error(e);
+      return false;
     }
   },
 };

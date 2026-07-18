@@ -841,9 +841,9 @@ case AppView.VISUALIZATION:
             >
               <div className="text-center mb-6">
                 <div className="text-4xl mb-3">⚠️</div>
-                <h3 className="text-lg font-black text-slate-800 dark:text-slate-100">Keluar dari Quiz?</h3>
+                <h3 className="text-lg font-black text-slate-800 dark:text-slate-100">{t('exitQuizTitle')}</h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
-                  Progress kamu tersimpan otomatis. Kamu bisa lanjutkan nanti.
+                  {t('exitQuizBody')}
                 </p>
               </div>
               <div className="space-y-3">
@@ -851,7 +851,7 @@ case AppView.VISUALIZATION:
                   onClick={() => setShowExitConfirm(false)}
                   className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
                 >
-                  <Play size={16} /> Lanjutkan Quiz
+                  <Play size={16} /> {t('exitStay')}
                 </button>
                 <button
                   onClick={handleConfirmExit}

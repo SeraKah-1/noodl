@@ -5,6 +5,8 @@ import { Brain, RefreshCw, CheckCircle2, AlertCircle, ChevronRight, Zap, History
 import { NeuroSync } from '../services/srsService';
 import { SRSItem } from '../types';
 import { NeuroSyncReview } from './NeuroSyncReview';
+import { EmptyState } from './EmptyState';
+import { t } from '../services/i18n';
 
 interface NeuroSyncDashboardProps {
   keycardId: string;
@@ -44,16 +46,16 @@ export const NeuroSyncDashboard: React.FC<NeuroSyncDashboardProps> = ({ keycardI
   }, [keycardId]);
 
   const handleClearData = async () => {
-      const confirmDelete = window.confirm("Apakah Anda yakin ingin menghapus SEMUA memori sinkronisasi? Ini tidak bisa dibatalkan.");
+      const confirmDelete = window.confirm(t('srsClearConfirm'));
       if (confirmDelete) {
          setIsDeleting(true);
          const success = await NeuroSync.clearSyncData();
          setIsDeleting(false);
          if (success) {
-            alert("Data NeuroSync berhasi dihapus.");
-            fetchItems(); // refresh to 0
+            alert(t('srsCleared'));
+            fetchItems();
          } else {
-            alert("Gagal menghapus data. Periksa koneksi atau coba lagi.");
+            alert(t('srsClearFail'));
          }
       }
   };
@@ -82,9 +84,9 @@ export const NeuroSyncDashboard: React.FC<NeuroSyncDashboardProps> = ({ keycardI
         <div>
           <h1 className="text-4xl font-bold tracking-tighter mb-2 flex items-center gap-3">
             <Brain className="w-10 h-10 text-theme-primary" />
-            NEURO-SYNC
+            {t('srsTitle')}
           </h1>
-          <p className="text-theme-muted font-medium">Spaced Repetition Memory System</p>
+          <p className="text-theme-muted font-medium">{t('featuresSrs')}</p>
         </div>
         <div className="flex items-center gap-2">
             <button 
@@ -93,13 +95,13 @@ export const NeuroSyncDashboard: React.FC<NeuroSyncDashboardProps> = ({ keycardI
                 className="px-4 py-2 rounded-full border border-rose-200 text-rose-500 hover:bg-rose-50 hover:border-rose-300 transition-colors flex items-center gap-2 disabled:opacity-50"
             >
                 {isDeleting ? <RefreshCw size={16} className="animate-spin" /> : <AlertCircle size={16} />} 
-                {isDeleting ? "Menghapus..." : "Hapus Data"}
+                {isDeleting ? t('loading') : 'Clear'}
             </button>
             <button 
               onClick={onExit}
               className="px-4 py-2 rounded-full border border-theme-border text-theme-muted hover:bg-theme-glass transition-colors"
             >
-              Keluar
+              {t('cancel')}
             </button>
         </div>
       </div>
@@ -129,28 +131,28 @@ export const NeuroSyncDashboard: React.FC<NeuroSyncDashboardProps> = ({ keycardI
             <div className="bg-theme-glass border border-theme-border p-6 rounded-3xl">
               <div className="flex items-center gap-3 mb-4 text-theme-muted">
                 <Zap className="w-5 h-5" />
-                <span className="text-sm font-semibold uppercase tracking-wider">Siap Sync</span>
+                <span className="text-sm font-semibold uppercase tracking-wider">{t('dueCards')}</span>
               </div>
               <div className="text-5xl font-bold text-emerald-500">{dueItems.length}</div>
-              <div className="text-sm text-theme-muted/70 mt-2">Item perlu di-review hari ini</div>
+              <div className="text-sm text-theme-muted/70 mt-2">{t('dueCards')}</div>
             </div>
 
             <div className="bg-theme-glass border border-theme-border p-6 rounded-3xl">
               <div className="flex items-center gap-3 mb-4 text-theme-muted">
                 <History className="w-5 h-5" />
-                <span className="text-sm font-semibold uppercase tracking-wider">Total Memori</span>
+                <span className="text-sm font-semibold uppercase tracking-wider">{t('totalCards')}</span>
               </div>
               <div className="text-5xl font-bold text-blue-500">{stats.total}</div>
-              <div className="text-sm text-theme-muted/70 mt-2">Item dalam database SRS</div>
+              <div className="text-sm text-theme-muted/70 mt-2">{t('totalCards')}</div>
             </div>
 
             <div className="bg-theme-glass border border-theme-border p-6 rounded-3xl">
               <div className="flex items-center gap-3 mb-4 text-theme-muted">
                 <Calendar className="w-5 h-5" />
-                <span className="text-sm font-semibold uppercase tracking-wider">Telah Dipelajari</span>
+                <span className="text-sm font-semibold uppercase tracking-wider">{t('learnedCards')}</span>
               </div>
               <div className="text-5xl font-bold text-purple-500">{stats.learned}</div>
-              <div className="text-sm text-theme-muted/70 mt-2">Item dengan interval {'>'} 21 hari</div>
+              <div className="text-sm text-theme-muted/70 mt-2">{t('learnedCards')}</div>
             </div>
           </>
         )}
@@ -171,37 +173,37 @@ export const NeuroSyncDashboard: React.FC<NeuroSyncDashboardProps> = ({ keycardI
             animate={{ opacity: 1, y: 0 }}
             className="bg-theme-primary/10 border border-theme-primary/20 p-8 rounded-[2rem] text-center"
           >
-            <h2 className="text-2xl font-bold mb-4">Otak Anda Siap untuk Sinkronisasi!</h2>
+            <h2 className="text-2xl font-bold mb-4">{t('startReview')}</h2>
             <p className="text-theme-muted mb-8 max-w-lg mx-auto">
-              Ada {dueItems.length} informasi yang mulai memudar dari ingatan Anda. 
-              Lakukan review sekarang untuk memperkuat jalur saraf Anda.
+              {dueItems.length} card(s) due. A short review now keeps them sticky.
             </p>
             <button 
               onClick={() => setIsReviewing(true)}
               className="px-12 py-4 bg-theme-primary hover:opacity-90 text-white font-bold rounded-2xl transition-all transform hover:scale-105 flex items-center gap-3 mx-auto"
             >
-              Mulai Neuro-Sync Sekarang
+              {t('startReview')}
               <ChevronRight className="w-5 h-5" />
             </button>
           </motion.div>
         ) : (
-          <div className="text-center py-20 bg-theme-glass border border-dashed border-theme-border rounded-[2rem]">
-            <CheckCircle2 className="w-16 h-16 text-theme-muted/30 mx-auto mb-4" />
-            <h2 className="text-xl font-bold text-theme-muted">Semua Jalur Saraf Sinkron!</h2>
-            <p className="text-theme-muted/70 mt-2">Tidak ada item yang perlu di-review saat ini. Istirahatkan otak Anda.</p>
-          </div>
+          <EmptyState
+            icon={CheckCircle2}
+            title={t('emptySrs')}
+            description={t('emptySrsDesc')}
+            actionLabel={t('emptySrsCta')}
+            onAction={onExit}
+          />
         )}
       </div>
 
-      {/* Info Section */}
       <div className="max-w-4xl mx-auto mt-12 grid grid-cols-1 md:grid-cols-2 gap-8">
         <div className="flex gap-4">
           <div className="w-12 h-12 rounded-2xl bg-theme-glass border border-theme-border flex items-center justify-center shrink-0">
             <Zap className="w-6 h-6 text-theme-primary" />
           </div>
           <div>
-            <h3 className="font-bold mb-1">Otomatis & Cerdas</h3>
-            <p className="text-sm text-theme-muted">Setiap soal kuis yang salah otomatis masuk ke antrean review ini.</p>
+            <h3 className="font-bold mb-1">Automatic</h3>
+            <p className="text-sm text-theme-muted">Wrong answers from quizzes join this queue automatically.</p>
           </div>
         </div>
         <div className="flex gap-4">
@@ -209,8 +211,8 @@ export const NeuroSyncDashboard: React.FC<NeuroSyncDashboardProps> = ({ keycardI
             <RefreshCw className="w-6 h-6 text-blue-500" />
           </div>
           <div>
-            <h3 className="font-bold mb-1">Algoritma SM-2</h3>
-            <p className="text-sm text-theme-muted">Jadwal review disesuaikan dengan tingkat kesulitan memori Anda.</p>
+            <h3 className="font-bold mb-1">SM-2 schedule</h3>
+            <p className="text-sm text-theme-muted">Intervals grow when you remember; shrink when you struggle.</p>
           </div>
         </div>
       </div>

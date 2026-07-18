@@ -162,7 +162,7 @@ const RELATIONSHIP_STAGES = [
         "Selamat pagi sayangku (secara akademik)! <3",
         "Liat kamu login aja aku udah seneng banget rasanya.",
         "Pagi cintaku! Semoga hari ini seindah nilaimu nanti.",
-        "Bangun tidur ku terus buka Mikir. Kamu banget kan?"
+        "Woke up and opened Noodl again. Relatable."
       ],
       afternoon: [
         "Siang sayang! Jangan lupa makan, aku gak mau kamu sakit.",

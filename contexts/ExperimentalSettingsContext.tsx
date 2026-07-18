@@ -1,8 +1,15 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState } from 'react';
+import { getAdvancedHandsFree, saveAdvancedHandsFree } from '../services/storageService';
+import { KEYS } from '../services/storageKeys';
 
+/**
+ * "Advanced / hands-free lab" — off by default.
+ * Only when enabled can quiz UI show nose/hand camera controls.
+ */
 interface ExperimentalSettingsContextType {
   isExperimentalEnabled: boolean;
   toggleExperimental: () => void;
+  setExperimental: (v: boolean) => void;
 }
 
 const ExperimentalSettingsContext = createContext<ExperimentalSettingsContextType | null>(null);
@@ -17,20 +24,26 @@ export const useExperimentalSettings = () => {
 
 export const ExperimentalSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isExperimentalEnabled, setIsExperimentalEnabled] = useState(() => {
-    const saved = localStorage.getItem('experimental_features_enabled');
-    return saved === 'true';
+    try {
+      return getAdvancedHandsFree();
+    } catch {
+      return localStorage.getItem(KEYS.advancedHandsFree) === 'true' ||
+        localStorage.getItem('experimental_features_enabled') === 'true';
+    }
   });
 
-  const toggleExperimental = () => {
-    setIsExperimentalEnabled(prev => {
-      const newValue = !prev;
+  const setExperimental = (newValue: boolean) => {
+    setIsExperimentalEnabled(newValue);
+    saveAdvancedHandsFree(newValue).catch(() => {
+      localStorage.setItem(KEYS.advancedHandsFree, String(newValue));
       localStorage.setItem('experimental_features_enabled', String(newValue));
-      return newValue;
     });
   };
 
+  const toggleExperimental = () => setExperimental(!isExperimentalEnabled);
+
   return (
-    <ExperimentalSettingsContext.Provider value={{ isExperimentalEnabled, toggleExperimental }}>
+    <ExperimentalSettingsContext.Provider value={{ isExperimentalEnabled, toggleExperimental, setExperimental }}>
       {children}
     </ExperimentalSettingsContext.Provider>
   );

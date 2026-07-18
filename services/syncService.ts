@@ -9,12 +9,13 @@
  */
 import { get, set, update } from 'idb-keyval';
 import { auth, supabase, isSupabaseConfigured } from '../supabase';
-// Shared IDB keys (keep in sync with storageService / srsService)
-export const HISTORY_IDB_KEY = 'glassquiz_history_store';
-export const PENDING_UPLOADS_KEY = 'glassquiz_pending_uploads';
-export const PENDING_DELETIONS_KEY = 'glassquiz_pending_deletions';
-const LIBRARY_IDB_KEY = 'glassquiz_library_store';
-const SRS_IDB_KEY = 'noodl_srs_store';
+import { KEYS } from './storageKeys';
+// Shared IDB keys (canonical + dual-read via migrateLegacyKeys)
+export const HISTORY_IDB_KEY = KEYS.historyIdb;
+export const PENDING_UPLOADS_KEY = KEYS.pendingUploads;
+export const PENDING_DELETIONS_KEY = KEYS.pendingDeletions;
+const LIBRARY_IDB_KEY = KEYS.libraryIdb;
+const SRS_IDB_KEY = KEYS.srsIdb;
 const DEVICE_KEY = 'noodl_device_id';
 
 export type SyncReport = {

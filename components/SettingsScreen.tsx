@@ -19,8 +19,11 @@ import {
   saveSRSEnabled, 
   getSRSEnabled, 
   saveHandTrackingEnabled, 
-  getHandTrackingEnabled 
+  getHandTrackingEnabled,
+  saveAdvancedHandsFree,
+  getAdvancedHandsFree,
 } from '../services/storageService';
+import { useExperimentalSettings } from '../contexts/ExperimentalSettingsContext';
 import { setWakelockRunning } from '../services/wakelockService';
 import { requestKaomojiPermission } from '../services/kaomojiNotificationService';
 import { scheduleDailyReminder, getReminderTime } from '../services/notificationService';
@@ -35,6 +38,7 @@ type SettingsTab = 'providers' | 'account' | 'appearance' | 'features' | 'notifi
 export const SettingsScreen: React.FC = () => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('providers');
   const [selectedProvider, setSelectedProvider] = useState<AiProvider>(getActiveProvider());
+  const { isExperimentalEnabled, setExperimental } = useExperimentalSettings();
   
   // Provider Config States
   const [apiKeyInput, setApiKeyInput] = useState('');
@@ -143,11 +147,11 @@ export const SettingsScreen: React.FC = () => {
   };
 
   const tabs: { id: SettingsTab; label: string; icon: any; badge?: string }[] = [
-    { id: 'providers', label: 'AI Provider & Model', icon: Cpu, badge: 'Agnostik' },
-    { id: 'account', label: 'Akun & Cloud Sync', icon: User },
-    { id: 'appearance', label: 'Tampilan & Tema', icon: Palette },
-    { id: 'features', label: 'Performa & Fitur', icon: Zap },
-    { id: 'notifications', label: 'Notifikasi', icon: Bell },
+    { id: 'providers', label: t('tabProviders'), icon: Cpu },
+    { id: 'account', label: t('tabAccount'), icon: User },
+    { id: 'appearance', label: t('tabAppearance'), icon: Palette },
+    { id: 'features', label: t('tabFeatures'), icon: Zap },
+    { id: 'notifications', label: t('tabNotifications'), icon: Bell },
   ];
 
   const currentProviderCatalog = PROVIDER_CATALOG.find(p => p.id === selectedProvider) || PROVIDER_CATALOG[0];
@@ -501,15 +505,14 @@ export const SettingsScreen: React.FC = () => {
                 <div className="bg-theme-glass border border-theme-border rounded-3xl p-6 shadow-xl space-y-6">
                   <h2 className="text-lg font-bold text-theme-text flex items-center gap-2">
                     <Zap className="text-indigo-500" size={20} />
-                    Fitur Performa & System Keep-Alive
+                    {t('tabFeatures')}
                   </h2>
 
-                  {/* SRS Toggle */}
                   <div className="flex items-center justify-between p-4 rounded-2xl bg-theme-bg/60 border border-theme-border">
                     <div>
-                      <h4 className="font-bold text-sm text-theme-text">Spaced Repetition System (SRS)</h4>
+                      <h4 className="font-bold text-sm text-theme-text">{t('featuresSrs')}</h4>
                       <p className="text-xs text-theme-muted mt-0.5">
-                        Simpan otomatis soal-soal kuis yang salah untuk diulas kembali sesuai jadwal memori SRS.
+                        Save missed cards for spaced review.
                       </p>
                     </div>
                     <input
@@ -520,12 +523,11 @@ export const SettingsScreen: React.FC = () => {
                     />
                   </div>
 
-                  {/* Wakelock Toggle */}
                   <div className="flex items-center justify-between p-4 rounded-2xl bg-theme-bg/60 border border-theme-border">
                     <div>
-                      <h4 className="font-bold text-sm text-theme-text">Keep Screen Awake (Wakelock)</h4>
+                      <h4 className="font-bold text-sm text-theme-text">{t('featuresWakelock')}</h4>
                       <p className="text-xs text-theme-muted mt-0.5">
-                        Mencegah layar HP / laptop mati saat Anda sedang membaca kuis atau materi kuis.
+                        Prevent screen sleep during quizzes.
                       </p>
                     </div>
                     <input
@@ -535,25 +537,43 @@ export const SettingsScreen: React.FC = () => {
                       className="w-5 h-5 accent-indigo-600 rounded cursor-pointer shrink-0"
                     />
                   </div>
+                </div>
 
-                  {/* Hand tracking Control Toggle */}
+                {/* Advanced: hands-free only here + quiz gear when enabled */}
+                <div className="bg-theme-glass border border-amber-200/40 rounded-3xl p-6 shadow-xl space-y-4">
+                  <h2 className="text-lg font-bold text-theme-text">{t('advancedTitle')}</h2>
+                  <p className="text-xs text-theme-muted">{t('advancedHint')}</p>
                   <div className="flex items-center justify-between p-4 rounded-2xl bg-theme-bg/60 border border-theme-border">
                     <div>
-                      <h4 className="font-bold text-sm text-theme-text">Eksperimental Hand tracking Control</h4>
+                      <h4 className="font-bold text-sm text-theme-text">{t('handsFreeEnable')}</h4>
                       <p className="text-xs text-theme-muted mt-0.5">
-                        Navigasi kuis menggunakan gestur tangan via kamera webcam (Eksperimental).
+                        Unlocks nose/hand controls during a quiz.
                       </p>
                     </div>
                     <input
                       type="checkbox"
-                      checked={gestureEnabled}
-                      onChange={(e) => {
-                        setHandTrackingEnabled(e.target.checked);
-                        saveHandTrackingEnabled(e.target.checked);
-                      }}
+                      checked={isExperimentalEnabled}
+                      onChange={(e) => setExperimental(e.target.checked)}
                       className="w-5 h-5 accent-indigo-600 rounded cursor-pointer shrink-0"
                     />
                   </div>
+                  {isExperimentalEnabled && (
+                    <div className="flex items-center justify-between p-4 rounded-2xl bg-theme-bg/60 border border-theme-border opacity-90">
+                      <div>
+                        <h4 className="font-bold text-sm text-theme-text">{t('handsFreeHand')}</h4>
+                        <p className="text-xs text-theme-muted mt-0.5">Remember preference for hand mode.</p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={gestureEnabled}
+                        onChange={(e) => {
+                          setHandTrackingEnabled(e.target.checked);
+                          saveHandTrackingEnabled(e.target.checked);
+                        }}
+                        className="w-5 h-5 accent-indigo-600 rounded cursor-pointer shrink-0"
+                      />
+                    </div>
+                  )}
                 </div>
               </motion.div>
             )}

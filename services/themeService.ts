@@ -178,7 +178,8 @@ const THEMES: Record<ThemeName, ThemePalette> = {
   }
 };
 
-const THEME_KEY = 'glassquiz_theme';
+const THEME_KEY = 'noodl_theme';
+const THEME_KEY_LEGACY = 'glassquiz_theme';
 
 export const applyTheme = (themeName: ThemeName) => {
   const theme = THEMES[themeName] || THEMES.default;
@@ -192,7 +193,9 @@ export const applyTheme = (themeName: ThemeName) => {
 };
 
 export const getSavedTheme = (): ThemeName => {
-  return (localStorage.getItem(THEME_KEY) as ThemeName) || 'default';
+  return (localStorage.getItem(THEME_KEY) as ThemeName)
+    || (localStorage.getItem(THEME_KEY_LEGACY) as ThemeName)
+    || 'default';
 };
 
 export const initTheme = () => {

@@ -299,7 +299,7 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ onComplete, onExit
                                 title="Nose tracking (Nose Navigation)"
                             >
                                 <Eye size={16} strokeWidth={2.5} />
-                                {cameraMode === 'NOSE' && <span className="text-xs font-bold pr-1">Mata</span>}
+                                {cameraMode === 'NOSE' && <span className="text-xs font-bold pr-1">Nose</span>}
                             </button>
                             <button 
                                 onClick={() => setCameraMode(cameraMode === 'HAND' ? 'OFF' : 'HAND')}
@@ -307,7 +307,7 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ onComplete, onExit
                                 title="Hand Gesture Control"
                             >
                                 <Hand size={16} strokeWidth={2.5} />
-                                {cameraMode === 'HAND' && <span className="text-xs font-bold pr-1">Tangan</span>}
+                                {cameraMode === 'HAND' && <span className="text-xs font-bold pr-1">Hand</span>}
                             </button>
                         </div>
                     )}
@@ -322,14 +322,14 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ onComplete, onExit
                             exit={{ opacity: 0, y: -10, scale: 0.95 }}
                             className="absolute top-full right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-100 p-4 z-50"
                         >
-                            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Experimental Features</h3>
+                            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Advanced</h3>
                             
                             <div className="flex items-center justify-between mb-2">
                                 <div className="flex items-center gap-2">
                                     <div className={`p-1.5 rounded-lg ${isExperimentalEnabled ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-500'}`}>
                                         <Power size={14} strokeWidth={3} />
                                     </div>
-                                    <span className="text-sm font-bold text-slate-700">Camera Input</span>
+                                    <span className="text-sm font-bold text-slate-700">Hands-free lab</span>
                                 </div>
                                 <button 
                                     onClick={toggleExperimental}
@@ -339,7 +339,7 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ onComplete, onExit
                                 </button>
                             </div>
                             <p className="text-[10px] text-slate-500 leading-tight">
-                                Optional hands-free input: nose pointer or hand gestures. Camera stays on-device. Uses more battery.
+                                Off by default. Nose pointer / hand gestures stay on-device and use more battery. Prefer Settings → Features for the same toggle.
                             </p>
                         </motion.div>
                     )}

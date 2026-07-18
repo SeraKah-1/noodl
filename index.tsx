@@ -8,12 +8,12 @@ import { registerSW } from 'virtual:pwa-register';
 
 const updateSW = registerSW({
   onNeedRefresh() {
-    if (confirm("Versi baru aplikasi Noodl tersedia. Muat ulang sekarang?")) {
+    if (confirm("A new Noodl version is ready. Reload now?")) {
       updateSW(true);
     }
   },
   onOfflineReady() {
-    console.log("Noodl App siap digunakan secara offline!");
+    console.log("Noodl is ready offline.");
   },
 });
 

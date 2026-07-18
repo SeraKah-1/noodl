@@ -1,4 +1,5 @@
 import { AiProvider, ModelOption } from '../types';
+import { KEYS } from './storageKeys';
 
 export interface ProviderSetting {
   id: AiProvider;
@@ -110,14 +111,19 @@ export const PROVIDER_CATALOG: ProviderSetting[] = [
   }
 ];
 
-const STORAGE_ACTIVE_PROVIDER = 'mikir_active_provider';
-const STORAGE_PREFIX_KEY = 'mikir_api_key_';
-const STORAGE_PREFIX_BASEURL = 'mikir_base_url_';
-const STORAGE_PREFIX_MODELS = 'mikir_fetched_models_';
+
+const STORAGE_ACTIVE_PROVIDER = KEYS.activeProvider;
+const STORAGE_PREFIX_KEY = KEYS.apiKeyPrefix;
+const STORAGE_PREFIX_BASEURL = KEYS.baseUrlPrefix;
+const STORAGE_PREFIX_MODELS = KEYS.modelsPrefix;
+
+function lsGetDual(primary: string, legacy: string): string | null {
+  return localStorage.getItem(primary) ?? localStorage.getItem(legacy);
+}
 
 // Get Current Active Provider
 export const getActiveProvider = (): AiProvider => {
-  const stored = localStorage.getItem(STORAGE_ACTIVE_PROVIDER) as AiProvider;
+  const stored = (lsGetDual(STORAGE_ACTIVE_PROVIDER, 'mikir_active_provider') || '') as AiProvider;
   if (stored && PROVIDER_CATALOG.some(p => p.id === stored)) return stored;
   return 'gemini';
 };
@@ -129,7 +135,9 @@ export const setActiveProvider = (provider: AiProvider): void => {
 
 // Get API Key for provider
 export const getProviderApiKey = (provider: AiProvider): string | null => {
-  const key = localStorage.getItem(`${STORAGE_PREFIX_KEY}${provider}`);
+  const key =
+    localStorage.getItem(`${STORAGE_PREFIX_KEY}${provider}`) ||
+    localStorage.getItem(`mikir_api_key_${provider}`);
   if (key) return key;
 
   // Fallbacks for Gemini
@@ -141,7 +149,10 @@ export const getProviderApiKey = (provider: AiProvider): string | null => {
     if (import.meta.env && import.meta.env.VITE_GEMINI_API_KEY) {
       return import.meta.env.VITE_GEMINI_API_KEY;
     }
-    const oldKey = localStorage.getItem('mikir_gemini_api_key');
+    const oldKey =
+      localStorage.getItem(KEYS.geminiLegacyAlias) ||
+      localStorage.getItem('mikir_gemini_api_key') ||
+      localStorage.getItem('glassquiz_api_key');
     if (oldKey) return oldKey;
   }
   return null;
@@ -151,13 +162,15 @@ export const getProviderApiKey = (provider: AiProvider): string | null => {
 export const setProviderApiKey = (provider: AiProvider, key: string): void => {
   localStorage.setItem(`${STORAGE_PREFIX_KEY}${provider}`, key);
   if (provider === 'gemini') {
-    localStorage.setItem('mikir_gemini_api_key', key);
+    localStorage.setItem(KEYS.geminiLegacyAlias, key);
   }
 };
 
 // Get Custom Base URL
 export const getProviderBaseUrl = (provider: AiProvider): string => {
-  const stored = localStorage.getItem(`${STORAGE_PREFIX_BASEURL}${provider}`);
+  const stored =
+    localStorage.getItem(`${STORAGE_PREFIX_BASEURL}${provider}`) ||
+    localStorage.getItem(`mikir_base_url_${provider}`);
   if (stored) return stored;
   const catalog = PROVIDER_CATALOG.find(p => p.id === provider);
   return catalog?.defaultBaseUrl || '';

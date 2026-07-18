@@ -64,14 +64,20 @@ VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 
 ### 4. Edge Function (optional, best practice)
 
+**Do not paste this into SQL Editor.** Run in a terminal with [Supabase CLI](https://supabase.com/docs/guides/cli):
+
 ```bash
-# with Supabase CLI logged in
+# install CLI once, then:
+supabase login
 supabase functions deploy session --project-ref xikribjyvqrilgbaxdel
 ```
 
-Verifies JWT and returns quiz/SRS counts for the signed-in user.
+Source: `supabase/functions/session/index.ts`  
+Verifies the user JWT and returns quiz/SRS counts.
 
-`@supabase/server` is installed for Node/API handlers if you add a custom backend later.
+Cross-device **quiz sync does not require** this function — it is optional health/metrics.
+
+`@supabase/server` is available for custom Node APIs if you add them later.
 
 ### 5. What syncs across devices
 

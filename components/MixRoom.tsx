@@ -1,11 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Gamepad2, CheckCircle2, Circle, Shuffle, Play, Layers, Sparkles, Plus } from 'lucide-react';
+import { Gamepad2, CheckCircle2, Circle, Shuffle, Play, Layers, Sparkles, Plus, Home } from 'lucide-react';
 import { getSavedQuizzes } from '../services/storageService';
 import { GlassButton } from './GlassButton';
 import { Question } from '../types';
 import { transformToMixed } from '../services/questionTransformer';
+import { EmptyState } from './EmptyState';
+import { t } from '../services/i18n';
 
 interface MixRoomProps {
   onStartMix: (questions: Question[]) => void;
@@ -62,10 +64,10 @@ export const MixRoom: React.FC<MixRoomProps> = ({ onStartMix, onStartFlashcards 
       <div className="text-center mb-10">
          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
            <h1 className="text-4xl font-black text-theme-text flex items-center justify-center tracking-tight">
-             <span className="bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-600 to-purple-600">Virtual Mixer</span>
+             <span className="bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-600 to-purple-600">{t('mixTitle')}</span>
            </h1>
            <p className="text-slate-500 mt-2 font-medium">
-             Campur aduk soal lama jadi ujian baru.
+             {t('mixSubtitle')}
            </p>
          </motion.div>
       </div>
@@ -74,6 +76,13 @@ export const MixRoom: React.FC<MixRoomProps> = ({ onStartMix, onStartFlashcards 
          
          {/* LEFT: QUIZ LIST */}
          <div className="lg:col-span-2 space-y-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+            {history.length === 0 && (
+              <EmptyState
+                icon={Home}
+                title={t('emptyMix')}
+                description={t('emptyMixDesc')}
+              />
+            )}
             {history.map((quiz, idx) => {
                const isSelected = selectedIds.includes(String(quiz.id));
                return (
@@ -138,13 +147,13 @@ export const MixRoom: React.FC<MixRoomProps> = ({ onStartMix, onStartFlashcards 
                             </motion.div>
                         ))}
                       </AnimatePresence>
-                      {selectedIds.length === 0 && <span className="text-xs text-purple-300 font-bold uppercase">Bowl Kosong</span>}
+                      {selectedIds.length === 0 && <span className="text-xs text-purple-300 font-bold uppercase">{t('emptyBowl')}</span>}
                   </div>
                </div>
 
                <div className="space-y-4 mb-6">
                   <div className="flex justify-between text-sm text-slate-500">
-                     <span>Quiz Dipilih</span>
+                     <span>{t('selectedQuizzes')}</span>
                      <span className="font-bold text-slate-800">{selectedIds.length}</span>
                   </div>
                   <div className="flex justify-between text-sm text-slate-500">

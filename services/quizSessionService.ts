@@ -13,7 +13,10 @@
 import { get, set, del } from 'idb-keyval';
 import type { QuizMode } from '../types';
 
-const SESSION_IDB_KEY = 'mikir_active_session';
+import { KEYS } from './storageKeys';
+
+const SESSION_IDB_KEY = KEYS.sessionIdb;
+// dual-read: migrateLegacyKeys copies mikir_active_session → noodl_active_session
 
 export interface AnswerRecord {
   questionId: number;
