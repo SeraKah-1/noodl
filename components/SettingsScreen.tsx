@@ -32,6 +32,7 @@ import { ThemeSelector } from './ThemeSelector';
 import { AuthWidget } from './AuthWidget';
 import { AiProvider, ModelOption, ThemeName } from '../types';
 import { getLocale, setLocale, t, type Locale } from '../services/i18n';
+import { PageHeader } from './PageHeader';
 
 type SettingsTab = 'providers' | 'account' | 'appearance' | 'features' | 'notifications';
 
@@ -137,7 +138,7 @@ export const SettingsScreen: React.FC = () => {
 
   const handleSaveReminder = () => {
     if (notifPermission !== 'granted') {
-      alert('Mohon izinkan notifikasi browser terlebih dahulu.');
+      alert(t('confirmHuman'));
       return;
     }
     if (reminderTime) {
@@ -158,33 +159,18 @@ export const SettingsScreen: React.FC = () => {
 
   return (
     <div className="max-w-6xl mx-auto p-4 md:p-8 space-y-8 animate-fadeIn">
-      {/* ── HEADER ── */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-theme-border">
-        <div>
-          <div className="flex items-center gap-3">
-            <div className="p-3 rounded-2xl bg-indigo-500/10 text-indigo-500 border border-indigo-500/20">
-              <Sliders size={28} />
-            </div>
-            <div>
-              <h1 className="text-2xl font-black text-theme-text tracking-tight flex items-center gap-2">
-                Sistem & Pengaturan AI
-                <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-indigo-500/10 text-indigo-500 border border-indigo-500/20">
-                  Big Tech State-of-the-Art
-                </span>
-              </h1>
-              <p className="text-sm text-theme-muted mt-0.5">
-                Konfigurasi provider AI agnostik, auto-fetch model, cloud sync, dan preferensi aplikasi.
-              </p>
-            </div>
+      <PageHeader
+        title={t('pageSettingsTitle')}
+        purpose={t('pageSettingsPurpose')}
+        right={
+          <div className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-theme-glass border border-theme-border text-xs font-medium text-theme-text">
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            <span>
+              {selectedProvider}
+            </span>
           </div>
-        </div>
-
-        {/* Status Indicator */}
-        <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-theme-glass border border-theme-border text-xs font-medium text-theme-text shadow-sm shrink-0">
-          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span>Active Provider: <strong className="text-indigo-400 capitalize">{selectedProvider}</strong></span>
-        </div>
-      </div>
+        }
+      />
 
       {/* ── MAIN TWO-COLUMN LAYOUT ── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -192,7 +178,7 @@ export const SettingsScreen: React.FC = () => {
         {/* LEFT NAVIGATION SIDEBAR (NO SLIDE BUG, STICKY & HIGH TOUCH TARGETS) */}
         <div className="lg:col-span-4 space-y-2 bg-theme-glass border border-theme-border rounded-3xl p-3 shadow-xl backdrop-blur-2xl">
           <p className="text-[11px] font-bold uppercase tracking-wider text-theme-muted px-4 py-2">
-            Kategori Pengaturan
+            {t('pageSettingsTitle')}
           </p>
           {tabs.map((tab) => {
             const Icon = tab.icon;
@@ -590,14 +576,14 @@ export const SettingsScreen: React.FC = () => {
                 <div className="bg-theme-glass border border-theme-border rounded-3xl p-6 shadow-xl space-y-6">
                   <h2 className="text-lg font-bold text-theme-text flex items-center gap-2">
                     <Bell className="text-indigo-500" size={20} />
-                    Notifikasi & Pengingat Belajar
+                    Reminders
                   </h2>
 
                   {/* Browser Permission Card */}
                   <div className="p-4 rounded-2xl bg-theme-bg/60 border border-theme-border space-y-3">
                     <div className="flex items-center justify-between">
                       <div>
-                        <h4 className="font-bold text-sm text-theme-text">Izin Notifikasi Browser</h4>
+                        <h4 className="font-bold text-sm text-theme-text">Browser notification permission</h4>
                         <p className="text-xs text-theme-muted mt-0.5">
                           Status Izin: <strong className="capitalize text-indigo-400">{notifPermission}</strong>
                         </p>
@@ -606,7 +592,7 @@ export const SettingsScreen: React.FC = () => {
                         onClick={handleRequestNotif}
                         className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm"
                       >
-                        Minta Izin Notifikasi
+                        Allow notifications
                       </button>
                     </div>
                   </div>

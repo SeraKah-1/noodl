@@ -1,3 +1,5 @@
+import { PageHeader } from './PageHeader';
+import { t, subscribeLocale } from '../services/i18n';
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { History, Search, Layout, TrendingUp, Skull, Play, Trash2, Tag, Download, Book, ChevronDown, ChevronUp, Share2, Filter, AlertCircle, CheckCircle2, Clock, Folder, RefreshCw, FileText, Edit3, FolderInput, CloudLightning, Sparkles, FileJson, FileSpreadsheet, Printer, Network } from 'lucide-react';
@@ -195,6 +197,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onS
   return (
     <div className="max-w-6xl mx-auto pt-8 pb-32 px-4 min-h-[90vh] text-theme-text flex flex-col font-sans">
       
+      <PageHeader title={t('pageFilesTitle')} purpose={t('pageFilesPurpose')} />
       {/* HEADER SECTION */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 gap-4">
           <div>

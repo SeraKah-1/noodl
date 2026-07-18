@@ -466,16 +466,12 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
       
       {/* HERO HEADER */}
       <div className="text-center space-y-2 pt-4">
-        <motion.h1 
-            initial={{ opacity: 0, y: 20 }} 
-            animate={{ opacity: 1, y: 0 }} 
-            className="text-6xl font-black tracking-tighter"
-        >
+        <h1 className="text-5xl md:text-6xl font-black tracking-tighter">
             <span className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600">
-                Noodl
+                {t('pageHomeTitle')}
             </span>
-            <span className="font-light opacity-40 text-4xl ml-2 text-slate-500">( •_•)</span>
-        </motion.h1>
+        </h1>
+        <p className="text-sm text-slate-500 max-w-md mx-auto">{t('pageHomePurpose')}</p>
       </div>
 
       <div className="relative">

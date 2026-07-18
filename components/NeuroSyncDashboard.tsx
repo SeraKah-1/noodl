@@ -7,6 +7,8 @@ import { SRSItem } from '../types';
 import { NeuroSyncReview } from './NeuroSyncReview';
 import { EmptyState } from './EmptyState';
 import { t } from '../services/i18n';
+import { PageHeader } from './PageHeader';
+// PageHeader used for clear screen purpose
 
 interface NeuroSyncDashboardProps {
   keycardId: string;
@@ -79,31 +81,31 @@ export const NeuroSyncDashboard: React.FC<NeuroSyncDashboardProps> = ({ keycardI
 
   return (
     <div className="min-h-screen bg-theme-bg text-theme-text p-6 pb-24">
-      {/* Header */}
-      <div className="max-w-4xl mx-auto mb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
-        <div>
-          <h1 className="text-4xl font-bold tracking-tighter mb-2 flex items-center gap-3">
-            <Brain className="w-10 h-10 text-theme-primary" />
-            {t('srsTitle')}
-          </h1>
-          <p className="text-theme-muted font-medium">{t('featuresSrs')}</p>
-        </div>
-        <div className="flex items-center gap-2">
-            <button 
+      <div className="max-w-4xl mx-auto">
+        <PageHeader
+          title={t('pageSyncTitle')}
+          purpose={t('pageSyncPurpose')}
+          right={
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
                 onClick={handleClearData}
-                disabled={isDeleting || (stats.total === 0)}
-                className="px-4 py-2 rounded-full border border-rose-200 text-rose-500 hover:bg-rose-50 hover:border-rose-300 transition-colors flex items-center gap-2 disabled:opacity-50"
-            >
-                {isDeleting ? <RefreshCw size={16} className="animate-spin" /> : <AlertCircle size={16} />} 
+                disabled={isDeleting || stats.total === 0}
+                className="px-4 py-2 rounded-full border border-rose-200 text-rose-500 hover:bg-rose-50 text-sm font-bold disabled:opacity-50 flex items-center gap-2"
+              >
+                {isDeleting ? <RefreshCw size={16} className="animate-spin" /> : <AlertCircle size={16} />}
                 {isDeleting ? t('loading') : 'Clear'}
-            </button>
-            <button 
-              onClick={onExit}
-              className="px-4 py-2 rounded-full border border-theme-border text-theme-muted hover:bg-theme-glass transition-colors"
-            >
-              {t('cancel')}
-            </button>
-        </div>
+              </button>
+              <button
+                type="button"
+                onClick={onExit}
+                className="px-4 py-2 rounded-full border border-theme-border text-theme-muted text-sm font-bold"
+              >
+                {t('back')}
+              </button>
+            </div>
+          }
+        />
       </div>
 
       <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">

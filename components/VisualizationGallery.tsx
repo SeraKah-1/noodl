@@ -1,3 +1,5 @@
+import { t } from '../services/i18n';
+import { PageHeader } from './PageHeader';
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, Loader2, Check, X, ChevronRight, RefreshCw, Wand2, Eye, Zap, AlertTriangle, Cloud, CloudLightning, CloudOff, UploadCloud, Plus } from 'lucide-react';

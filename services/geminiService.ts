@@ -16,6 +16,7 @@ import {
   getProviderBaseUrl 
 } from "./providerService";
 import { AiProvider } from "../types";
+import { outputLanguageRule, outputLanguageOneLiner } from "./languagePolicy";
 
 export function getActiveProvider(): AiProvider {
   return fetchActiveProvider();
@@ -539,7 +540,7 @@ export const summarizeMaterial = async (apiKey: string, content: string | File):
     Tandai detail yang kemungkinan besar diujikan dengan [EXAM-LIKELY].
     SALIN data verbatim dari materi — JANGAN meringkas atau memparafrase angka/nama/urutan.
     
-    LANGUAGE RULE: Output HARUS dalam Bahasa Indonesia. Istilah teknis boleh tetap dalam bahasa asli.
+    ${outputLanguageRule()}
   `;
 
   try {
@@ -677,7 +678,7 @@ export const generateQuiz = async (
 ): Promise<{ questions: Question[], contextText: string, conceptMap?: ConceptNode[] }> => {
   const isVertexExpress = import.meta.env.VITE_USE_VERTEX_EXPRESS === 'true';
   const isFirebaseVertexAI = import.meta.env.VITE_USE_FIREBASE_VERTEX_AI === 'true';
-  if (!apiKey && !isVertexExpress && !isFirebaseVertexAI) throw new Error("API Key Gemini belum diatur.");
+  if (!apiKey && !isVertexExpress && !isFirebaseVertexAI) throw new Error("API key is not set.");
   
   // --- PREPARE CONTEXT ---
   const baseParts: any[] = [];
@@ -707,16 +708,17 @@ export const generateQuiz = async (
     if (!contextText) contextText = topic;
   }
 
-  // --- LANGUAGE: match user input / material (multilingual models) ---
-  const languageHint = [
-    topic ? `Topic language sample: """${topic.slice(0, 280)}"""` : '',
-    libraryContext ? `Library text sample: """${libraryContext.slice(0, 400)}"""` : '',
-    'Detect the dominant language of the user materials above (or file contents).',
-    'All generated learner-facing text MUST use that language.',
-  ].filter(Boolean).join('\n');
-  if (languageHint) {
-    baseParts.push({ text: `LANGUAGE POLICY:\n${languageHint}` });
-  }
+  // --- LANGUAGE: app UI locale is source of truth for learner-facing text ---
+  baseParts.push({
+    text: [
+      outputLanguageRule(),
+      topic ? `User topic sample: """${String(topic).slice(0, 280)}"""` : '',
+      libraryContext ? `Material sample: """${String(libraryContext).slice(0, 280)}"""` : '',
+      'If material language differs from the required output language, still write questions in the required output language, grounded in the material facts.',
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  });
 
   // --- PHASE 1: CONCEPT ANALYSIS ---
   let conceptMap = cachedConceptMap || [];
@@ -1012,12 +1014,7 @@ VIOLATION EXAMPLES (DO NOT DO THIS):
            - CRITICAL: Do NOT mention option letters like "Pilihan A", "Opsi B", "C", "D" in the explanation text because the options will be shuffled. Refer directly to the text of the options instead (e.g. write "Jawaban yang benar adalah [Isi Jawaban] karena..." instead of "Pilihan A benar karena...").
         6. KEYPOINT FIELD:
            - The 'keyPoint' field MUST be a specific, granular sub-topic name (e.g., "Fiksasi Karbon", NOT just "Fotosintesis"). Max 3-4 words.
-        7. LANGUAGE RULE (MULTILINGUAL):
-           - Detect the primary language of the user's source material and/or topic text.
-           - Write ALL questions, options, explanations, hints, and keyPoints in THAT same language.
-           - If the material mixes languages, follow the majority language of the source text.
-           - If only a short topic is provided (no file), match the language of the topic string exactly.
-           - Do NOT force Indonesian or English unless the source is in that language.
+        7. ${outputLanguageRule()}
            - Keep technical terms/abbreviations as they appear in the source when natural.
     
         OUTPUT JSON format only.
@@ -1262,7 +1259,7 @@ VIOLATION EXAMPLES (DO NOT DO THIS):
            INSTRUCTIONS:
            1. GENERATE EXACTLY ${remaining} JSON objects.
            2. OPTIONS: A Correct, B-D Distractors.
-           3. LANGUAGE RULE: Bahasa Indonesia.
+           ${outputLanguageRule()}
            OUTPUT JSON format only.
          `;
          const overflowParts = [...baseParts, { text: overflowBatchPrompt }];
@@ -1304,7 +1301,7 @@ VIOLATION EXAMPLES (DO NOT DO THIS):
 export const chatWithDocument = async (apiKey: string, modelId: string, history: any[], message: string, contextText: string, file: File | null) => {
   const isVertexExpress = import.meta.env.VITE_USE_VERTEX_EXPRESS === 'true';
   const isFirebaseVertexAI = import.meta.env.VITE_USE_FIREBASE_VERTEX_AI === 'true';
-  if (!apiKey && !isVertexExpress && !isFirebaseVertexAI) throw new Error("API Key Gemini belum diatur.");
+  if (!apiKey && !isVertexExpress && !isFirebaseVertexAI) throw new Error("API key is not set.");
 
   const finalParts: any[] = [];
 
@@ -1314,7 +1311,7 @@ export const chatWithDocument = async (apiKey: string, modelId: string, history:
     1. Use only the provided context. Do not invent answers.
     2. If the answer is not in the context, politely state so.
     3. Be concise, helpful, and format with Markdown.
-    4. LANGUAGE RULE: Output MUST be strictly in Bahasa Indonesia.
+    ${outputLanguageRule()}
   `;
 
   // Bangun konteks materi sebagai bagian dari pesan user
@@ -1344,10 +1341,10 @@ export const chatWithDocument = async (apiKey: string, modelId: string, history:
 
     if (data.error) throw new Error(data.error);
 
-    return data.result || "Maaf, saya tidak bisa memberikan jawaban saat ini.";
+    return data.result || "…";
   } catch (err: any) {
     console.error("Chat Error:", err);
-    throw new Error("Gagal memproses pesan. Periksa koneksi atau API Key.");
+    throw new Error("Could not process the message. Check connection or API key.");
   }
 };
 
@@ -1359,7 +1356,7 @@ export const generateDeepInsight = async (
   const topics = Object.keys(groupedData);
   const resultData: Record<string, ConceptCardData> = {};
   
-  const systemInstruction = `SISTEM: Kamu adalah Tutor Ahli berkarakter "Noodl". Gayamu asik, to-the-point, dan berwawasan mendalam. Keluarkan output HANYA dalam format JSON.`;
+  const systemInstruction = `You are a sharp study tutor for Noodl. Be clear and practical. Output JSON only.\n${outputLanguageRule()}`;
 
   const CONCEPT_SCHEMA = {
     type: "object",

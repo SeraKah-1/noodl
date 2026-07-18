@@ -1,3 +1,4 @@
+import { outputLanguageRule } from "./languagePolicy";
 /**
  * ==========================================
  * VISUALIZATION SERVICE (2-PHASE AI PIPELINE)
@@ -55,22 +56,10 @@ async function callVisualizationAI(payload: {
 // PHASE 1: SCAN FOR VISUALIZATIONS
 // ═══════════════════════════════════════════
 
-const SCAN_SYSTEM_INSTRUCTION = `ROLE: Anda adalah ahli desain pembelajaran (instructional designer) dan spesialis visualisasi data pendidikan.
-TASK: Analisis materi pembelajaran yang diberikan dan identifikasikan konsep-konsep spesifik yang membutuhkan visualisasi interaktif untuk mempermudah pemahaman siswa. Hasil ekstraksi harus REPRESENTATIF terhadap keseluruhan isi materi.
-
-PEDAGOGICAL & REPRESENTATIVE EXTRACTION RULES:
-1. REPRESENTASI KESELURUHAN MATERI: Pindai materi secara sistematis dari awal hingga akhir. Pilih konsep-konsep dari berbagai bagian/sub-topik yang berbeda agar seluruh visualisasi secara kolektif merepresentasikan cakupan dan peta jalan (roadmap) dari materi tersebut, bukan hanya menumpuk di satu bagian saja.
-2. Temukan konsep yang cocok dengan kategori visualisasi berikut:
-   - Hubungan Kausal Dinamis: Sistem dengan variabel yang saling mempengaruhi (jika X berubah, bagaimana efeknya ke Y dan Z). COCOK untuk 'SIMULATION'.
-   - Proses Sekuensial/Sistemik: Langkah berurutan yang menggambarkan alur proses dari awal sampai akhir (misal siklus metabolisme, eksekusi kode, daur air). COCOK untuk 'PROCESS_FLOW'.
-   - Struktur Spasial/Fungsional: Komponen yang saling terhubung dan memiliki fungsi unik (misal anatomi organ, lapisan arsitektur jaringan). COCOK untuk 'DIAGRAM' atau '3D_MODEL'.
-   - Perbandingan/Tren Data: Perbandingan data, angka, atau tren waktu yang sulit dibayangkan hanya lewat tulisan. COCOK untuk 'CHART'.
-3. JANGAN memilih konsep umum di luar materi atau hanya karena konsep itu populer. Setiap konsep yang dipilih WAJIB memiliki dasar teks pendukung di dalam materi.
-4. Tetapkan prioritas 'HIGH' untuk konsep inti yang paling penting bagi keseluruhan materi, dan 'MODERATE'/'LOW' untuk konsep pendukung di bagian materi lainnya agar distribusinya merata dan representatif.
-5. Tentukan parameter/variabel interaktif yang relevan secara mendidik (misal: tombol navigasi langkah, slider variabel, pilihan opsi) agar siswa dapat memanipulasi visualisasi tersebut.
-6. Spesifik & Fungsional: Gunakan nama konsep konkret (misal: "Sirkulasi Darah Besar & Kecil" bukan "Sistem Kardiovaskular").
-7. Batasan Jumlah: Hasilkan antara 6 hingga 15 konsep. Pastikan jumlahnya cukup untuk mewakili keseluruhan isi materi secara representatif tanpa berlebihan atau membuat siswa kewalahan (cognitive overload).
-8. BAHASA: Semua kolom teks wajib menggunakan Bahasa Indonesia yang mudah dipahami siswa.`;
+const scanSystemInstruction = () => `ROLE: You are an instructional designer specializing in educational visualizations.
+TASK: Extract concepts from the material that are best explained visually.
+${outputLanguageRule()}
+Return structured concept blueprints only.`;
 
 const SCAN_SCHEMA = {
   type: "ARRAY" as const,
@@ -98,19 +87,20 @@ export async function scanForVisualizations(
 ): Promise<VisualizationBlueprint[]> {
   onProgress?.("🔍 AI sedang memindai materi untuk konsep yang bisa divisualisasikan...");
 
-  const prompt = `Analisis materi berikut dan identifikasi konsep-konsep yang akan sangat terbantu dengan visualisasi interaktif.
+  const prompt = `Analyze the material and list concepts that benefit from interactive visualization.
 
-MATERI:
+MATERIAL:
 """
 ${materialText.substring(0, 100000)}
 """
 
-Kembalikan array JSON berisi konsep-konsep yang bisa divisualisasikan.`;
+${outputLanguageRule()}
+Return a JSON array of visualization concepts.`;
 
   const data = await callVisualizationAI({
     modelName: SCAN_MODEL,
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    systemInstruction: SCAN_SYSTEM_INSTRUCTION,
+    systemInstruction: scanSystemInstruction(),
     responseSchema: SCAN_SCHEMA,
     temperature: 0.2,
     maxOutputTokens: 4096
@@ -161,29 +151,10 @@ Kembalikan array JSON berisi konsep-konsep yang bisa divisualisasikan.`;
 // PHASE 2: GENERATE VISUALIZATION
 // ═══════════════════════════════════════════
 
-const GENERATION_SYSTEM_INSTRUCTION = `ROLE: Anda adalah web developer elit yang berspesialisasi dalam pembuatan simulasi, visualisasi, dan alat peraga digital interaktif (HTML5 single-file) untuk membantu proses belajar-mengajar.
-
-PEDAGOGICAL & TECHNICAL REQUIREMENTS:
-1. Hasilkan file HTML lengkap dan mandiri (self-contained) yang menggabungkan HTML, CSS, dan JavaScript di dalam satu file.
-2. DILARANG menggunakan dependensi eksternal (no CDNs, no external libraries/scripts/styles, no external images). Semua harus digambar langsung menggunakan Canvas API, inline SVG, CSS, atau HTML standar.
-3. Simulasi WAJIB interaktif: sediakan kontrol seperti slider, tombol, atau toggle untuk memanipulasi variabel interaktif yang diminta.
-4. UMPAN BALIK INSTAN (Instant Pedagogical Feedback): Tampilkan satu panel teks dinamis kecil yang menjelaskan secara ilmiah efek langsung dari perubahan variabel yang dilakukan pengguna (misal: "Saat konsentrasi katalis dinaikkan, laju reaksi meningkat karena frekuensi tumbukan partikel bertambah").
-5. Desain PREMIUM, MODERN, dan PLAYFUL (Noodl theme):
-   - Warna latar belakang gelap (dark theme, contoh: #0f172a atau #1e293b)
-   - Aksen warna gradasi cerah untuk membedakan komponen (indigo, emerald, amber, rose)
-   - Berikan kontras yang sangat jelas antara komponen interaktif (slider/tombol) dengan dekorasi statis agar siswa tahu apa yang bisa dimanipulasi
-   - Sudut membulat modern (border-radius: 12px ke atas)
-   - Font modern bersih (system-ui, sans-serif) dan transisi animasi halus
-6. Layout harus RESPONSIF dan pas dengan viewport iframe — tidak memicu scrollbar luar yang mengganggu (tata letak rapi di resolusi mobile 360px hingga desktop).
-7. Navigasi & Alur:
-   - Tipe PROCESS_FLOW wajib memiliki navigasi langkah demi langkah ("Langkah Selanjutnya" / "Langkah Sebelumnya") dengan animasi transisi status yang jelas.
-   - Tipe DIAGRAM wajib menyorot/memberikan penjelasan popup/tooltip ketika label atau bagian tertentu dari gambar diklik oleh siswa.
-   - Tipe SIMULATION wajib menggunakan HTML5 Canvas atau SVG interaktif untuk menggambar fenomena fisis/kimia secara dinamis.
-   - Sediakan tombol "Mulai Ulang" (Reset) untuk mengembalikan semua nilai variabel ke kondisi awal.
-8. BAHASA: Semua teks label kontrol, petunjuk, cara interaksi, dan penjelasan ilmiah dinamis WAJIB ditulis dalam Bahasa Indonesia yang lugas dan ramah siswa.
-9. Cantumkan judul visualisasi yang jelas di bagian atas dan petunjuk singkat "Cara Belajar" di bagian sisi/bawah simulasi.
-
-CRITICAL: Kode HTML wajib berjalan sempurna di dalam iframe terisolasi dengan atribut sandbox="allow-scripts". Tidak boleh memakai localStorage, cookie, fetch API, ataupun akses network apa pun.`;
+const generationSystemInstruction = () => `ROLE: You build single-file interactive HTML5 learning simulations.
+Make them clear, responsive, and useful for studying.
+${outputLanguageRule()}
+All control labels, instructions, and dynamic explanations in the HTML must follow the output language rule.`;
 
 const GENERATION_SCHEMA = {
   type: "OBJECT" as const,
@@ -194,11 +165,11 @@ const GENERATION_SCHEMA = {
     },
     explanation: {
       type: "STRING" as const,
-      description: "Penjelasan singkat apa yang ditunjukkan visualisasi ini (Bahasa Indonesia)"
+      description: "Penjelasan singkat apa yang ditunjukkan visualisasi ini (the required output language)"
     },
     interactionGuide: {
       type: "STRING" as const,
-      description: "Panduan singkat cara berinteraksi (Bahasa Indonesia)"
+      description: "Panduan singkat cara berinteraksi (the required output language)"
     }
   },
   required: ["htmlCode", "explanation", "interactionGuide"] as const
@@ -268,7 +239,7 @@ Generate kode HTML yang lengkap, interaktif, dan indah.`;
     const data = await callVisualizationAI({
       modelName: modelName,
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      systemInstruction: GENERATION_SYSTEM_INSTRUCTION,
+      systemInstruction: generationSystemInstruction(),
       responseSchema: GENERATION_SCHEMA,
       temperature: 0.4,
       maxOutputTokens: 16384
@@ -411,7 +382,7 @@ Kembalikan array JSON berisi konsep-konsep BARU yang bisa divisualisasikan.`;
   const data = await callVisualizationAI({
     modelName: SCAN_MODEL,
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    systemInstruction: SCAN_SYSTEM_INSTRUCTION,
+    systemInstruction: scanSystemInstruction(),
     responseSchema: SCAN_SCHEMA,
     temperature: 0.3,
     maxOutputTokens: 4096

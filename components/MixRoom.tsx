@@ -8,6 +8,7 @@ import { Question } from '../types';
 import { transformToMixed } from '../services/questionTransformer';
 import { EmptyState } from './EmptyState';
 import { t } from '../services/i18n';
+import { PageHeader } from './PageHeader';
 
 interface MixRoomProps {
   onStartMix: (questions: Question[]) => void;
@@ -61,16 +62,7 @@ export const MixRoom: React.FC<MixRoomProps> = ({ onStartMix, onStartFlashcards 
 
   return (
     <div className="max-w-5xl mx-auto pt-8 pb-24 px-4 min-h-[80vh]">
-      <div className="text-center mb-10">
-         <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
-           <h1 className="text-4xl font-black text-theme-text flex items-center justify-center tracking-tight">
-             <span className="bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-600 to-purple-600">{t('mixTitle')}</span>
-           </h1>
-           <p className="text-slate-500 mt-2 font-medium">
-             {t('mixSubtitle')}
-           </p>
-         </motion.div>
-      </div>
+      <PageHeader title={t('pageMixTitle')} purpose={t('pageMixPurpose')} className="text-center sm:items-center" />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
          

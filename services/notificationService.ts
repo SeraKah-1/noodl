@@ -30,7 +30,7 @@ export const scheduleDailyReminder = (time: string) => { // format "HH:MM"
   // Send immediate feedback
   if (Notification.permission === "granted") {
     new Notification("Pengingat Diaktifkan! ⏰", {
-      body: `Noodl (-•_•) akan mengingatkanmu setiap hari jam ${time}.`,
+      body: getLocale() === 'id' ? `Pengingat harian jam ${time}` : `Daily reminder at ${time}`,
       icon: "https://cdn-icons-png.flaticon.com/512/3767/3767084.png" // Generic study icon
     });
   }
@@ -40,6 +40,7 @@ export const getReminderTime = (): string | null => {
   return localStorage.getItem(REMINDER_KEY);
 };
 
+import { getLocale } from './i18n';
 import { notifyStudyReminder } from './kaomojiNotificationService';
 
 export const checkAndTriggerNotification = () => {

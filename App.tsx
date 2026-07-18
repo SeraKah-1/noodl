@@ -700,7 +700,7 @@ const App: React.FC = () => {
            <div className="bg-red-50/50 backdrop-blur-md border border-red-200 p-8 rounded-3xl inline-block max-w-md">
              <h3 className="text-red-800 text-xl font-medium mb-2">Oops!</h3>
              <p className="text-red-600 mb-6">{errorMsg}</p>
-             <button onClick={resetApp} className="px-6 py-2 bg-red-100 text-red-700 rounded-xl hover:bg-red-200">Kembali</button>
+             <button onClick={resetApp} className="px-6 py-2 bg-red-100 text-red-700 rounded-xl hover:bg-red-200">{t('back')}</button>
            </div>
         </div>
       );

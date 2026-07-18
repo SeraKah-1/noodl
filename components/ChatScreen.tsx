@@ -1,3 +1,5 @@
+import { t } from '../services/i18n';
+import { PageHeader } from './PageHeader';
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Bot, User, FileText, ArrowLeft } from 'lucide-react';
