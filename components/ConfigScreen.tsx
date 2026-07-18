@@ -3,7 +3,15 @@ import React, { useState, useEffect } from 'react';
 import { Upload, FileText, Layout, Zap, TrendingUp, Skull, BookOpen, Type, Cloud, RefreshCw, CheckCircle2, X, PlayCircle, Layers, Settings2, Sparkles, Folder, Target, BrainCircuit, Shuffle, Cpu, ChevronDown, MessageSquarePlus, Check, Link as LinkIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AVAILABLE_MODELS, ModelConfig, QuizMode, ExamStyle, AiProvider, CloudNote, Question, LibraryItem, ModelOption } from '../types';
-import { getCachedModels, getActiveProvider, setActiveProvider, PROVIDER_CATALOG } from '../services/providerService';
+import {
+  getCachedModels,
+  getActiveProvider,
+  setActiveProvider,
+  getActiveModel,
+  setActiveModel,
+  ensureActiveModelValid,
+  PROVIDER_CATALOG,
+} from '../services/providerService';
 import { GlassButton } from './GlassButton';
 import { DashboardMascot } from './DashboardMascot';
 import { StudyScheduler } from './StudyScheduler';
@@ -92,9 +100,13 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
     import.meta.env.VITE_USE_FIREBASE_VERTEX_AI === 'true' ||
     import.meta.env.VITE_USE_VERTEX_AI === 'true';
 
-  // Re-sync active provider + key whenever this screen is shown (e.g. after Settings).
+  // Re-sync active provider + global model whenever this screen is shown (Settings is source of truth).
   useEffect(() => {
-    setProvider(getActiveProvider());
+    const p = getActiveProvider();
+    setProvider(p);
+    const models = getCachedModels(p);
+    setDynamicModels(models);
+    setModelId(ensureActiveModelValid(p, models));
   }, []);
 
   // Key must match the *active* provider — not hard-coded Gemini.
@@ -161,32 +173,26 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
     await logoutFromExternalNotes();
   };
 
-  // --- DYNAMIC MODEL FETCHING ---
+  // --- DYNAMIC MODEL FETCHING (global Settings model) ---
   useEffect(() => {
-    const loadModels = async () => {
-        const cached = getCachedModels(provider);
-        setDynamicModels(cached);
-        if (cached.length > 0 && !cached.some(m => m.id === modelId)) {
-          setModelId(cached[0].id);
-        }
-    };
-    loadModels();
+    const cached = getCachedModels(provider);
+    setDynamicModels(cached);
+    setModelId(ensureActiveModelValid(provider, cached));
   }, [provider]);
 
   const handleProviderChange = (newProvider: AiProvider) => {
       setProvider(newProvider);
       setActiveProvider(newProvider);
-      // Auto-select first model of that provider to prevent mismatch
       const cached = getCachedModels(newProvider);
-      const firstModel =
-        cached[0] ||
-        dynamicModels.find(m => m.provider === newProvider) ||
-        AVAILABLE_MODELS.find(m => m.provider === newProvider);
-      if (firstModel) {
-          setModelId(firstModel.id);
-      } else {
-          setModelId("");
-      }
+      const nextId = ensureActiveModelValid(newProvider, cached);
+      setDynamicModels(cached);
+      setModelId(nextId);
+  };
+
+  const handleModelChange = (id: string) => {
+    setModelId(id);
+    setActiveModel(provider, id);
+    setActiveProvider(provider);
   };
 
   const handleFilesUpload = (newFiles: FileList | null) => {
@@ -740,7 +746,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
               <div className="relative flex-1 w-full">
                  <select 
                     value={modelId}
-                    onChange={(e) => setModelId(e.target.value)}
+                    onChange={(e) => handleModelChange(e.target.value)}
                     disabled={isLoadingModels || dynamicModels.filter(m => m.provider === provider).length === 0}
                     className="w-full appearance-none bg-white border border-slate-200 text-slate-700 font-bold text-sm rounded-xl px-4 py-2.5 pr-10 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 disabled:opacity-50"
                  >

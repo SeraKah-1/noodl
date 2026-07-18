@@ -12,7 +12,7 @@ import type { Question } from '../types';
 import {
   callAI,
   getActiveProvider,
-  defaultModelForProvider,
+  getActiveModel,
   resolveModelName,
 } from './geminiService';
 import { getProviderApiKey } from './providerService';
@@ -31,7 +31,7 @@ export interface GraphNode {
 export interface GraphEdge {
   source: string;          // Node ID
   target: string;          // Node ID
-  relationship: string;    // "menyebabkan", "bagian dari", etc.
+  relationship: string;    // e.g. "causes", "part of"
   strength: 'strong' | 'moderate' | 'weak';
 }
 
@@ -49,15 +49,14 @@ export interface GraphViewResult {
   error?: string;
 }
 
-// ── AI CONFIG (resolved per active provider) ──
+// ── AI CONFIG: always Settings global model ──
 
 function extractModel(): string {
   const p = getActiveProvider();
-  return p === 'gemini' ? 'gemini-2.0-flash' : defaultModelForProvider(p);
+  return resolveModelName(p, getActiveModel(p));
 }
 function renderModel(): string {
-  const p = getActiveProvider();
-  return p === 'gemini' ? 'gemini-2.0-flash' : defaultModelForProvider(p);
+  return extractModel();
 }
 
 async function callGraphAI(payload: {
@@ -109,32 +108,42 @@ export async function extractGraphData(
   onProgress?.(getLocale() === 'id' ? '🔍 Menganalisis konsep dan relasi antar soal…' : '🔍 Analyzing concepts and relationships…');
 
   if (questions.length < 3) {
-    throw new Error('Minimal 3 soal diperlukan untuk membuat knowledge graph.');
+    throw new Error(getLocale() === 'id'
+      ? 'Minimal 3 soal diperlukan untuk membuat knowledge graph.'
+      : 'At least 3 questions are needed for a knowledge graph.');
   }
 
-  // Build question summary for AI
   const questionSummary = questions.slice(0, 100).map((q, i) => {
-    return `Soal ${i + 1}: ${q.text}\nKey Point: ${q.keyPoint || 'N/A'}\nPenjelasan: ${q.explanation || 'N/A'}`;
+    return `Q${i + 1}: ${q.text}\nKey Point: ${q.keyPoint || 'N/A'}\nExplanation: ${q.explanation || 'N/A'}`;
   }).join('\n\n');
 
-  const prompt = `Analisis soal-soal berikut dan buat peta konsep (knowledge graph) dari materi yang diujikan.
+  const materialSample = [
+    questionSummary,
+    materialContext || '',
+  ].join('\n').slice(0, 8000);
+  const langBlock = outputLanguageRule(materialSample);
 
-SOAL-SOAL:
+  const prompt = `Analyze the following questions and build a concept map (knowledge graph) of the tested material.
+
+QUESTIONS:
 """
 ${questionSummary}
 """
 
-${materialContext ? `KONTEKS MATERI TAMBAHAN:\n"""\n${materialContext.substring(0, 50000)}\n"""` : ''}
+${materialContext ? `ADDITIONAL MATERIAL CONTEXT:\n"""\n${materialContext.substring(0, 50000)}\n"""` : ''}
 
-INSTRUKSI:
-1. Identifikasi semua konsep utama yang dibahas dalam soal-soal di atas.
-2. Tentukan hubungan (relasi) antar konsep tersebut.
-3. Kelompokkan konsep ke dalam kategori yang sesuai.
-4. Hitung berapa soal yang berkaitan dengan setiap konsep.
-5. Tentukan tingkat kepentingan (core/supporting/detail) berdasarkan frekuensi dan sentralitas.
-6. Maksimal 40 nodes dan 60 edges.
+INSTRUCTIONS:
+1. Identify main concepts covered by the questions.
+2. Determine relationships between concepts.
+3. Group concepts into sensible categories.
+4. Count how many questions relate to each concept.
+5. Set importance (core/supporting/detail) by frequency and centrality.
+6. Max 40 nodes and 60 edges.
 
-Kembalikan response dalam format JSON yang tepat.`;
+${langBlock}
+
+Node labels, relationship labels, categories, and the summary MUST follow OUTPUT LANGUAGE.
+Return exact JSON.`;
 
   const schema = {
     type: 'object',
@@ -174,6 +183,7 @@ Kembalikan response dalam format JSON yang tepat.`;
   const data = await callGraphAI({
     modelName: extractModel(),
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    systemInstruction: `You extract educational knowledge graphs.\n${langBlock}`,
     responseSchema: schema as any,
     temperature: 0.2,
     maxOutputTokens: 8192
@@ -206,7 +216,9 @@ Kembalikan response dalam format JSON yang tepat.`;
         generatedAt: new Date().toISOString()
       };
     }
-    throw new Error('Gagal parse graph data dari AI response.');
+    throw new Error(getLocale() === 'id'
+      ? 'Gagal parse graph data dari AI response.'
+      : 'Could not parse graph data from the AI response.');
   }
 }
 
@@ -219,36 +231,43 @@ export async function generateGraphHTML(
 ): Promise<string> {
   onProgress?.(getLocale() === 'id' ? '🎨 Membuat visualisasi knowledge graph…' : '🎨 Building interactive knowledge graph…');
 
-  const prompt = `Buat halaman HTML interaktif yang menampilkan knowledge graph (peta konsep) berikut.
+  const langSample = `${title}\n${graphData.summary || ''}\n${(graphData.nodes || []).map((n) => n.label).join(' ')}`;
+  const langBlock = outputLanguageRule(langSample);
 
-DATA GRAPH (JSON):
+  const prompt = `Build an interactive HTML page that displays this knowledge graph (concept map).
+
+GRAPH DATA (JSON):
 """
 ${JSON.stringify(graphData, null, 2)}
 """
 
-JUDUL: "${title}"
+TITLE: "${title}"
+
+${langBlock}
 
 REQUIREMENTS:
-1. Buat graph visualization menggunakan HTML5 Canvas (TANPA library eksternal, TANPA CDN).
-2. Setiap node ditampilkan sebagai lingkaran/kotak dengan label.
-3. Node dengan importance='core' harus lebih besar dan berwarna lebih mencolok.
-4. Edges ditampilkan sebagai garis penghubung dengan label relasi.
-5. Warna node berbeda per category (gunakan palette yang estetik).
-6. Node bisa di-drag untuk mengatur posisi.
-7. Hover pada node menampilkan tooltip dengan detail (category, jumlah soal).
-8. Hover pada edge menampilkan label relasi.
-9. Zoom (scroll) dan pan (click-drag background) support.
-10. Layout awal menggunakan force-directed algorithm sederhana.
-11. Responsive dan berfungsi di mobile.
-12. Tampilkan summary text di bawah graph.
-13. Tampilkan legend (warna per category).
-14. Desain modern, clean, dark-mode friendly dengan background gelap.
+1. HTML5 Canvas graph (NO external libraries, NO CDN).
+2. Nodes as circles/boxes with labels.
+3. importance='core' nodes larger and more prominent.
+4. Edges as connectors with relationship labels.
+5. Distinct colors per category (aesthetic palette).
+6. Draggable nodes.
+7. Node hover tooltip (category, question count).
+8. Edge hover shows relationship.
+9. Zoom (scroll) and pan (drag background).
+10. Simple force-directed initial layout.
+11. Responsive / mobile-friendly.
+12. Summary text under the graph.
+13. Legend by category color.
+14. Modern dark-mode friendly design.
+15. ALL UI chrome, tooltips, legend titles, and summary must follow OUTPUT LANGUAGE.
 
-OUTPUT: Satu file HTML lengkap dengan inline CSS dan JavaScript. HANYA HTML, tanpa markdown, tanpa penjelasan. Mulai dengan <!DOCTYPE html>.`;
+OUTPUT: One complete HTML file with inline CSS/JS. HTML only — no markdown. Start with <!DOCTYPE html>.`;
 
   const data = await callGraphAI({
     modelName: renderModel(),
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    systemInstruction: `You generate educational graph HTML visualizations.\n${langBlock}`,
     temperature: 0.4,
     maxOutputTokens: 32768
   });
@@ -273,7 +292,9 @@ OUTPUT: Satu file HTML lengkap dengan inline CSS dan JavaScript. HANYA HTML, tan
     if (htmlStart !== -1) {
       html = html.substring(htmlStart);
     } else {
-      throw new Error('AI tidak menghasilkan HTML yang valid.');
+      throw new Error(getLocale() === 'id'
+        ? 'AI tidak menghasilkan HTML yang valid.'
+        : 'AI did not produce valid HTML.');
     }
   }
 

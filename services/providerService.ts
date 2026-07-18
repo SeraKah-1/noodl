@@ -116,6 +116,7 @@ const STORAGE_ACTIVE_PROVIDER = KEYS.activeProvider;
 const STORAGE_PREFIX_KEY = KEYS.apiKeyPrefix;
 const STORAGE_PREFIX_BASEURL = KEYS.baseUrlPrefix;
 const STORAGE_PREFIX_MODELS = KEYS.modelsPrefix;
+const STORAGE_PREFIX_ACTIVE_MODEL = KEYS.activeModelPrefix;
 
 function lsGetDual(primary: string, legacy: string): string | null {
   return localStorage.getItem(primary) ?? localStorage.getItem(legacy);
@@ -131,6 +132,42 @@ export const getActiveProvider = (): AiProvider => {
 // Set Active Provider
 export const setActiveProvider = (provider: AiProvider): void => {
   localStorage.setItem(STORAGE_ACTIVE_PROVIDER, provider);
+};
+
+/** Persist the model chosen for a provider (global for all AI features). */
+export const setActiveModel = (provider: AiProvider, modelId: string): void => {
+  const id = (modelId || '').trim();
+  if (!id) return;
+  localStorage.setItem(`${STORAGE_PREFIX_ACTIVE_MODEL}${provider}`, id);
+};
+
+/**
+ * Model id for a provider. Falls back to first cached/preset model.
+ * This is the global "Vertex-style" selection: one model powers quiz, visual lab, graph, chat, insight.
+ */
+export const getActiveModel = (provider?: AiProvider): string => {
+  const p = provider || getActiveProvider();
+  const stored =
+    localStorage.getItem(`${STORAGE_PREFIX_ACTIVE_MODEL}${p}`) ||
+    localStorage.getItem(`mikir_active_model_${p}`);
+  if (stored && stored.trim()) return stored.trim();
+
+  const models = getCachedModels(p);
+  if (models.length > 0) return models[0].id;
+
+  // Catalog presets
+  const catalog = PROVIDER_CATALOG.find((c) => c.id === p);
+  return catalog?.presetModels?.[0]?.id || '';
+};
+
+/** Ensure a selected model is in the list; otherwise pick first available. */
+export const ensureActiveModelValid = (provider: AiProvider, models: ModelOption[]): string => {
+  if (!models.length) return getActiveModel(provider);
+  const current = getActiveModel(provider);
+  if (current && models.some((m) => m.id === current)) return current;
+  const next = models[0].id;
+  setActiveModel(provider, next);
+  return next;
 };
 
 // Get API Key for provider
@@ -213,7 +250,7 @@ export const autoFetchModels = async (
     if (provider === 'gemini') {
       const targetKey = apiKey || import.meta.env.VITE_GEMINI_API_KEY;
       if (!targetKey) {
-        return { models: getCachedModels('gemini'), error: 'Menggunakan model bawaan Gemini Vertex AI (Express Mode).' };
+        return { models: getCachedModels('gemini'), error: 'Using built-in Gemini preset models (no key / Express mode).' };
       }
       const url = `${baseUrl}/models?key=${targetKey}`;
       const res = await fetch(url);
@@ -262,13 +299,13 @@ export const autoFetchModels = async (
 
     // Fallback to presets if list empty
     const presets = getCachedModels(provider);
-    return { models: presets, error: 'Endpoint tidak mengembalikan daftar model, menggunakan daftar preset.' };
+    return { models: presets, error: 'Endpoint returned no models; using preset list.' };
   } catch (err: any) {
     console.error(`[ProviderService] Auto-fetch error for ${provider}:`, err);
     const presets = getCachedModels(provider);
     return {
       models: presets,
-      error: `Gagal auto-fetch (${err.message || 'Error koneksi'}). Menggunakan model preset.`
+      error: `Auto-fetch failed (${err.message || 'connection error'}). Using preset models.`
     };
   }
 };

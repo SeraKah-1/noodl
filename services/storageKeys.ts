@@ -23,6 +23,8 @@ export const KEYS = {
   apiKeyPrefix: 'noodl_api_key_',
   baseUrlPrefix: 'noodl_base_url_',
   modelsPrefix: 'noodl_fetched_models_',
+  /** Selected model id per provider — used globally (quiz, sim, graph, chat, insight). */
+  activeModelPrefix: 'noodl_active_model_',
   geminiLegacyAlias: 'noodl_gemini_api_key',
 } as const;
 

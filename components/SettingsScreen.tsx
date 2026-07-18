@@ -12,7 +12,10 @@ import {
   setProviderApiKey, 
   getProviderBaseUrl, 
   setProviderBaseUrl, 
-  getCachedModels, 
+  getCachedModels,
+  getActiveModel,
+  setActiveModel,
+  ensureActiveModelValid,
   autoFetchModels 
 } from '../services/providerService';
 import { 
@@ -49,6 +52,7 @@ export const SettingsScreen: React.FC = () => {
 
   // Model Fetching States
   const [modelsList, setModelsList] = useState<ModelOption[]>([]);
+  const [activeModelId, setActiveModelId] = useState('');
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [fetchNotice, setFetchNotice] = useState<{ type: 'success' | 'warning' | 'error'; message: string } | null>(null);
 
@@ -83,9 +87,11 @@ export const SettingsScreen: React.FC = () => {
   const loadProviderState = (prov: AiProvider) => {
     const key = getProviderApiKey(prov) || '';
     const url = getProviderBaseUrl(prov);
+    const models = getCachedModels(prov);
     setApiKeyInput(key);
     setBaseUrlInput(url);
-    setModelsList(getCachedModels(prov));
+    setModelsList(models);
+    setActiveModelId(ensureActiveModelValid(prov, models));
     setFetchNotice(null);
   };
 
@@ -95,9 +101,19 @@ export const SettingsScreen: React.FC = () => {
     loadProviderState(prov);
   };
 
+  const handleSelectModel = (modelId: string) => {
+    setActiveModelId(modelId);
+    setActiveModel(selectedProvider, modelId);
+    setActiveProvider(selectedProvider);
+    setSaveStatus(t('modelSetGlobal').replace('{model}', modelId));
+    setTimeout(() => setSaveStatus(null), 3500);
+  };
+
   const handleSaveProviderConfig = () => {
     setProviderApiKey(selectedProvider, apiKeyInput.trim());
     setProviderBaseUrl(selectedProvider, baseUrlInput.trim());
+    setActiveProvider(selectedProvider);
+    if (activeModelId) setActiveModel(selectedProvider, activeModelId);
     setSaveStatus(t('configSaved'));
     setTimeout(() => setSaveStatus(null), 3000);
   };
@@ -109,15 +125,21 @@ export const SettingsScreen: React.FC = () => {
     // Save first before fetching
     setProviderApiKey(selectedProvider, apiKeyInput.trim());
     setProviderBaseUrl(selectedProvider, baseUrlInput.trim());
+    setActiveProvider(selectedProvider);
 
     const res = await autoFetchModels(selectedProvider, apiKeyInput.trim(), baseUrlInput.trim());
     setIsFetchingModels(false);
     setModelsList(res.models);
+    const picked = ensureActiveModelValid(selectedProvider, res.models);
+    setActiveModelId(picked);
 
     if (res.error) {
       setFetchNotice({ type: 'warning', message: res.error });
     } else {
-      setFetchNotice({ type: 'success', message: t('modelsFetched').replace('{n}', String(res.models.length)) });
+      setFetchNotice({
+        type: 'success',
+        message: t('modelsFetched').replace('{n}', String(res.models.length)),
+      });
     }
   };
 
@@ -165,8 +187,9 @@ export const SettingsScreen: React.FC = () => {
         right={
           <div className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-theme-glass border border-theme-border text-xs font-medium text-theme-text">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span>
+            <span className="truncate max-w-[14rem]" title={activeModelId || selectedProvider}>
               {selectedProvider}
+              {activeModelId ? ` · ${activeModelId}` : ''}
             </span>
           </div>
         }
@@ -376,33 +399,89 @@ export const SettingsScreen: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Auto-Fetched Models Catalog Grid */}
+                {/* Global model picker — powers quiz, simulation, graph, chat, regenerate */}
                 <div className="bg-theme-glass border border-theme-border rounded-3xl p-6 shadow-xl space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-base font-bold text-theme-text flex items-center gap-2">
-                      <Server className="text-indigo-400" size={18} />
-                      Model Terdaftar ({modelsList.length} Model)
-                    </h3>
-                    <span className="text-xs text-theme-muted font-mono uppercase">{selectedProvider}</span>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-base font-bold text-theme-text flex items-center gap-2">
+                        <Server className="text-indigo-400" size={18} />
+                        {t('globalModelTitle')}
+                      </h3>
+                      <p className="text-xs text-theme-muted mt-1 leading-relaxed max-w-xl">
+                        {t('globalModelHint')}
+                      </p>
+                    </div>
+                    <span className="text-xs text-theme-muted font-mono uppercase shrink-0">{selectedProvider}</span>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-64 overflow-y-auto pr-1">
-                    {modelsList.map((m) => (
-                      <div
-                        key={m.id}
-                        className="p-3 rounded-xl bg-theme-bg/60 border border-theme-border flex items-center justify-between text-xs"
-                      >
-                        <div className="font-mono text-theme-text font-medium truncate pr-2">
-                          {m.label}
-                        </div>
-                        {m.isVision && (
-                          <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shrink-0">
-                            Vision
-                          </span>
+                  {modelsList.length > 0 ? (
+                    <>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-theme-text">
+                          {t('activeModelLabel')}
+                        </label>
+                        <select
+                          value={activeModelId}
+                          onChange={(e) => handleSelectModel(e.target.value)}
+                          className="w-full px-4 py-3 bg-theme-bg border border-theme-border rounded-xl text-sm text-theme-text focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                        >
+                          {modelsList.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.label || m.id}
+                            </option>
+                          ))}
+                        </select>
+                        {activeModelId && (
+                          <p className="text-[11px] text-emerald-500 font-medium flex items-center gap-1.5">
+                            <Check size={12} />
+                            {t('modelActiveBanner').replace('{model}', activeModelId)}
+                          </p>
                         )}
                       </div>
-                    ))}
-                  </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto pr-1">
+                        {modelsList.map((m) => {
+                          const isActive = m.id === activeModelId;
+                          return (
+                            <button
+                              type="button"
+                              key={m.id}
+                              onClick={() => handleSelectModel(m.id)}
+                              className={`
+                                p-3 rounded-xl text-left border flex items-center justify-between text-xs transition-all
+                                ${isActive
+                                  ? 'border-indigo-500 bg-indigo-500/15 ring-2 ring-indigo-500/30 shadow-md'
+                                  : 'bg-theme-bg/60 border-theme-border hover:border-indigo-400/40 hover:bg-theme-bg'}
+                              `}
+                            >
+                              <div className="min-w-0 pr-2">
+                                <div className="font-mono text-theme-text font-medium truncate">
+                                  {m.label || m.id}
+                                </div>
+                                <div className="text-[10px] text-theme-muted truncate mt-0.5">{m.id}</div>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {m.isVision && (
+                                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                                    Vision
+                                  </span>
+                                )}
+                                {isActive && (
+                                  <span className="p-1 rounded-full bg-indigo-500 text-white">
+                                    <Check size={12} />
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-xs text-theme-muted">
+                      {t('noModelsYet')}
+                    </p>
+                  )}
                 </div>
               </motion.div>
             )}

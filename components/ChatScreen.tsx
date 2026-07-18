@@ -36,11 +36,14 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ contextText, sourceFile,
     setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
     setLoading(true);
 
-    const { getActiveProvider, getCachedModels } = await import('../services/providerService');
+    const { getActiveProvider, getActiveModel, getCachedModels } = await import('../services/providerService');
     const provider = getActiveProvider();
     const apiKey = getApiKey(provider);
     const models = getCachedModels(provider);
-    const modelId = models[0]?.id || (provider === 'gemini' ? 'gemini-2.0-flash' : '');
+    const modelId =
+      getActiveModel(provider) ||
+      models[0]?.id ||
+      (provider === 'gemini' ? 'gemini-2.0-flash' : '');
     
     // Convert simplified messages to API history format
     const apiHistory = messages.map(m => ({

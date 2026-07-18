@@ -14,7 +14,8 @@ import { getLocale } from './i18n';
 import { 
   getActiveProvider as fetchActiveProvider, 
   getProviderApiKey, 
-  getProviderBaseUrl 
+  getProviderBaseUrl,
+  getActiveModel as fetchActiveModel,
 } from "./providerService";
 import { AiProvider } from "../types";
 import { outputLanguageRule, outputLanguageOneLiner } from "./languagePolicy";
@@ -23,10 +24,18 @@ export function getActiveProvider(): AiProvider {
   return fetchActiveProvider();
 }
 
+/** Re-export Settings global model (same power as old Vertex default model). */
+export function getActiveModel(provider?: AiProvider): string {
+  return fetchActiveModel(provider);
+}
+
 // Default model IDs — MUST match the active provider (never force Gemini on OpenRouter).
 const DEFAULT_GENERATION_MODEL = 'gemini-2.0-flash';
 
 export function defaultModelForProvider(provider: AiProvider): string {
+  // Prefer the model the user picked in Settings (global).
+  const selected = fetchActiveModel(provider);
+  if (selected) return selected;
   switch (provider) {
     case 'openrouter':
       return 'openai/gpt-4o-mini';
@@ -48,9 +57,9 @@ export function defaultModelForProvider(provider: AiProvider): string {
 
 /** Resolve a model id that is valid for the provider. Avoids sending "gemini-*" to OpenRouter. */
 export function resolveModelName(provider: AiProvider, modelName?: string): string {
-  const raw = (modelName || '').trim();
+  const raw = (modelName || '').trim() || fetchActiveModel(provider) || '';
   if (!raw) return defaultModelForProvider(provider);
-  if (provider !== 'gemini' && /^gemini/i.test(raw)) {
+  if (provider !== 'gemini' && /^gemini/i.test(raw) && provider !== 'openrouter' && provider !== 'ninerouter' && provider !== 'custom') {
     console.warn(`[AIService] Model "${raw}" is Gemini-only; falling back for provider=${provider}`);
     return defaultModelForProvider(provider);
   }
@@ -64,7 +73,8 @@ export async function callAI(action: string, payload: any): Promise<any> {
   const provider = explicitProvider || getActiveProvider();
   const apiKey = customApiKey || getProviderApiKey(provider);
   const baseUrl = getProviderBaseUrl(provider);
-  const resolvedModel = resolveModelName(provider, modelName);
+  // Empty modelName → Settings global selection (Vertex-style default for all features)
+  const resolvedModel = resolveModelName(provider, modelName || fetchActiveModel(provider));
 
   console.log(`[AIService] Routing ${action} via provider: ${provider} (model: ${resolvedModel})...`);
 
@@ -813,13 +823,14 @@ export const generateQuiz = async (
     if (!contextText) contextText = topic;
   }
 
-  // --- LANGUAGE: app UI locale is source of truth for learner-facing text ---
+  // --- LANGUAGE: prefer material language when clear, else app UI locale ---
+  const materialLangSample = [String(libraryContext || ''), String(topic || '')].join('\n').slice(0, 6000);
   baseParts.push({
     text: [
-      outputLanguageRule(),
+      outputLanguageRule(materialLangSample),
       topic ? `User topic sample: """${String(topic).slice(0, 280)}"""` : '',
       libraryContext ? `Material sample: """${String(libraryContext).slice(0, 280)}"""` : '',
-      'If material language differs from the required output language, still write questions in the required output language, grounded in the material facts.',
+      'Match the material language when it is clearly English or Indonesian. Ground every fact in the material.',
     ]
       .filter(Boolean)
       .join('\n'),
@@ -988,16 +999,16 @@ DISTRACTOR RULES untuk C5:
   const PARALLEL_BATCHES = 5;
   const MAX_TOP_UP_ROUNDS = 3;
   const BATCH_FOCUS_AREAS = [
-    'definisi inti dan terminologi',
-    'penerapan konsep pada studi kasus singkat',
-    'analisis perbandingan antar konsep',
-    'kesalahan umum dan miskonsepsi',
-    'hubungan sebab-akibat dan implikasi',
-    'interpretasi data/fakta dalam konteks materi',
-    'evaluasi argumen dan pengambilan keputusan',
-    'urutan proses, tahapan, dan alur kerja',
-    'validasi konsep dengan contoh kontra',
-    'sintesis beberapa konsep menjadi solusi'
+    'core definitions and terminology',
+    'applying concepts to short case studies',
+    'comparative analysis between concepts',
+    'common errors and misconceptions',
+    'cause–effect relationships and implications',
+    'interpreting data/facts in context',
+    'evaluating arguments and decisions',
+    'process order, stages, and workflows',
+    'validating concepts with counter-examples',
+    'synthesizing several concepts into a solution',
   ];
   let allGeneratedQuestions: Question[] = [];
 
@@ -1055,8 +1066,8 @@ ALREADY GENERATED:
 ${prevSummaries}
 
 VIOLATION EXAMPLES (DO NOT DO THIS):
-- If existing: "Apa fungsi mitokondria?" → DO NOT ask "Mitokondria berfungsi untuk..."
-- If existing: "Perbedaan X dan Y" → DO NOT ask "Persamaan X dan Y" (same pair)
+- If existing: "What is the function of mitochondria?" → DO NOT ask "Mitochondria function to..."
+- If existing: "Difference between X and Y" → DO NOT ask "Similarity of X and Y" (same pair)
 - If existing asks about a specific number → DO NOT ask about the same number differently
 `;
       }
@@ -1476,6 +1487,7 @@ export const chatWithDocument = async (apiKey: string, modelId: string, history:
   if (!apiKey && !isVertexExpress && !isFirebaseVertexAI) throw new Error("API key is not set.");
 
   const finalParts: any[] = [];
+  const langBlock = outputLanguageRule(contextText || message);
 
   const systemInstruction = `
     GOAL: Answer the user's question based ONLY on the provided CONTEXT MATERIAL or FILE.
@@ -1483,10 +1495,9 @@ export const chatWithDocument = async (apiKey: string, modelId: string, history:
     1. Use only the provided context. Do not invent answers.
     2. If the answer is not in the context, politely state so.
     3. Be concise, helpful, and format with Markdown.
-    ${outputLanguageRule()}
+    ${langBlock}
   `;
 
-  // Bangun konteks materi sebagai bagian dari pesan user
   if (contextText) {
     finalParts.push({ text: `CONTEXT MATERIAL:\n${contextText}\n\nEND OF CONTEXT MATERIAL` });
   }
@@ -1496,15 +1507,16 @@ export const chatWithDocument = async (apiKey: string, modelId: string, history:
     finalParts.push(filePart);
   }
 
-  // Tambahkan pesan user yang sebenarnya
   finalParts.push({ text: message });
 
   const contents = [...history, { role: 'user', parts: finalParts }];
+  const activeP = getActiveProvider();
+  const model = resolveModelName(activeP, modelId || getActiveModel(activeP));
 
   try {
     const data = await callAI('chat', {
        apiKey,
-       modelName: modelId || 'gemini-3.5-flash',
+       modelName: model,
        contents: contents,
        systemInstruction,
        temperature: 0.3,
@@ -1527,46 +1539,59 @@ export const generateDeepInsight = async (
 ): Promise<DeepInsightData> => {
   const topics = Object.keys(groupedData);
   const resultData: Record<string, ConceptCardData> = {};
-  
-  const systemInstruction = `You are a sharp study tutor for Noodl. Be clear and practical. Output JSON only.\n${outputLanguageRule()}`;
+
+  // Sample question text to detect material language (EN materials → EN insights)
+  const materialSample = Object.values(groupedData)
+    .flatMap((d) => (d.questions || []).map((q: any) => `${q.text || ''} ${q.explanation || ''} ${q.keyPoint || ''}`))
+    .join(' ')
+    .slice(0, 8000);
+  const langBlock = outputLanguageRule(materialSample);
+  const failSummary =
+    getLocale() === 'id'
+      ? 'Gagal memuat insight untuk topik ini.'
+      : 'Could not load insight for this topic.';
+
+  const systemInstruction = `You are a sharp study tutor for Noodl. Be clear and practical. Output JSON only.\n${langBlock}`;
 
   const CONCEPT_SCHEMA = {
     type: "object",
     properties: {
-      summary: { type: "string", description: "2-3 kalimat penjelasan konsep inti. Sederhana, tanpa jargon." },
+      summary: { type: "string", description: "2-3 sentence core concept summary. Simple, low jargon. Follow OUTPUT LANGUAGE." },
       insights: {
         type: "array",
         items: {
           type: "object",
           properties: {
             point: { type: "string" },
-            evidence: { type: "string", description: "Penjelasan atau bukti dari data soal" },
-            formula: { type: "string", description: "Opsional: rumus atau kode yang relevan" }
+            evidence: { type: "string", description: "Explanation or evidence from the question data" },
+            formula: { type: "string", description: "Optional relevant formula or code" }
           },
           required: ["point"]
         },
-        description: "2-4 insight spesifik berdasarkan data soal"
+        description: "2-4 specific insights from the question data"
       },
       traps: {
         type: "array",
         items: {
           type: "object",
           properties: {
-            trap: { type: "string", description: "Miskonsepsi atau jebakan umum" },
-            correction: { type: "string", description: "Koreksi yang benar" }
+            trap: { type: "string", description: "Common misconception or trap" },
+            correction: { type: "string", description: "Correct clarification" }
           },
           required: ["trap", "correction"]
         },
-        description: "1-2 jebakan umum berdasarkan opsi salah di data soal"
+        description: "1-2 common traps based on wrong options"
       },
-      mnemonic: { type: "string", description: "Satu kalimat punchline, analogi, atau mnemonik jitu" },
-      connections: { type: "array", items: { type: "string" }, description: "Konsep lain yang saling terkait" }
+      mnemonic: { type: "string", description: "One punchline, analogy, or mnemonic" },
+      connections: { type: "array", items: { type: "string" }, description: "Related concepts" }
     },
     required: ["summary", "insights", "traps", "mnemonic", "connections"]
   };
 
   let completed = 0;
-  
+  const activeP = getActiveProvider();
+  const insightModel = resolveModelName(activeP, getActiveModel(activeP));
+
   // Phase 1: Generate concepts in parallel (batches of 3)
   const batchSize = 3;
   for (let i = 0; i < topics.length; i += batchSize) {
@@ -1576,15 +1601,16 @@ export const generateDeepInsight = async (
       const data = groupedData[topic];
       const accuracy = data.totalAnswers > 0 ? Math.round((data.correctAnswers / data.totalAnswers) * 100) : null;
       
-      const prompt = `Buatkan deep insight untuk topik "${topic}".
-DATA SOAL:
-${JSON.stringify(data.questions, null, 2)}`;
+      const prompt = `Create a deep insight card for topic "${topic}".
+QUESTION DATA:
+${JSON.stringify(data.questions, null, 2)}
+
+${langBlock}`;
 
       try {
-        const activeP = getActiveProvider();
         const response = await callAI('generateContent', {
           apiKey,
-          modelName: defaultModelForProvider(activeP),
+          modelName: insightModel,
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
           systemInstruction: { role: 'system', parts: [{ text: systemInstruction }] },
           temperature: 0.3,
@@ -1602,11 +1628,10 @@ ${JSON.stringify(data.questions, null, 2)}`;
           ...parsed
         };
       } catch (err) {
-        console.error(`Failed to generate insight for \${topic}`, err);
-        // Fallback card
+        console.error(`Failed to generate insight for ${topic}`, err);
         resultData[topic] = {
           topic, priority: data.priority, accuracy,
-          summary: "Gagal memuat insight untuk topik ini.",
+          summary: failSummary,
           insights: [], traps: [], mnemonic: "", connections: []
         };
       }
@@ -1620,30 +1645,46 @@ ${JSON.stringify(data.questions, null, 2)}`;
   const SUMMARY_SCHEMA = {
     type: "object",
     properties: {
-      overallAssessment: { type: "string", description: "Analisis singkat kemampuan user secara keseluruhan" },
+      overallAssessment: { type: "string", description: "Short overall assessment of the learner" },
       strongAreas: { type: "array", items: { type: "string" } },
       weakAreas: { type: "array", items: { type: "string" } },
-      studyPlan: { type: "string", description: "Saran belajar konkret" },
+      studyPlan: { type: "string", description: "Concrete study advice" },
       motivationalQuote: { type: "string" }
     },
     required: ["overallAssessment", "strongAreas", "weakAreas", "studyPlan", "motivationalQuote"]
   };
 
-  let summaryData: any = {
-      overallAssessment: "Kuis selesai dianalisis.",
-      strongAreas: [], weakAreas: [], studyPlan: "Terus semangat belajar!", motivationalQuote: "Kamu pasti bisa!"
-  };
+  const summaryFallback =
+    getLocale() === 'id'
+      ? {
+          overallAssessment: 'Kuis selesai dianalisis.',
+          strongAreas: [] as string[],
+          weakAreas: [] as string[],
+          studyPlan: 'Terus semangat belajar!',
+          motivationalQuote: 'Kamu pasti bisa!',
+        }
+      : {
+          overallAssessment: 'Quiz analysis complete.',
+          strongAreas: [] as string[],
+          weakAreas: [] as string[],
+          studyPlan: 'Keep practicing the weak topics.',
+          motivationalQuote: 'You’ve got this.',
+        };
+
+  let summaryData: any = { ...summaryFallback };
 
   try {
-    const summaryPrompt = `Buatkan kesimpulan akhir untuk hasil kuis ini.
-DATA TOPIK & AKURASI:
+    const summaryPrompt = `Write a final wrap-up for this quiz result.
+TOPIC & ACCURACY DATA:
 ${JSON.stringify(
     Object.values(resultData).map(d => ({ topic: d.topic, accuracy: d.accuracy, priority: d.priority })), null, 2
-)}`;
+)}
+
+${langBlock}`;
 
     const response = await callAI('generateContent', {
       apiKey,
-      modelName: 'gemini-3.5-flash',
+      modelName: insightModel,
       contents: [{ role: 'user', parts: [{ text: summaryPrompt }] }],
       systemInstruction: { role: 'system', parts: [{ text: systemInstruction }] },
       temperature: 0.3,
