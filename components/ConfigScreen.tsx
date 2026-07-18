@@ -15,6 +15,7 @@ import { showErrorNotification } from '../services/errorNotificationService';
 import { FlashcardScreen } from './FlashcardScreen';
 import { loginToExternalNotes, logoutFromExternalNotes, getMyNotes, ExternalNote, externalAuth, isExternalConfigured } from '../services/externalNotesService';
 import { auth } from '../supabase';
+import { t, subscribeLocale } from '../services/i18n';
 type User = any;
 
 interface ConfigScreenProps {
@@ -24,18 +25,18 @@ interface ConfigScreenProps {
   hasActiveSession: boolean;
 }
 
-const MODE_CARDS = [
-  { id: QuizMode.STANDARD, icon: Layout, label: "Standard", desc: "Santai. Tanpa waktu.", color: "bg-indigo-50 border-indigo-200 text-indigo-600" },
-  { id: QuizMode.SURVIVAL, icon: Skull, label: "Survival", desc: "3 Nyawa.", color: "bg-rose-50 border-rose-200 text-rose-600" },
-  { id: QuizMode.TIME_RUSH, icon: Zap, label: "Time Rush", desc: "Berpacu dengan waktu.", color: "bg-amber-50 border-amber-200 text-amber-600" }
+const getModeCards = () => [
+  { id: QuizMode.STANDARD, icon: Layout, label: t('cfgModeStandard'), desc: t('cfgModeStandardDesc'), color: "bg-indigo-50 border-indigo-200 text-indigo-600" },
+  { id: QuizMode.SURVIVAL, icon: Skull, label: t('cfgModeSurvival'), desc: t('cfgModeSurvivalDesc'), color: "bg-rose-50 border-rose-200 text-rose-600" },
+  { id: QuizMode.TIME_RUSH, icon: Zap, label: t('cfgModeTimeRush'), desc: t('cfgModeTimeRushDesc'), color: "bg-amber-50 border-amber-200 text-amber-600" }
 ];
 
-const BLOOM_LEVELS = [
-  { id: ExamStyle.C1_RECALL, label: "C1: Mengingat", desc: "Hafalan & Definisi" },
-  { id: ExamStyle.C2_CONCEPT, label: "C2: Memahami", desc: "Konsep Dasar" },
-  { id: ExamStyle.C3_APPLICATION, label: "C3: Menerapkan", desc: "Studi Kasus" },
-  { id: ExamStyle.C4_ANALYSIS, label: "C4: Menganalisis", desc: "Logika & Diagnosa" },
-  { id: ExamStyle.C5_EVALUATION, label: "C5: Evaluasi", desc: "Kritik & Banding" },
+const getBloomLevels = () => [
+  { id: ExamStyle.C1_RECALL, label: t('cfgBloom1'), desc: t('cfgBloom1d') },
+  { id: ExamStyle.C2_CONCEPT, label: t('cfgBloom2'), desc: t('cfgBloom2d') },
+  { id: ExamStyle.C3_APPLICATION, label: t('cfgBloom3'), desc: t('cfgBloom3d') },
+  { id: ExamStyle.C4_ANALYSIS, label: t('cfgBloom4'), desc: t('cfgBloom4d') },
+  { id: ExamStyle.C5_EVALUATION, label: t('cfgBloom5'), desc: t('cfgBloom5d') },
 ];
 
 export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue, onStartFlashcards, hasActiveSession }) => {
@@ -83,6 +84,8 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
   const [isSchedulerOpen, setIsSchedulerOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [, setLocaleTick] = useState(0);
+  useEffect(() => subscribeLocale(() => setLocaleTick(n => n + 1)), []);
 
   const isAiAvailableWithoutUserKey =
     import.meta.env.VITE_USE_VERTEX_EXPRESS === 'true' ||
@@ -475,15 +478,15 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
         </motion.h1>
       </div>
 
-      <motion.div className="animate-breathe">
+      <div className="relative">
          <DashboardMascot onOpenScheduler={() => setIsSchedulerOpen(true)} />
-      </motion.div>
+      </div>
 
       <AnimatePresence>
         {hasActiveSession && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} className="w-full">
             <button onClick={onContinue} className="btn-tactile w-full bg-emerald-500 border-emerald-600 text-white p-4 rounded-3xl shadow-lg shadow-emerald-500/20 flex items-center justify-center space-x-3 mb-4">
-              <PlayCircle size={24} /> <span className="text-lg font-bold">Lanjutkan Quiz</span>
+              <PlayCircle size={24} /> <span className="text-lg font-bold">{t('cfgContinue')}</span>
             </button>
           </motion.div>
         )}
@@ -493,11 +496,11 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
         
         {/* SEGMENTED CONTROL FOR INPUT */}
         <div className="flex p-1.5 bg-slate-100/50 border border-slate-200/50 rounded-2xl mb-8 w-fit mx-auto shadow-inner overflow-x-auto max-w-full no-scrollbar">
-          <InputTab id="library" icon={BookOpen} label="Library" />
-          <InputTab id="external" icon={Cloud} label="Notes" />
-          <InputTab id="upload" icon={Upload} label="Upload" />
-          <InputTab id="topic" icon={Type} label="Manual" />
-          <InputTab id="url" icon={LinkIcon} label="URL" />
+          <InputTab id="library" icon={BookOpen} label={t('cfgLibrary')} />
+          <InputTab id="external" icon={Cloud} label={t('cfgNotes')} />
+          <InputTab id="upload" icon={Upload} label={t('cfgUpload')} />
+          <InputTab id="topic" icon={Type} label={t('cfgManual')} />
+          <InputTab id="url" icon={LinkIcon} label={t('cfgUrl')} />
         </div>
 
         {/* --- MAIN INPUT AREA --- */}
@@ -513,7 +516,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                 >
                     <div className="max-h-60 overflow-y-auto custom-scrollbar border border-white rounded-3xl bg-slate-50/50 p-3 shadow-inner">
                     {libraryItems.length === 0 ? (
-                        <p className="text-center py-12 text-slate-500 text-sm font-medium">Library kosong. Upload materi di Workspace dulu.</p>
+                        <p className="text-center py-12 text-slate-500 text-sm font-medium">{t('cfgLibEmpty')}</p>
                     ) : (
                         libraryItems.map((item, idx) => (
                             <div key={`${item.id}-${idx}`} onClick={() => toggleLibrarySelection(item.id)} className={`group flex items-center justify-between p-3 mb-2 rounded-2xl cursor-pointer transition-all border ${selectedLibraryIds.includes(String(item.id)) ? 'bg-white border-indigo-200 shadow-md translate-x-1' : 'bg-transparent border-transparent hover:bg-white/60 hover:shadow-sm'}`}>
@@ -532,8 +535,8 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                     )}
                     </div>
                     <div className="flex items-center justify-between text-xs text-slate-500 px-2 font-medium">
-                        <span>Terpilih: {selectedLibraryIds.length} materi</span>
-                        <button onClick={() => window.location.hash = '#workspace'} className="text-indigo-600 hover:underline">Kelola Library &rarr;</button>
+                        <span>{t('cfgSelected')}: {selectedLibraryIds.length}</span>
+                        <button onClick={() => window.location.hash = '#workspace'} className="text-indigo-600 hover:underline">{t('cfgManageLib')} →</button>
                     </div>
                 </motion.div>
             )}
@@ -656,8 +659,8 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                     ) : (
                         <>
                             <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm mb-4 group-hover:scale-110 transition-transform"><Upload size={28} className="text-indigo-500" /></div>
-                            <p className="font-bold text-slate-700">Klik atau Drop File (PDF/PPT/PPTX/TXT/MD/Gambar)</p>
-                            <p className="text-xs text-slate-500 mt-1">Diproses multimodal oleh Gemini</p>
+                            <p className="font-bold text-slate-700">{t('cfgDropTitle')}</p>
+                            <p className="text-xs text-slate-500 mt-1">{t('cfgDropSub')}</p>
                         </>
                     )}
                 </motion.div>
@@ -665,7 +668,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
 
             {inputMethod === 'topic' && (
                 <motion.div key="topic" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                    <textarea value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Paste materi kuliah, artikel, atau tulis topik spesifik di sini..." className="w-full h-52 bg-white border border-slate-200 rounded-[2rem] p-6 text-slate-700 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent shadow-inner resize-none transition-shadow" />
+                    <textarea value={topic} onChange={(e) => setTopic(e.target.value)} placeholder={t('cfgTopicPh')} className="w-full h-52 bg-white border border-slate-200 rounded-[2rem] p-6 text-slate-700 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent shadow-inner resize-none transition-shadow" />
                 </motion.div>
             )}
 
@@ -673,16 +676,16 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                 <motion.div key="url" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                     <div className="w-full h-52 bg-white border border-slate-200 rounded-[2rem] p-6 flex flex-col justify-center shadow-inner">
                         <label className="text-sm font-bold text-slate-500 mb-2 flex items-center">
-                            <LinkIcon size={16} className="mr-2" /> Masukkan URL Artikel / YouTube
+                            <LinkIcon size={16} className="mr-2" /> {t('cfgUrlLabel')}
                         </label>
                         <input 
                             type="url" 
                             value={urlInput} 
                             onChange={(e) => setUrlInput(e.target.value)} 
-                            placeholder="https://id.wikipedia.org/wiki/... atau https://youtube.com/watch?v=..." 
+                            placeholder={t('cfgUrlPh')} 
                             className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-700 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-shadow" 
                         />
-                        <p className="text-xs text-slate-500 mt-3">AI akan mencoba membaca teks dari halaman web atau subtitle dari video YouTube tersebut.</p>
+                        <p className="text-xs text-slate-500 mt-3">{t('cfgUrlHint')}</p>
                     </div>
                 </motion.div>
             )}
@@ -694,13 +697,13 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
            {(inputMethod === 'library' || inputMethod === 'upload' || inputMethod === 'external') && (
               <div className="bg-indigo-50/50 p-5 rounded-2xl border border-indigo-100">
                  <label className="flex items-center text-xs font-bold text-indigo-600 uppercase tracking-widest mb-2">
-                    <Target size={14} className="mr-1" /> Fokus Topik (Wajib)
+                    <Target size={14} className="mr-1" /> {t('cfgFocusTopic')}
                  </label>
                  <input 
                    type="text" 
                    value={topic} 
                    onChange={(e) => setTopic(e.target.value)} 
-                   placeholder="e.g. Bab 3 Fotosintesis..." 
+                   placeholder={t('cfgFocusPh')} 
                    className="w-full bg-transparent border-b-2 border-indigo-200 py-2 text-lg font-bold text-indigo-900 placeholder:text-indigo-300 focus:outline-none focus:border-indigo-500 transition-colors"
                  />
               </div>
@@ -731,7 +734,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                           <option key={m.id || "unknown"} value={m.id || ""}>{m.label || "Unknown Model"}</option>
                        ))
                     ) : (
-                       <option value="">{getApiKey(provider) || import.meta.env.VITE_USE_VERTEX_EXPRESS === 'true' ? 'Gagal memuat model' : 'Masukkan API Key di Settings'}</option>
+                       <option value="">{getApiKey(provider) || import.meta.env.VITE_USE_VERTEX_EXPRESS === 'true' ? t('cfgFailLoadModel') : t('cfgNeedKeySettings')}</option>
                     )}
                  </select>
                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
@@ -744,7 +747,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
            <div className="bg-white/50 p-4 rounded-3xl border border-white shadow-sm flex items-center">
               <div className="flex items-center gap-2 text-slate-500 mr-4">
                  <Folder size={18} />
-                 <span className="text-sm font-bold">Folder</span>
+                 <span className="text-sm font-bold">{t('cfgFolder')}</span>
               </div>
               <input 
                  type="text" 
@@ -757,7 +760,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
 
            {/* Mode Selection with Tactile Cards */}
            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {MODE_CARDS.map((m) => (
+              {getModeCards().map((m) => (
                  <button 
                     key={m.id} 
                     onClick={() => setMode(m.id)} 
@@ -785,7 +788,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                     <TrendingUp size={14} className="mr-1.5" /> Level Kognitif (Bisa pilih &gt; 1)
                 </label>
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-                    {BLOOM_LEVELS.map(level => {
+                    {getBloomLevels().map(level => {
                         const isSelected = examStyles.includes(level.id);
                         return (
                             <button
@@ -812,12 +815,12 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                  {examStyles.length > 1 && (
                      <div className="mt-4 pt-4 border-t border-slate-100">
                          <div className="flex items-center justify-between mb-4">
-                             <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">Atur Distribusi Soal per Level</span>
+                             <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">{t('cfgBloomMix')}</span>
                              <span className="text-[10px] text-slate-400 font-medium">Total: 100% ({questionCount} soal)</span>
                          </div>
                          <div className="space-y-4">
                              {examStyles.map((style, i) => {
-                                 const levelInfo = BLOOM_LEVELS.find(l => l.id === style);
+                                 const levelInfo = getBloomLevels().find(l => l.id === style);
                                  const pct = bloomPercentages[style] || 0;
                                  const qCount = Math.round((pct / 100) * questionCount);
                                  const dotColors = ['bg-blue-500', 'bg-indigo-500', 'bg-violet-500', 'bg-purple-500', 'bg-fuchsia-500'];
@@ -854,7 +857,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
 
            {/* CUSTOM PROMPT */}
            <button onClick={() => setShowAdvanced(!showAdvanced)} className="flex items-center text-xs font-bold text-indigo-500 hover:underline mx-auto">
-                <Settings2 size={12} className="mr-1" /> {showAdvanced ? "Sembunyikan Opsi Tambahan" : "Tampilkan Opsi Tambahan (Prompt Khusus)"}
+                <Settings2 size={12} className="mr-1" /> {showAdvanced ? t('cfgHideAdvanced') : t('cfgShowAdvanced')}
            </button>
 
            <AnimatePresence>
@@ -883,7 +886,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                                         <BrainCircuit size={20} />
                                     </div>
                                     <div className="text-left">
-                                        <span className={`block font-bold text-sm ${enableRetention ? 'text-indigo-900' : 'text-slate-600'}`}>Sticky Mode</span>
+                                        <span className={`block font-bold text-sm ${enableRetention ? 'text-indigo-900' : 'text-slate-600'}`}>Sticky mode</span>
                                     </div>
                                 </div>
                                 <div className={`w-10 h-6 rounded-full p-1 transition-colors ${enableRetention ? 'bg-indigo-500' : 'bg-slate-200'}`}><motion.div className="w-4 h-4 bg-white rounded-full shadow-sm" animate={{ x: enableRetention ? 16 : 0 }} /></div>
@@ -898,7 +901,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                                         <Shuffle size={20} />
                                     </div>
                                     <div className="text-left">
-                                        <span className={`block font-bold text-sm ${enableMixedTypes ? 'text-fuchsia-900' : 'text-slate-600'}`}>Variasi Soal</span>
+                                        <span className={`block font-bold text-sm ${enableMixedTypes ? 'text-fuchsia-900' : 'text-slate-600'}`}>{t('cfgMixedTypes')}</span>
                                     </div>
                                 </div>
                                 <div className={`w-10 h-6 rounded-full p-1 transition-colors ${enableMixedTypes ? 'bg-fuchsia-500' : 'bg-slate-200'}`}><motion.div className="w-4 h-4 bg-white rounded-full shadow-sm" animate={{ x: enableMixedTypes ? 16 : 0 }} /></div>
@@ -911,7 +914,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
            {/* SLIDER + PRESETS */}
            <div className="bg-white/50 p-5 rounded-3xl border border-white shadow-sm">
                <div className="flex justify-between items-center mb-3">
-                   <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Jumlah Soal</span>
+                   <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">{t('cfgQuestionCount')}</span>
                    <div className="flex items-center gap-2">
                        <button 
                          onClick={() => setQuestionCount(Math.max(5, questionCount - 5))}
@@ -966,7 +969,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                  <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2">
                    <span className="text-amber-500 text-sm shrink-0">⚠️</span>
                    <p className="text-[10px] text-amber-700 font-medium leading-relaxed">
-                     Jumlah &gt;50 membutuhkan waktu lebih lama dan kuota AI lebih banyak. Pastikan material yang diberikan cukup kaya untuk menghasilkan soal unik.
+                     {t('cfgManyQ')}
                    </p>
                  </div>
                )}
@@ -978,8 +981,8 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
               <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-2xl text-sm flex items-start shadow-sm">
                  <Settings2 className="mr-3 shrink-0 mt-0.5 text-amber-600" size={18} />
                  <div>
-                    <span className="font-bold block mb-1">API Key Belum Diatur</span>
-                    <p className="opacity-90">Fitur "Generate AI" dinonaktifkan. Silakan atur API Key (Gemini) di menu <b>Settings</b> untuk mulai membuat soal otomatis.</p>
+                    <span className="font-bold block mb-1">{t('cfgNoKeyTitle')}</span>
+                    <p className="opacity-90">{t('cfgNoKeyBody')}</p>
                     <p className="text-xs mt-2 text-amber-700 font-medium">💡 Terdapat tutorial cara mendapatkan API Key di menu Settings.</p>
                  </div>
               </div>
@@ -1000,7 +1003,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                 className={`btn-tactile flex-[2] py-4 rounded-2xl font-bold text-lg shadow-xl flex items-center justify-center transition-all ${!hasApiKey ? 'bg-slate-200 text-slate-500 border-slate-300 cursor-not-allowed shadow-none' : 'bg-slate-900 border-slate-700 text-white shadow-slate-900/10 hover:bg-slate-800'}`}
               >
                 {isGenerating ? <RefreshCw className="animate-spin mr-2" /> : <Sparkles className={`mr-2 ${!hasApiKey ? 'text-slate-500 fill-slate-400' : 'fill-yellow-400 text-yellow-400'}`} />}
-                {inputMethod === 'library' ? `Generate Quiz` : 'Mulai Quiz'}
+                {inputMethod === 'library' ? t('cfgGenerate') : t('cfgStart')}
               </button>
             </div>
          </div>

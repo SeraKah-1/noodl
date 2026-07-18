@@ -203,7 +203,8 @@ const RELATIONSHIP_STAGES = [
   }
 ];
 
-export const DashboardMascot: React.FC<{ onOpenScheduler: () => void }> = ({ onOpenScheduler }) => {
+/** Memoized so typing on Home does not restart float animations every keystroke */
+export const DashboardMascot: React.FC<{ onOpenScheduler: () => void }> = React.memo(({ onOpenScheduler }) => {
   const [stageIndex, setStageIndex] = useState(0);
   const [face, setFace] = useState("( . _ . )");
   const [message, setMessage] = useState("Loading...");
@@ -315,34 +316,27 @@ export const DashboardMascot: React.FC<{ onOpenScheduler: () => void }> = ({ onO
 
         {/* --- LEFT: AVATAR (INTERACTIVE) --- */}
         <div className="flex flex-col items-center justify-center md:mr-8 mb-6 md:mb-0 shrink-0 z-10">
-          <motion.button
+          {/* CSS float only — Framer infinite animate restarts on parent re-render (typing bug) */}
+          <button
+            type="button"
             onClick={handlePoke}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            animate={isWiggling ? { 
-              rotate: [0, -10, 10, -10, 10, 0],
-              scale: [1, 1.1, 1]
-            } : { 
-              y: [0, -4, 0],
-              rotate: stageIndex > 2 ? [0, 2, -2, 0] : 0 
-            }}
-            transition={isWiggling ? { duration: 0.4 } : { duration: 4, repeat: Infinity, ease: "easeInOut" }}
             className={`
               relative text-4xl md:text-5xl font-black tracking-widest bg-white/60 
               w-24 h-24 flex items-center justify-center rounded-full 
-              shadow-inner border-2 border-white/80 transition-all duration-300 cursor-pointer
-              group hover:shadow-lg hover:border-white
+              shadow-inner border-2 border-white/80 cursor-pointer
+              group hover:shadow-lg hover:border-white hover:scale-105 active:scale-95
+              transition-transform duration-200
+              ${isWiggling ? '' : 'animate-float'}
               ${currentStage.color}
             `}
-            title="Colek aku!"
+            title="Tap for a new line"
           >
-            {/* Tooltip hint on hover */}
             <div className="absolute -top-8 bg-slate-800 text-white text-[10px] py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-               Klik untuk ganti topik
+               Tap for a new line
             </div>
 
             <div className="whitespace-nowrap scale-110">{face}</div>
-          </motion.button>
+          </button>
           
           {/* Rank Badge */}
           <div className={`mt-3 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-sm border border-white/50 ${currentStage.bg} ${currentStage.color}`}>
@@ -354,21 +348,12 @@ export const DashboardMascot: React.FC<{ onOpenScheduler: () => void }> = ({ onO
         <div className="flex-1 w-full z-10">
            {/* Dialogue Bubble */}
            <div className="bg-white/70 rounded-2xl rounded-tl-sm p-5 shadow-sm border border-white/60 relative mb-4 min-h-[80px] flex items-center">
-             <AnimatePresence mode='wait'>
-                <motion.p 
-                  key={message} // Trigger animation on message change
-                  initial={{ opacity: 0, x: -5 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 5 }}
-                  transition={{ duration: 0.2 }}
-                  className="text-slate-700 font-medium leading-relaxed italic"
-                >
-                  "{message}"
-                </motion.p>
-             </AnimatePresence>
+             <p className="text-slate-700 font-medium leading-relaxed italic">
+               "{message}"
+             </p>
              
-             {/* Time Icon Indicator */}
-             <div className="absolute top-2 right-2 opacity-20">
+             {/* Time Icon Indicator — fixed corner, no layout shift */}
+             <div className="absolute top-2 right-2 opacity-20 w-4 h-4 flex items-center justify-center pointer-events-none">
                 {timeContext === 'morning' && <Coffee size={16} />}
                 {timeContext === 'afternoon' && <Sun size={16} />}
                 {timeContext === 'evening' && <CloudRain size={16} />}
@@ -381,20 +366,18 @@ export const DashboardMascot: React.FC<{ onOpenScheduler: () => void }> = ({ onO
            <div className="space-y-2">
              <div className="flex justify-between items-end px-1">
                <span className="text-xs font-bold text-slate-500 uppercase tracking-wide flex items-center">
-                 <Heart size={12} className={`mr-1 ${stageIndex >= 3 ? 'fill-rose-500 text-rose-500 animate-pulse' : 'text-slate-300'}`} />
-                 Kedekatan
+                 <Heart size={12} className={`mr-1 ${stageIndex >= 3 ? 'fill-rose-500 text-rose-500' : 'text-slate-300'}`} />
+                 Bond
                </span>
                <span className="text-xs font-bold text-indigo-600">
-                 {stats.totalQuizzes} <span className="text-slate-300 font-normal">Sesi</span>
+                 {stats.totalQuizzes} <span className="text-slate-300 font-normal">sessions</span>
                </span>
              </div>
 
              <div className="h-3 w-full bg-slate-200/50 rounded-full overflow-hidden relative border border-white/50">
-               <motion.div 
-                 initial={{ width: 0 }}
-                 animate={{ width: `${progress}%` }}
-                 transition={{ duration: 1.5, ease: "easeOut" }}
-                 className={`h-full rounded-full ${stageIndex >= 3 ? 'bg-gradient-to-r from-rose-400 to-pink-500' : 'bg-gradient-to-r from-indigo-300 to-indigo-500'}`}
+               <div
+                 style={{ width: `${progress}%` }}
+                 className={`h-full rounded-full transition-[width] duration-700 ease-out ${stageIndex >= 3 ? 'bg-gradient-to-r from-rose-400 to-pink-500' : 'bg-gradient-to-r from-indigo-300 to-indigo-500'}`}
                />
                
                {/* Shine effect */}
@@ -422,11 +405,11 @@ export const DashboardMascot: React.FC<{ onOpenScheduler: () => void }> = ({ onO
                 className="flex items-center px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors border border-indigo-100 shadow-sm"
              >
                <Calendar size={14} className="mr-2" />
-               Janji Temu (Jadwal)
+               Study schedule
              </button>
            </div>
         </div>
       </motion.div>
     </div>
   );
-};
+});
