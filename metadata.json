@@ -1,0 +1,5 @@
+{
+  "name": "Noodl",
+  "description": "Turn notes into high-yield quizzes. Bloom taxonomy, spaced repetition, multilingual AI, optional hands-free input.",
+  "requestFramePermissions": ["camera"]
+}

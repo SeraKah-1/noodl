@@ -1,0 +1,53 @@
+{
+  "name": "noodl",
+  "private": false,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/local-notifications": "^6.1.1",
+    "@capacitor/preferences": "^6.0.3",
+    "@google/genai": "^1.46.0",
+    "@react-pdf/renderer": "^4.5.1",
+    "canvas-confetti": "^1.9.2",
+    "crypto-js": "4.2.0",
+    "framer-motion": "^12.33.2",
+    "idb-keyval": "6.2.1",
+    "lucide-react": "^0.563.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-force-graph-2d": "^1.29.1",
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^6.30.3",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "uuid": "^13.0.0",
+    "zustand": "^5.0.11",
+    "@supabase/supabase-js": "^2.49.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0",
+    "@types/katex": "^0.16.8",
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "katex": "^0.17.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0",
+    "vite-plugin-pwa": "^1.3.0"
+  },
+  "optionalDependencies": {
+    "@esbuild/linux-x64": "^0.28.1",
+    "@rollup/rollup-linux-arm64-gnu": "^4.62.2",
+    "@rollup/rollup-linux-x64-gnu": "^4.62.2",
+    "@rollup/wasm-node": "^4.62.2"
+  },
+  "description": "Noodl — turn notes into high-yield quizzes and actually remember them"
+}
