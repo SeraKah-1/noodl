@@ -45,12 +45,13 @@ Creates: `user_profiles`, `quizzes`, `library_items`, `srs_items`, `devices`, `s
 
 Dashboard → Authentication → Providers:
 
-- Enable **GitHub** (Client ID/Secret from GitHub OAuth App)
-- Enable **Google** (optional)
+- Enable **Google** only (Client ID/Secret from Google Cloud Console)
+- GitHub OAuth and Cloudflare Turnstile are **not** used
 
-Redirect URLs:
+Redirect URLs (Authentication → URL Configuration):
 
-- `http://localhost:5173/`
+- `http://localhost:3000/`
+- `http://localhost:5173/` (if you use Vite default)
 - production URL(s)
 
 ### 3. Client env

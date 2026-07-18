@@ -1,19 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { Github, LogOut, Cloud, User as UserIcon, RefreshCw, Chrome } from 'lucide-react';
+import { LogOut, Cloud, User as UserIcon, RefreshCw, Chrome } from 'lucide-react';
 import {
   auth,
-  signInWithGitHub,
   signInWithGoogle,
   logOut,
   isSupabaseConfigured,
   pingSupabase,
 } from '../supabase';
 import { runFullSync, getDeviceId, type SyncReport } from '../services/syncService';
-import { TurnstileWidget, isTurnstileConfigured, resetTurnstile } from './TurnstileWidget';
-import { verifyTurnstileToken } from '../services/turnstileService';
 
 /**
  * Cloud account + cross-device sync controls.
+ * Google OAuth only (no Turnstile / no GitHub).
  */
 export const AuthWidget: React.FC = () => {
   const [user, setUser] = useState<any>(null);
@@ -22,8 +20,6 @@ export const AuthWidget: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [lastSync, setLastSync] = useState<SyncReport | null>(null);
   const [health, setHealth] = useState<string | null>(null);
-  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
-  const [turnstileWidgetError, setTurnstileWidgetError] = useState<string | null>(null);
 
   useEffect(() => {
     return auth.onAuthStateChanged((u) => setUser(u));
@@ -31,7 +27,7 @@ export const AuthWidget: React.FC = () => {
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
-    // Health of Supabase (sync/auth only) — NOT the AI provider in Settings
+    // Supabase reachability (sync/auth) — NOT the AI provider in Settings
     pingSupabase().then((r) =>
       setHealth(
         r.ok
@@ -41,57 +37,14 @@ export const AuthWidget: React.FC = () => {
     );
   }, []);
 
-  const ensureHuman = async () => {
-    if (!isTurnstileConfigured) return true;
-    // Widget failed (domain/key) — do not hard-block OAuth forever
-    if (turnstileWidgetError && !turnstileToken) {
-      console.warn('[auth] Turnstile widget error — allowing OAuth:', turnstileWidgetError);
-      return true;
-    }
-    const result = await verifyTurnstileToken(turnstileToken);
-    if (!result.ok) {
-      setError(result.message || 'Complete the human check');
-      resetTurnstile();
-      setTurnstileToken(null);
-      return false;
-    }
-    if (result.soft && result.message) {
-      console.warn('[auth] Turnstile soft-pass:', result.message);
-    }
-    return true;
-  };
-
-  const handleGitHub = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      if (!(await ensureHuman())) {
-        setBusy(false);
-        return;
-      }
-      await signInWithGitHub();
-    } catch (e: any) {
-      setError(e?.message || 'GitHub sign-in failed');
-      setBusy(false);
-      resetTurnstile();
-      setTurnstileToken(null);
-    }
-  };
-
   const handleGoogle = async () => {
     setBusy(true);
     setError(null);
     try {
-      if (!(await ensureHuman())) {
-        setBusy(false);
-        return;
-      }
       await signInWithGoogle();
     } catch (e: any) {
       setError(e?.message || 'Google sign-in failed');
       setBusy(false);
-      resetTurnstile();
-      setTurnstileToken(null);
     }
   };
 
@@ -147,7 +100,7 @@ export const AuthWidget: React.FC = () => {
             <div className="min-w-0">
               <div className="font-bold text-theme-text truncate">{user.displayName || 'Noodler'}</div>
               <div className="text-xs text-theme-muted truncate">
-                {user.email} · {user.provider || 'oauth'}
+                {user.email} · {user.provider || 'google'}
               </div>
             </div>
           </div>
@@ -185,47 +138,17 @@ export const AuthWidget: React.FC = () => {
     <div className="rounded-2xl border border-theme-border bg-theme-glass p-4 space-y-3">
       <div className="font-bold text-theme-text">Cross-device sync</div>
       <p className="text-xs text-theme-muted leading-relaxed">
-        Sign in to sync quizzes, library, and Neuro-Sync cards across phones and laptops.
+        Sign in with Google to sync quizzes, library, and Neuro-Sync cards across phones and laptops.
         Offline still works — we merge when you’re back.
       </p>
       {health && <p className="text-[11px] text-theme-muted">{health}</p>}
       {error && <p className="text-xs text-rose-600">{error}</p>}
-      {turnstileWidgetError && (
-        <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 leading-snug">
-          {turnstileWidgetError}
-          <span className="block mt-1 text-amber-600/90">
-            You can still try sign-in. Fix hostnames in Cloudflare Turnstile dashboard when you can.
-          </span>
-        </p>
-      )}
-      <TurnstileWidget
-        className="my-1"
-        onToken={(t) => {
-          setTurnstileToken(t);
-          if (t) setTurnstileWidgetError(null);
-        }}
-        onWidgetError={(msg) => setTurnstileWidgetError(msg)}
-      />
-      {/* Enable buttons when: no turnstile, token ready, OR widget errored (soft allow) */}
       <button
-        disabled={
-          busy ||
-          (isTurnstileConfigured && !turnstileToken && !turnstileWidgetError)
-        }
-        onClick={handleGitHub}
-        className="w-full flex items-center justify-center gap-2 bg-slate-900 text-white font-bold text-sm py-2.5 rounded-xl hover:bg-slate-800 disabled:opacity-60"
-      >
-        <Github size={16} /> {busy ? 'Redirecting…' : 'Continue with GitHub'}
-      </button>
-      <button
-        disabled={
-          busy ||
-          (isTurnstileConfigured && !turnstileToken && !turnstileWidgetError)
-        }
+        disabled={busy}
         onClick={handleGoogle}
         className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-800 font-bold text-sm py-2.5 rounded-xl hover:bg-slate-50 disabled:opacity-60"
       >
-        <Chrome size={16} /> Google
+        <Chrome size={16} /> {busy ? 'Redirecting…' : 'Continue with Google'}
       </button>
     </div>
   );

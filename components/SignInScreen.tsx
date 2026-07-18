@@ -1,51 +1,24 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Github, Loader2, Sparkles, Chrome } from 'lucide-react';
-import { signInWithGitHub, signInWithGoogle, isSupabaseConfigured } from '../supabase';
-import { TurnstileWidget, isTurnstileConfigured, resetTurnstile } from './TurnstileWidget';
-import { verifyTurnstileToken } from '../services/turnstileService';
+import { Loader2, Sparkles, Chrome } from 'lucide-react';
+import { signInWithGoogle, isSupabaseConfigured } from '../supabase';
 
 interface SignInScreenProps {
   onBypass?: () => void;
 }
 
 export const SignInScreen: React.FC<SignInScreenProps> = ({ onBypass }) => {
-  const [isLoading, setIsLoading] = useState<'github' | 'google' | 'guest' | null>(null);
+  const [isLoading, setIsLoading] = useState<'google' | 'guest' | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
-  const [widgetError, setWidgetError] = useState<string | null>(null);
 
-  const ensureHuman = async () => {
-    if (!isTurnstileConfigured) return true;
-    if (widgetError && !turnstileToken) {
-      console.warn('[signin] Turnstile widget error — allowing continue:', widgetError);
-      return true;
-    }
-    const result = await verifyTurnstileToken(turnstileToken);
-    if (!result.ok) {
-      setError(result.message || 'Complete the human check');
-      resetTurnstile();
-      setTurnstileToken(null);
-      return false;
-    }
-    return true;
-  };
-
-  const go = async (provider: 'github' | 'google') => {
-    setIsLoading(provider);
+  const goGoogle = async () => {
+    setIsLoading('google');
     setError(null);
     try {
-      if (!(await ensureHuman())) {
-        setIsLoading(null);
-        return;
-      }
-      if (provider === 'github') await signInWithGitHub();
-      else await signInWithGoogle();
+      await signInWithGoogle();
     } catch (err: any) {
       setError(err?.message || 'Sign-in failed');
       setIsLoading(null);
-      resetTurnstile();
-      setTurnstileToken(null);
     }
   };
 
@@ -54,15 +27,12 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ onBypass }) => {
     setIsLoading('guest');
     setError(null);
     try {
-      // Guest local mode should not require Turnstile
       onBypass();
     } finally {
       setIsLoading(null);
     }
   };
 
-  const needTurnstile =
-    isTurnstileConfigured && !turnstileToken && !widgetError;
   const busy = !!isLoading;
 
   return (
@@ -76,52 +46,24 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ onBypass }) => {
           <Sparkles size={22} /> Noodl
         </div>
         <p className="text-slate-600 text-sm mb-6 leading-relaxed">
-          Use your noodle across every device. Sign in to sync quizzes &amp; reviews — or stay
-          local as a guest.
+          Use your noodle across every device. Sign in with Google to sync quizzes &amp; reviews —
+          or stay local as a guest.
         </p>
         {error && <p className="text-sm text-rose-600 mb-3">{error}</p>}
-        {widgetError && (
-          <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 mb-3 leading-snug">
-            {widgetError}
-          </p>
-        )}
-
-        <TurnstileWidget
-          className="mb-4"
-          onToken={(t) => {
-            setTurnstileToken(t);
-            if (t) setWidgetError(null);
-          }}
-          onWidgetError={setWidgetError}
-        />
 
         {isSupabaseConfigured ? (
-          <div className="space-y-2">
-            <button
-              onClick={() => go('github')}
-              disabled={busy || needTurnstile}
-              className="w-full flex items-center justify-center gap-2 bg-slate-900 text-white font-bold py-3 rounded-2xl hover:bg-slate-800 disabled:opacity-60"
-            >
-              {isLoading === 'github' ? (
-                <Loader2 className="animate-spin" size={18} />
-              ) : (
-                <Github size={18} />
-              )}
-              Continue with GitHub
-            </button>
-            <button
-              onClick={() => go('google')}
-              disabled={busy || needTurnstile}
-              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-800 font-bold py-3 rounded-2xl hover:bg-slate-50 disabled:opacity-60"
-            >
-              {isLoading === 'google' ? (
-                <Loader2 className="animate-spin" size={18} />
-              ) : (
-                <Chrome size={18} />
-              )}
-              Continue with Google
-            </button>
-          </div>
+          <button
+            onClick={goGoogle}
+            disabled={busy}
+            className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-800 font-bold py-3 rounded-2xl hover:bg-slate-50 disabled:opacity-60 shadow-sm"
+          >
+            {isLoading === 'google' ? (
+              <Loader2 className="animate-spin" size={18} />
+            ) : (
+              <Chrome size={18} />
+            )}
+            Continue with Google
+          </button>
         ) : (
           <p className="text-xs text-slate-500 mb-3">
             Cloud auth not configured yet — continue as guest, then add Supabase env vars.

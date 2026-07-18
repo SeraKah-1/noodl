@@ -293,29 +293,28 @@ sequenceDiagram
 | Devices | `devices` / `sync_state` | last sync timestamps |
 
 ### Auth
-- **GitHub** (default button) + optional **Google**
+- **Google** OAuth only (guest / local-only still works)
 - PKCE flow, session in `localStorage`, auto refresh
 - RLS: every row scoped to `auth.uid()`
+- No Cloudflare Turnstile; no GitHub OAuth for end-users
 
 ### One-time project setup
 
-1. Sign in at [supabase.com/dashboard](https://supabase.com/dashboard) **with GitHub**
+1. Sign in at [supabase.com/dashboard](https://supabase.com/dashboard)
 2. Create project **noodl** (or run bootstrap below)
 3. SQL Editor → paste [`supabase/schema.sql`](supabase/schema.sql) → Run
-4. Authentication → Providers → enable **GitHub**
-   - Create a GitHub OAuth App (Developer settings)
+4. Authentication → Providers → enable **Google**
+   - Create OAuth credentials in Google Cloud Console
    - Callback URL: `https://<PROJECT_REF>.supabase.co/auth/v1/callback`
-   - Redirect URLs in Supabase: `http://localhost:5173/**`, your production URL
-5. Project Settings → API → copy URL + `anon` key into `.env.local`
+   - Redirect URLs in Supabase: `http://localhost:3000/**`, your production URL
+5. Project Settings → API → copy URL + publishable/anon key into `.env.local`
 
 ```bash
-# After you mint a management token (GitHub-linked account):
+# Optional management token for bootstrap scripts:
 # https://supabase.com/dashboard/account/tokens
 export SUPABASE_ACCESS_TOKEN=sbp_...
 npm run supabase:bootstrap
 ```
-
-> **Why not use the GitHub PAT alone?** Supabase Management API needs a Supabase personal token (`sbp_…`). Your GitHub login is how you *get into* the dashboard; the app then uses GitHub OAuth for *end-user* sign-in.
 
 
 ## License

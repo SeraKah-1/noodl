@@ -115,20 +115,7 @@ function oauthRedirect() {
   return `${window.location.origin}/`;
 }
 
-export async function signInWithGitHub() {
-  if (!supabase) {
-    throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL + VITE_SUPABASE_PUBLISHABLE_KEY.');
-  }
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider: 'github',
-    options: {
-      redirectTo: oauthRedirect(),
-      scopes: 'read:user user:email',
-    },
-  });
-  if (error) throw error;
-}
-
+/** Google OAuth only (GitHub OAuth and Turnstile removed). */
 export async function signInWithGoogle() {
   if (!supabase) {
     throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL + VITE_SUPABASE_PUBLISHABLE_KEY.');
@@ -141,14 +128,14 @@ export async function signInWithGoogle() {
 }
 
 export async function signInWithPreferred() {
-  return signInWithGitHub();
+  return signInWithGoogle();
 }
 
 export async function signInWithGoogleToken(_idToken: string, _accessToken?: string) {
-  return signInWithPreferred();
+  return signInWithGoogle();
 }
 export async function signInWithDirectGoogleOAuth() {
-  return signInWithPreferred();
+  return signInWithGoogle();
 }
 export async function processOAuthRedirectUrl() {
   /* PKCE handled by supabase-js */
