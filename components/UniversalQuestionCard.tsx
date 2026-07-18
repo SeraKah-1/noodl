@@ -200,13 +200,13 @@ export const UniversalQuestionCard: React.FC<UniversalCardProps> = ({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
       transition={{ duration: 0.22, ease: [0.25, 0.1, 0.25, 1] }}
-      className="w-full max-w-2xl mx-auto"
+      className="w-full"
       style={{ willChange: 'opacity, transform' }}
     >
-      <div className="bg-white/80 backdrop-blur-xl rounded-[2.5rem] p-6 md:p-10 shadow-2xl shadow-indigo-900/10 border border-white relative overflow-hidden">
+      <div className="bg-white/90 backdrop-blur-xl rounded-[1.75rem] sm:rounded-[2rem] p-5 sm:p-8 md:p-10 shadow-xl shadow-indigo-900/8 border border-white relative overflow-hidden">
          
          {/* TOP DECORATION */}
-         <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400" />
+         <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400" />
 
          {/* TIME'S UP OVERLAY */}
          <AnimatePresence>
@@ -229,22 +229,26 @@ export const UniversalQuestionCard: React.FC<UniversalCardProps> = ({
          </AnimatePresence>
 
          {/* HEADER: BADGES */}
-         <div className="flex justify-between items-center mb-8">
-            <div className="flex gap-2">
-                {question.type === 'TRUE_FALSE' && <span className="px-3 py-1 bg-sky-100 text-sky-700 rounded-lg text-[10px] font-black uppercase flex items-center gap-1"><ToggleLeft size={12}/> T/F</span>}
-                {question.type === 'FILL_BLANK' && <span className="px-3 py-1 bg-fuchsia-100 text-fuchsia-700 rounded-lg text-[10px] font-black uppercase flex items-center gap-1"><Type size={12}/> Isian</span>}
-                <span className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase ${question.difficulty === 'Hard' ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>{question.difficulty}</span>
+         <div className="flex flex-wrap justify-between items-center gap-2 mb-5 sm:mb-6">
+            <div className="flex flex-wrap gap-1.5">
+                {question.type === 'TRUE_FALSE' && <span className="px-2.5 py-1 bg-sky-100 text-sky-700 rounded-lg text-[10px] font-bold uppercase flex items-center gap-1"><ToggleLeft size={12}/> T/F</span>}
+                {question.type === 'FILL_BLANK' && <span className="px-2.5 py-1 bg-fuchsia-100 text-fuchsia-700 rounded-lg text-[10px] font-bold uppercase flex items-center gap-1"><Type size={12}/> Isian</span>}
+                <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase ${question.difficulty === 'Hard' ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>{question.difficulty}</span>
             </div>
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50 px-3 py-1 rounded-lg border border-slate-100">{question.keyPoint}</span>
+            {question.keyPoint && (
+              <span className="text-[10px] font-semibold text-slate-500 tracking-wide bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100 max-w-[50%] truncate">
+                {question.keyPoint}
+              </span>
+            )}
          </div>
 
-         {/* QUESTION TEXT */}
-         <h2 className="text-2xl md:text-4xl font-bold text-slate-800 leading-tight mb-10">
+         {/* QUESTION TEXT — full stem, no header clip; readable mobile size */}
+         <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-slate-800 leading-snug sm:leading-tight mb-6 sm:mb-8 break-words">
             <RenderText text={question.text} />
          </h2>
 
          {/* CONTENT */}
-         <div className="mb-8">
+         <div className="mb-6 sm:mb-8">
             {question.type === 'TRUE_FALSE' ? renderTrueFalse() : 
              question.type === 'FILL_BLANK' ? renderFillBlank() : 
              renderMCQ()}

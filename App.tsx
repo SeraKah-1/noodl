@@ -772,20 +772,32 @@ case AppView.VISUALIZATION:
     return <SignInScreen onBypass={handleBypassLogin} />;
   }
 
+  const isQuizImmersive =
+    quizState === QuizState.QUIZ_ACTIVE || quizState === QuizState.PROCESSING;
+
   return (
-    <div className="min-h-[100dvh] p-4 md:p-8 relative pb-24 transition-colors duration-500">
+    <div
+      className={
+        isQuizImmersive
+          ? 'min-h-[100dvh] relative transition-colors duration-500'
+          : 'min-h-[100dvh] p-4 md:p-8 relative pb-24 transition-colors duration-500'
+      }
+    >
       {showOnboarding && (
         <OnboardingModal onClose={() => setShowOnboarding(false)} />
       )}
       <DynamicIsland />
-      <div className="fixed top-6 right-6 z-40 flex items-center space-x-3">
-        <button 
-          onClick={() => setShowAnalysis(!showAnalysis)}
-          className="p-2 rounded-full bg-theme-glass border border-theme-border text-theme-muted hover:bg-theme-bg shadow-sm"
-        >
-          <Info size={24} />
-        </button>
-      </div>
+      {/* Hide chrome that steals space during live quiz */}
+      {!isQuizImmersive && (
+        <div className="fixed top-6 right-6 z-40 flex items-center space-x-3">
+          <button
+            onClick={() => setShowAnalysis(!showAnalysis)}
+            className="p-2 rounded-full bg-theme-glass border border-theme-border text-theme-muted hover:bg-theme-bg shadow-sm"
+          >
+            <Info size={24} />
+          </button>
+        </div>
+      )}
 
       {/* ── RESUME SESSION BANNER ── */}
       <AnimatePresence>
@@ -897,16 +909,22 @@ case AppView.VISUALIZATION:
         )}
       </AnimatePresence>
 
-      <div className="max-w-7xl mx-auto pt-8">
-        <AnimatePresence mode='wait'>
-          <motion.div 
-            key={currentView + quizState} 
-            initial={{ opacity: 0, y: 8 }} 
-            animate={{ opacity: 1, y: 0 }} 
+      <div
+        className={
+          isQuizImmersive
+            ? 'w-full'
+            : 'max-w-7xl mx-auto pt-8'
+        }
+      >
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={currentView + quizState}
+            initial={{ opacity: 0, y: isQuizImmersive ? 0 : 8 }}
+            animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
             className="w-full"
-            style={{ willChange: 'opacity, transform' }}
+            style={isQuizImmersive ? undefined : { willChange: 'opacity, transform' }}
           >
             {renderContent()}
           </motion.div>
@@ -917,11 +935,13 @@ case AppView.VISUALIZATION:
         <Navigation currentView={currentView} onChangeView={setCurrentView} />
       )}
 
-      <div className="fixed bottom-1 left-0 w-full text-center z-40 pointer-events-none">
-        <p className="text-[10px] text-theme-muted opacity-50 font-medium tracking-widest uppercase">
-          crafted by Bakwan Jagung 🌽
-        </p>
-      </div>
+      {!isQuizImmersive && (
+        <div className="fixed bottom-1 left-0 w-full text-center z-40 pointer-events-none">
+          <p className="text-[10px] text-theme-muted opacity-50 font-medium tracking-widest uppercase">
+            crafted by Bakwan Jagung 🌽
+          </p>
+        </div>
+      )}
     </div>
   );
 };
