@@ -377,38 +377,43 @@ export async function runFullSync(): Promise<SyncReport> {
   }
 }
 
-/** Live updates from other devices */
+/** Live updates from other devices (debounced — avoids sync storms) */
 export function startRealtimeSync(onChange?: () => void) {
   stopRealtimeSync();
   if (!cloudReady() || !supabase || !auth.currentUser) return () => {};
 
   const uid = auth.currentUser.uid;
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  const schedule = () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      runFullSync().then(() => onChange?.());
+    }, 900);
+  };
+
   const channel = supabase
     .channel(`noodl-sync-${uid}`)
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'quizzes', filter: `user_id=eq.${uid}` },
-      () => {
-        runFullSync().then(() => onChange?.());
-      }
+      schedule
     )
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'srs_items', filter: `user_id=eq.${uid}` },
-      () => {
-        runFullSync().then(() => onChange?.());
-      }
+      schedule
     )
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'library_items', filter: `user_id=eq.${uid}` },
-      () => {
-        runFullSync().then(() => onChange?.());
-      }
+      schedule
     )
-    .subscribe();
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') console.log('[Noodl realtime] subscribed');
+    });
 
   _realtimeUnsub = () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
     supabase.removeChannel(channel);
   };
   return _realtimeUnsub;

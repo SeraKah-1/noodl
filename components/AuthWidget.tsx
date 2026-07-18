@@ -6,8 +6,9 @@ import {
   signInWithGoogle,
   logOut,
   isSupabaseConfigured,
+  pingSupabase,
 } from '../supabase';
-import { runFullSync, type SyncReport } from '../services/syncService';
+import { runFullSync, getDeviceId, type SyncReport } from '../services/syncService';
 
 /**
  * Cloud account + cross-device sync controls.
@@ -18,9 +19,15 @@ export const AuthWidget: React.FC = () => {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastSync, setLastSync] = useState<SyncReport | null>(null);
+  const [health, setHealth] = useState<string | null>(null);
 
   useEffect(() => {
     return auth.onAuthStateChanged((u) => setUser(u));
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    pingSupabase().then((r) => setHealth(r.ok ? `Cloud: ${r.message}` : `Cloud issue: ${r.message}`));
   }, []);
 
   const handleGitHub = async () => {
@@ -71,13 +78,12 @@ export const AuthWidget: React.FC = () => {
           <Cloud size={16} /> Local-first mode
         </div>
         <p className="text-xs leading-relaxed">
-          Add <code className="text-[11px]">VITE_SUPABASE_URL</code> and{' '}
-          <code className="text-[11px]">VITE_SUPABASE_ANON_KEY</code> (see{' '}
-          <code className="text-[11px]">.env.example</code>) to enable GitHub login and
-          cross-device sync.
+          Add <code className="text-[11px]">VITE_SUPABASE_URL</code> +{' '}
+          <code className="text-[11px]">VITE_SUPABASE_PUBLISHABLE_KEY</code> (see{' '}
+          <code className="text-[11px]">.env.example</code> and <code className="text-[11px]">docs/SUPABASE.md</code>).
         </p>
         <p className="text-[11px]">
-          Bootstrap: <code>SUPABASE_ACCESS_TOKEN=sbp_… node scripts/bootstrap-supabase.mjs</code>
+          Schema: <code>node scripts/apply-schema.mjs</code>
         </p>
       </div>
     );
@@ -125,6 +131,8 @@ export const AuthWidget: React.FC = () => {
             {lastSync.errors.length ? ` · ${lastSync.errors.length} warnings` : ' · ok'}
           </p>
         )}
+        {health && <p className="text-[11px] text-theme-muted">{health}</p>}
+        <p className="text-[10px] text-theme-muted/80 font-mono truncate">device {getDeviceId()}</p>
         {error && <p className="text-xs text-rose-600">{error}</p>}
       </div>
     );
@@ -137,6 +145,7 @@ export const AuthWidget: React.FC = () => {
         Sign in to sync quizzes, library, and Neuro-Sync cards across phones and laptops.
         Offline still works — we merge when you’re back.
       </p>
+      {health && <p className="text-[11px] text-theme-muted">{health}</p>}
       {error && <p className="text-xs text-rose-600">{error}</p>}
       <button
         disabled={busy}

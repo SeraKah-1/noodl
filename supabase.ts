@@ -1,16 +1,30 @@
 /**
- * Noodl cloud layer — Supabase Auth (GitHub + Google) + session plumbing.
- * Configure VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY (never service_role in the browser).
+ * Noodl cloud layer — Supabase Auth + browser client.
+ *
+ * Client uses ONLY the publishable/anon key (RLS enforced).
+ * Never put SUPABASE_SECRET_KEY in VITE_* or ship it to the browser.
  */
 import { createClient, type SupabaseClient, type User as SbUser } from '@supabase/supabase-js';
 
 const url = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim() || '';
-const anon = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() || '';
 
-export const isSupabaseConfigured = Boolean(url && anon && !url.includes('YOUR_'));
+/** Prefer new publishable keys; fall back to legacy anon JWT */
+const clientKey = (
+  (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ||
+  (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ||
+  ''
+).trim();
+
+export const isSupabaseConfigured = Boolean(
+  url &&
+    clientKey &&
+    !url.includes('YOUR_') &&
+    !clientKey.includes('YOUR_') &&
+    !clientKey.includes('...')
+);
 
 export const supabase: SupabaseClient | null = isSupabaseConfigured
-  ? createClient(url, anon, {
+  ? createClient(url, clientKey, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
@@ -19,10 +33,16 @@ export const supabase: SupabaseClient | null = isSupabaseConfigured
         storage: typeof window !== 'undefined' ? window.localStorage : undefined,
       },
       realtime: {
-        params: { eventsPerSecond: 5 },
+        params: { eventsPerSecond: 8 },
       },
       global: {
-        headers: { 'x-noodl-client': 'web' },
+        headers: {
+          'x-noodl-client': 'web',
+          'x-client-info': 'noodl-web',
+        },
+      },
+      db: {
+        schema: 'public',
       },
     })
   : null;
@@ -92,20 +112,18 @@ export type User = NonNullable<ReturnType<typeof mapUser>>;
 
 function oauthRedirect() {
   if (typeof window === 'undefined') return undefined;
-  // support both root and deep links after deploy
   return `${window.location.origin}/`;
 }
 
 export async function signInWithGitHub() {
   if (!supabase) {
-    throw new Error('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+    throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL + VITE_SUPABASE_PUBLISHABLE_KEY.');
   }
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'github',
     options: {
       redirectTo: oauthRedirect(),
       scopes: 'read:user user:email',
-      queryParams: { prompt: 'consent' },
     },
   });
   if (error) throw error;
@@ -113,7 +131,7 @@ export async function signInWithGitHub() {
 
 export async function signInWithGoogle() {
   if (!supabase) {
-    throw new Error('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+    throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL + VITE_SUPABASE_PUBLISHABLE_KEY.');
   }
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
@@ -122,7 +140,6 @@ export async function signInWithGoogle() {
   if (error) throw error;
 }
 
-/** Prefer GitHub (hackathon / dev default), fall back to Google */
 export async function signInWithPreferred() {
   return signInWithGitHub();
 }
@@ -134,10 +151,35 @@ export async function signInWithDirectGoogleOAuth() {
   return signInWithPreferred();
 }
 export async function processOAuthRedirectUrl() {
-  /* PKCE / hash handled by supabase-js */
+  /* PKCE handled by supabase-js */
 }
 export async function logOut() {
   await auth.signOut();
+}
+
+/** Health check (anon/publishable) — tables must exist + RLS allow or return empty */
+export async function pingSupabase(): Promise<{ ok: boolean; message: string }> {
+  if (!supabase) return { ok: false, message: 'Client not configured' };
+  try {
+    const { error } = await supabase.from('quizzes').select('id').limit(1);
+    if (error) {
+      // relation missing vs auth
+      if (/relation|does not exist|schema cache/i.test(error.message)) {
+        return {
+          ok: false,
+          message: `Schema not applied yet: ${error.message}. Run supabase/schema.sql in SQL Editor.`,
+        };
+      }
+      // empty + RLS is fine when logged out
+      if (/JWT|permission|RLS|row-level/i.test(error.message)) {
+        return { ok: true, message: 'Reachable (auth/RLS active)' };
+      }
+      return { ok: false, message: error.message };
+    }
+    return { ok: true, message: 'Reachable' };
+  } catch (e: any) {
+    return { ok: false, message: e?.message || String(e) };
+  }
 }
 
 export const db = null;

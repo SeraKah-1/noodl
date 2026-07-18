@@ -712,67 +712,28 @@ export const getSavedQuizzes = async (): Promise<any[]> => {
 };
 
 export const subscribeToQuizzes = (callback: (quizzes: any[]) => void) => {
-  if (!auth.currentUser) return () => {};
+  // Supabase realtime + initial pull (Firestore listeners removed)
+  if (!auth.currentUser) {
+    get(HISTORY_IDB_KEY).then((h: any) => callback(h || []));
+    return () => {};
+  }
 
-  const quizzesRef = collection(db, "quizzes");
-  // Single query: authorId only. Eliminates the dual-listener race condition
-  // that caused INTERNAL ASSERTION FAILED in Firestore's WatchChangeAggregator.
-  // We always set authorId on save, so this covers all user-owned quizzes.
-  const q = query(quizzesRef, where("authorId", "==", auth.currentUser.uid));
-
-  const cloudQuizzesMap = new Map();
-
-  const notify = async () => {
-      const cloudQuizzes: any[] = [];
-      cloudQuizzesMap.forEach((data, id) => {
-          cloudQuizzes.push({
-              ...data,
-              id,
-              date: data.created_at && data.created_at.toDate ? data.created_at.toDate().toISOString() : data.date,
-              updatedAt: data.updatedAt && data.updatedAt.toDate ? data.updatedAt.toDate().toISOString() : (data.lastUpdated || data.date)
-          });
-      });
-
-      // Merge with local to preserve un-synced edits
-      let localHistory = await get(HISTORY_IDB_KEY) || [];
-      const pendingUploads = await get(PENDING_UPLOADS_KEY) || [];
-      const pendingSet = new Set(pendingUploads.map((p: any) => String(p.id)));
-      
-      const mergedMap = new Map();
-      cloudQuizzes.forEach(q => mergedMap.set(String(q.id), q));
-      localHistory.forEach((local: any) => {
-          const id = String(local.id);
-          const cloud = mergedMap.get(id);
-          if (!cloud) {
-              if (pendingSet.has(id)) {
-                  mergedMap.set(id, local);
-              }
-          } else {
-              const localTime = new Date(local.updatedAt || local.date || 0).getTime();
-              const cloudTime = new Date(cloud.updatedAt || cloud.date || 0).getTime();
-              if (localTime > cloudTime) {
-                  mergedMap.set(id, local);
-              }
-          }
-      });
-      const finalHistory = Array.from(mergedMap.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      await set(HISTORY_IDB_KEY, finalHistory);
-      callback(finalHistory);
+  let cancelled = false;
+  const emitLocal = async () => {
+    const history = (await get(HISTORY_IDB_KEY)) || [];
+    if (!cancelled) callback(history);
   };
 
-  const unsub = onSnapshot(q, (snap) => {
-      snap.docChanges().forEach(change => {
-          if (change.type === 'removed') cloudQuizzesMap.delete(change.doc.id);
-          else cloudQuizzesMap.set(change.doc.id, change.doc.data());
-      });
-      notify();
-  }, (error) => {
-      // Graceful recovery instead of crash
-      console.error('[subscribeToQuizzes] Firestore listener error:', error.message);
+  emitLocal();
+  runFullSync().then(emitLocal).catch((e) => console.warn("[subscribeToQuizzes] sync", e));
+
+  const stop = startRealtimeSync(() => {
+    emitLocal();
   });
 
   return () => {
-      unsub();
+    cancelled = true;
+    stop?.();
   };
 };
 
@@ -783,11 +744,10 @@ export const deleteQuiz = async (id: number | string) => {
       return history.filter((item: any) => String(item.id) !== String(id));
   });
 
-  // 2. Cloud
+  // 2. Cloud soft-delete (or queue offline)
   if (auth.currentUser) {
       try {
-          const quizRef = doc(db, "quizzes", String(id));
-          await deleteDoc(quizRef);
+          await cloudDeleteQuiz(String(id));
       } catch (e) {
           console.error("Cloud Quiz Delete failed, queueing for offline deletion", e);
           await update(PENDING_DELETIONS_KEY, (val) => [...(val || []), String(id)]);

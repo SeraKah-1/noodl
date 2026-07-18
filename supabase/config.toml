@@ -1,0 +1,25 @@
+# Minimal Supabase CLI config for Noodl
+# https://supabase.com/docs/guides/cli/config
+
+project_id = "xikribjyvqrilgbaxdel"
+
+[api]
+enabled = true
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = [
+  "http://localhost:5173/",
+  "http://localhost:4173/",
+  "http://127.0.0.1:5173/",
+]
+
+[auth.external.github]
+enabled = true
+
+[auth.external.google]
+enabled = true
+
+[functions.session]
+verify_jwt = true
