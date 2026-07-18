@@ -104,12 +104,13 @@ export const NoseTrackingManager: React.FC<NoseTrackingManagerProps> = ({
   const hoverStartTimeRef = useRef<number>(0);
   const currentHoveredOptionRef = useRef<number | string | null>(null);
   const hasTriggeredRef = useRef<boolean>(false);
-  const DWELL_DURATION = 850; // slightly snappier commit
+  /** Slower option dwell — stops accidental picks while aiming / scrolling */
+  const DWELL_DURATION = 1600;
 
   const navHoverStartTimeRef = useRef<number>(0);
   const currentHoveredNavRef = useRef<'prev' | 'next' | null>(null);
   const hasNavTriggeredRef = useRef<boolean>(false);
-  const NAV_DWELL_DURATION = 900; // edges should feel quick
+  const NAV_DWELL_DURATION = 1300;
 
   // Smile to Reset State
   const [isSmiling, setIsSmiling] = useState(false);
@@ -466,59 +467,97 @@ export const NoseTrackingManager: React.FC<NoseTrackingManagerProps> = ({
 
     const px = targetX;
     const py = targetY;
-    const { w: vw, h: vh } = getViewport();
-
-    // --- COLLISION: options first (so bottom options beat scroll/nav steal) ---
+    const { w: vw, h: vh, top: vTop } = getViewport();
     const now = performance.now();
-    let hoveringOption = false;
 
-    if (showCursor) {
-      const optionElements = document.querySelectorAll('[data-option-index], [data-nose-action]');
-      optionElements.forEach((el) => {
-        const rect = el.getBoundingClientRect();
-        // Slight inset so border grazing is less accidental
-        const inset = 4;
-        if (
-          px >= rect.left + inset &&
-          px <= rect.right - inset &&
-          py >= rect.top + inset &&
-          py <= rect.bottom - inset
-        ) {
-          hoveringOption = true;
+    /**
+     * Priority (fixes stuck-on-option / no-scroll):
+     * 1. Top/bottom SCROLL bands — always win (suppress option dwell)
+     * 2. Left/right NAV edges
+     * 3. Options (stricter hit box)
+     */
+    const scrollZone = Math.min(72, vh * 0.12);
+    const inScrollDown = py >= vTop + vh - scrollZone;
+    const inScrollUp = py <= vTop + scrollZone;
+    const inScrollBand = inScrollDown || inScrollUp;
+
+    let newScrollState: 'up' | 'down' | null = null;
+    if (showCursor && inScrollBand) {
+      if (inScrollDown) {
+        newScrollState = 'down';
+        const intensity = (py - (vTop + vh - scrollZone)) / scrollZone;
+        // Prefer scrolling the quiz card if present; else window
+        const scroller =
+          (document.querySelector('[data-quiz-scroll]') as HTMLElement | null) ||
+          document.scrollingElement ||
+          document.documentElement;
+        const dy = 6 + intensity * 18;
+        if (scroller && 'scrollTop' in scroller) {
+          scroller.scrollTop += dy;
+        } else {
+          window.scrollBy({ top: dy, behavior: 'auto' });
+        }
+      } else if (inScrollUp) {
+        newScrollState = 'up';
+        const intensity = (vTop + scrollZone - py) / scrollZone;
+        const scroller =
+          (document.querySelector('[data-quiz-scroll]') as HTMLElement | null) ||
+          document.scrollingElement ||
+          document.documentElement;
+        const dy = -(6 + intensity * 18);
+        if (scroller && 'scrollTop' in scroller) {
+          scroller.scrollTop += dy;
+        } else {
+          window.scrollBy({ top: dy, behavior: 'auto' });
+        }
+      }
+    }
+
+    if (newScrollState !== lastScrollStateRef.current) {
+      lastScrollStateRef.current = newScrollState;
+      setHoveredScroll(newScrollState);
+    }
+
+    // While scrolling intent is active: clear option/nav hover so dwell cannot fire
+    if (inScrollBand) {
+      currentlyHovered = null;
+      currentlyHoveredNav = null;
+    } else {
+      // Prev / Next: full-height side strips
+      const edgeWidth = Math.min(56, Math.max(40, vw * 0.07));
+      if (px <= edgeWidth) currentlyHoveredNav = 'prev';
+      else if (px >= vw - edgeWidth) currentlyHoveredNav = 'next';
+
+      // Options only if not on nav edge
+      if (currentlyHoveredNav === null && showCursor) {
+        const optionElements = document.querySelectorAll(
+          '[data-option-index], [data-nose-action]'
+        );
+        let best: { el: Element; area: number } | null = null;
+        optionElements.forEach((el) => {
+          const rect = el.getBoundingClientRect();
+          // Larger inset — must aim at center of option, not graze border
+          const insetX = Math.min(18, rect.width * 0.12);
+          const insetY = Math.min(14, rect.height * 0.18);
+          if (
+            px >= rect.left + insetX &&
+            px <= rect.right - insetX &&
+            py >= rect.top + insetY &&
+            py <= rect.bottom - insetY
+          ) {
+            const area = rect.width * rect.height;
+            if (!best || area < best.area) best = { el, area };
+          }
+        });
+        if (best) {
+          const el = best.el;
           if (el.hasAttribute('data-option-index')) {
             currentlyHovered = parseInt(el.getAttribute('data-option-index') || '-1', 10);
           } else if (el.hasAttribute('data-nose-action')) {
             currentlyHovered = el.getAttribute('data-nose-action') as any;
           }
         }
-      });
-    }
-
-    // --- AUTO SCROLL (only when NOT on an option; smaller zones so bottom is usable) ---
-    let newScrollState: 'up' | 'down' | null = null;
-    if (showCursor && !hoveringOption) {
-      const scrollZone = Math.min(56, vh * 0.08); // ~8% or 56px max — was 15% and blocked bottom
-      if (py > vh - scrollZone) {
-        newScrollState = 'down';
-        const intensity = (py - (vh - scrollZone)) / scrollZone;
-        window.scrollBy({ top: intensity * 10, behavior: 'auto' });
-      } else if (py < scrollZone) {
-        newScrollState = 'up';
-        const intensity = (scrollZone - py) / scrollZone;
-        window.scrollBy({ top: -intensity * 10, behavior: 'auto' });
       }
-    }
-    
-    if (newScrollState !== lastScrollStateRef.current) {
-        lastScrollStateRef.current = newScrollState;
-        setHoveredScroll(newScrollState);
-    }
-
-    // Prev / Next: full-height side strips (any vertical position — no mid-band limit)
-    const edgeWidth = Math.min(56, Math.max(40, vw * 0.07));
-    if (!hoveringOption) {
-      if (px <= edgeWidth) currentlyHoveredNav = 'prev';
-      else if (px >= vw - edgeWidth) currentlyHoveredNav = 'next';
     }
 
     // 1. Navigation Hitboxes

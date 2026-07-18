@@ -243,7 +243,10 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ onComplete, onExit
   }, [isAnswered, handleNext, handlePrev, handleAnswer, currentQuestion]);
 
   return (
-    <div className="min-h-screen bg-[#f8f9fa] text-slate-800 flex flex-col items-center relative overflow-hidden">
+    <div
+      data-quiz-scroll
+      className="min-h-[100dvh] max-h-[100dvh] overflow-y-auto overscroll-contain bg-[#f8f9fa] text-slate-800 flex flex-col items-center relative"
+    >
         
         {/* FLASH LAYER - GPU accelerated */}
         <div 
@@ -424,7 +427,7 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ onComplete, onExit
 
 
         {/* --- MAIN CARD --- */}
-        <div className="flex-1 w-full flex items-center justify-center px-4 pb-12 pt-16 relative z-10">
+        <div className="flex-1 w-full flex items-start md:items-center justify-center px-4 pb-28 pt-16 relative z-10 min-h-0">
             <AnimatePresence mode='wait'>
                 {currentQuestion && (
                     <UniversalQuestionCard 

@@ -1,140 +1,40 @@
 /**
  * Hand gesture control for quiz navigation.
  *
- * Stack: MediaPipe GestureRecognizer (browser) — preferred over raw HandLandmarker
- * because it ships a trained classifier for Open_Palm / Closed_Fist / Thumb_Up /
- * Victory / Pointing_Up. We still run geometric finger-count on landmarks for
- * A/B/C/D (1–4 fingers) which the classifier does not fully cover.
- *
- * Best-practice notes (see docs analysis):
- * - Dwell-to-confirm (not instant fire) → fewer false triggers
- * - Temporal lock (N consecutive frames) before dwell starts
- * - Soft ROI guide so user knows where to put the hand
- * - Exclusive mode with camera context (HAND vs NOSE)
+ * Classification: pure math in handGestureMath.ts (geometry-first A–D)
+ * + MediaPipe GestureRecognizer labels as assistants for palm/thumb.
+ * Temporal majority vote reduces 1-frame flips (1→D noise).
  */
 
 import { useEffect, useRef, useState } from 'react';
 import { useCamera } from '../contexts/CameraContext';
+import {
+  classifyHandGesture,
+  majorityVote,
+} from './handGestureMath';
 
 interface GestureState {
   isLoaded: boolean;
   error: string | null;
-  detectedGesture: string | null; // "1" | "2" | "3" | "4" | "NEXT" | "BACK"
-  dwellProgress: number; // 0 - 100
+  detectedGesture: string | null;
+  dwellProgress: number;
   inRoi: boolean;
   handPresent: boolean;
 }
 
-const DWELL_MS = 1100;
-const STABLE_FRAMES = 3; // consecutive frames of same gesture before dwell starts
+/** Longer hold — fewer accidental picks */
+const DWELL_MS = 1750;
+/** Frames of same voted gesture before dwell clock starts (~5 @12fps ≈ 0.4s) */
+const STABLE_FRAMES = 5;
+/** Ring buffer for majority vote */
+const VOTE_WINDOW = 7;
+const VOTE_MIN = 4;
+
 const MODEL_URL =
   'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task';
 const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.17/wasm';
 
-const dist = (a: { x: number; y: number }, b: { x: number; y: number }) =>
-  Math.hypot(a.x - b.x, a.y - b.y);
-
-/** Finger extended if tip is farther from MCP than PIP, with scale buffer. */
-const fingerOpen = (
-  landmarks: Array<{ x: number; y: number; z?: number }>,
-  tip: number,
-  pip: number,
-  mcp: number
-) => {
-  const dTip = dist(landmarks[tip], landmarks[mcp]);
-  const dPip = dist(landmarks[pip], landmarks[mcp]);
-  // 12% beyond PIP distance → open (tighter than old wrist-distance check)
-  return dTip > dPip * 1.12;
-};
-
-/** Thumb open relative to palm center; uses handedness when available. */
-const thumbOpen = (
-  landmarks: Array<{ x: number; y: number }>,
-  handedness?: string
-) => {
-  const tip = landmarks[4];
-  const ip = landmarks[3];
-  const mcp = landmarks[2];
-  const indexMcp = landmarks[5];
-  const pinkyMcp = landmarks[17];
-  const wrist = landmarks[0];
-  const scale = dist(wrist, landmarks[9]) || 0.2;
-
-  // Away from palm midline
-  const palmMid = {
-    x: (indexMcp.x + pinkyMcp.x) / 2,
-    y: (indexMcp.y + pinkyMcp.y) / 2,
-  };
-  const tipAway = dist(tip, palmMid) > dist(mcp, palmMid) * 1.15;
-  const tipPastIp = dist(tip, wrist) > dist(ip, wrist) + scale * 0.08;
-
-  // Handedness-aware lateral check (image coords, not mirrored)
-  let lateral = true;
-  if (handedness === 'Right') {
-    lateral = tip.x < indexMcp.x - scale * 0.05 || tipAway;
-  } else if (handedness === 'Left') {
-    lateral = tip.x > indexMcp.x + scale * 0.05 || tipAway;
-  }
-
-  return tipAway && tipPastIp && lateral;
-};
-
-/** Map MediaPipe classifier labels + geometry → quiz actions. */
-export function classifyHandGesture(
-  landmarks: Array<{ x: number; y: number; z?: number }>,
-  modelLabel: string | null,
-  modelScore: number,
-  handedness?: string
-): string | null {
-  const indexExt = fingerOpen(landmarks, 8, 6, 5);
-  const middleExt = fingerOpen(landmarks, 12, 10, 9);
-  const ringExt = fingerOpen(landmarks, 16, 14, 13);
-  const pinkyExt = fingerOpen(landmarks, 20, 18, 17);
-  const thumbExt = thumbOpen(landmarks, handedness);
-  const fingers =
-    (indexExt ? 1 : 0) +
-    (middleExt ? 1 : 0) +
-    (ringExt ? 1 : 0) +
-    (pinkyExt ? 1 : 0);
-
-  // Closed fist: ignore (no accidental triggers) — model or geometry
-  if (
-    (modelLabel === 'Closed_Fist' && modelScore >= 0.55) ||
-    (fingers === 0 && !thumbExt)
-  ) {
-    return null;
-  }
-
-  // Prefer high-confidence model labels for palm / thumb / victory / point
-  if (modelScore >= 0.55 && modelLabel) {
-    if (modelLabel === 'Open_Palm') return 'BACK';
-    if (modelLabel === 'Thumb_Up') return 'NEXT';
-    if (modelLabel === 'Victory' && indexExt && middleExt) return '2';
-    if (modelLabel === 'Pointing_Up' && indexExt && fingers <= 2) return '1';
-  }
-
-  // Geometry: finger counts for A–D (most reliable for multi-choice)
-  if (fingers === 1 && indexExt) return '1';
-  if (fingers === 2 && indexExt && middleExt && !ringExt) return '2';
-  if (fingers === 3 && indexExt && middleExt && ringExt && !pinkyExt) return '3';
-  // 4 fingers, thumb tucked → D; open palm (4+thumb) → BACK
-  if (fingers === 4) {
-    if (thumbExt) return 'BACK';
-    return '4';
-  }
-  // Thumb only → NEXT (thumbs up / out)
-  if (fingers === 0 && thumbExt) return 'NEXT';
-
-  // Soft model fallbacks when geometry is ambiguous
-  if (modelScore >= 0.7) {
-    if (modelLabel === 'Open_Palm') return 'BACK';
-    if (modelLabel === 'Thumb_Up') return 'NEXT';
-    if (modelLabel === 'Victory') return '2';
-    if (modelLabel === 'Pointing_Up') return '1';
-  }
-
-  return null;
-}
+export { classifyHandGesture } from './handGestureMath';
 
 export const useHandGesture = (
   onTrigger: (gesture: string) => void,
@@ -173,8 +73,8 @@ export const useHandGesture = (
   const stableGestureRef = useRef<string | null>(null);
   const stableCountRef = useRef(0);
   const lastUiPushRef = useRef(0);
+  const voteBufRef = useRef<Array<string | null>>([]);
 
-  // --- Load GestureRecognizer (includes landmarks) ---
   useEffect(() => {
     let active = true;
     let loadTimeout: ReturnType<typeof setTimeout>;
@@ -190,7 +90,7 @@ export const useHandGesture = (
           }
         }, 20000);
 
-        // @ts-ignore - CDN ESM
+        // @ts-ignore
         const { FilesetResolver, GestureRecognizer } = await import(
           'https://esm.sh/@mediapipe/tasks-vision@0.10.17'
         );
@@ -198,31 +98,22 @@ export const useHandGesture = (
         const vision = await FilesetResolver.forVisionTasks(WASM_URL);
         if (!active) return;
 
+        const opts = {
+          baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' as const },
+          runningMode: 'VIDEO' as const,
+          numHands: 1,
+          minHandDetectionConfidence: 0.55,
+          minHandPresenceConfidence: 0.55,
+          minTrackingConfidence: 0.55,
+        };
+
         let recognizer: any;
         try {
-          recognizer = await GestureRecognizer.createFromOptions(vision, {
-            baseOptions: {
-              modelAssetPath: MODEL_URL,
-              delegate: 'GPU',
-            },
-            runningMode: 'VIDEO',
-            numHands: 1,
-            minHandDetectionConfidence: 0.5,
-            minHandPresenceConfidence: 0.5,
-            minTrackingConfidence: 0.5,
-          });
+          recognizer = await GestureRecognizer.createFromOptions(vision, opts);
         } catch {
-          // GPU path fails on some devices → CPU
           recognizer = await GestureRecognizer.createFromOptions(vision, {
-            baseOptions: {
-              modelAssetPath: MODEL_URL,
-              delegate: 'CPU',
-            },
-            runningMode: 'VIDEO',
-            numHands: 1,
-            minHandDetectionConfidence: 0.5,
-            minHandPresenceConfidence: 0.5,
-            minTrackingConfidence: 0.5,
+            ...opts,
+            baseOptions: { modelAssetPath: MODEL_URL, delegate: 'CPU' },
           });
         }
 
@@ -292,8 +183,7 @@ export const useHandGesture = (
 
   const pushUi = (patch: Partial<GestureState>) => {
     const now = performance.now();
-    // Throttle React state ~15fps to keep UI smooth
-    if (now - lastUiPushRef.current < 66 && patch.dwellProgress === undefined) {
+    if (now - lastUiPushRef.current < 50 && patch.dwellProgress === undefined) {
       return;
     }
     lastUiPushRef.current = now;
@@ -312,13 +202,11 @@ export const useHandGesture = (
   const handleDwellTime = (gesture: string | null) => {
     const now = performance.now();
 
-    // Temporal lock: need STABLE_FRAMES of the same raw gesture
     if (gesture === stableGestureRef.current) {
       stableCountRef.current += 1;
     } else {
       stableGestureRef.current = gesture;
       stableCountRef.current = 1;
-      // Reset dwell when gesture identity flips
       lastGestureRef.current = null;
       gestureStartTimeRef.current = 0;
       hasTriggeredRef.current = false;
@@ -339,7 +227,7 @@ export const useHandGesture = (
         onTriggerRef.current(gesture);
         hasTriggeredRef.current = true;
         try {
-          navigator.vibrate?.([40, 40, 40]);
+          navigator.vibrate?.([35, 40, 35]);
         } catch {
           /* ignore */
         }
@@ -352,10 +240,6 @@ export const useHandGesture = (
     }
   };
 
-  /**
-   * ROI guide: visible outer frame + inner "active" zone.
-   * Input only counts inside the *inner* rect so border grazing does not fire.
-   */
   const drawRoiGuide = (
     ctx: CanvasRenderingContext2D,
     roiX: number,
@@ -365,7 +249,6 @@ export const useHandGesture = (
     active: boolean,
     inner: { x: number; y: number; w: number; h: number }
   ) => {
-    // Dim outside the outer frame so the box is obvious
     ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     ctx.clearRect(roiX, roiY, roiW, roiH);
@@ -383,7 +266,6 @@ export const useHandGesture = (
       [roiX, roiY + roiH, len, 0, 0, -len],
       [roiX + roiW, roiY + roiH, -len, 0, 0, -len],
     ];
-
     for (const [x, y, dx1, dy1, dx2, dy2] of corners) {
       ctx.beginPath();
       ctx.moveTo(x + dx1, y + dy1);
@@ -391,32 +273,14 @@ export const useHandGesture = (
       ctx.lineTo(x + dx2, y + dy2);
       ctx.stroke();
     }
-
-    // Outer solid border
     ctx.strokeStyle = active ? 'rgba(167, 139, 250, 0.55)' : 'rgba(255, 255, 255, 0.4)';
     ctx.lineWidth = Math.max(1.5, ctx.canvas.width * 0.0035);
-    ctx.setLineDash([]);
     ctx.strokeRect(roiX, roiY, roiW, roiH);
-
-    // Inner active zone (stricter) — dashed
     ctx.strokeStyle = active ? 'rgba(196, 181, 253, 0.7)' : 'rgba(255, 255, 255, 0.35)';
     ctx.lineWidth = 1.25;
     ctx.setLineDash([5, 6]);
     ctx.strokeRect(inner.x, inner.y, inner.w, inner.h);
     ctx.setLineDash([]);
-
-    // Center crosshair (subtle)
-    const cx = inner.x + inner.w / 2;
-    const cy = inner.y + inner.h / 2;
-    const arm = Math.min(inner.w, inner.h) * 0.06;
-    ctx.strokeStyle = active ? 'rgba(167, 139, 250, 0.5)' : 'rgba(255,255,255,0.3)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(cx - arm, cy);
-    ctx.lineTo(cx + arm, cy);
-    ctx.moveTo(cx, cy - arm);
-    ctx.lineTo(cx, cy + arm);
-    ctx.stroke();
   };
 
   const drawHand = (
@@ -425,11 +289,10 @@ export const useHandGesture = (
     color: string
   ) => {
     ctx.shadowColor = color;
-    ctx.shadowBlur = 6;
+    ctx.shadowBlur = 5;
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
     ctx.beginPath();
     const connections = [
       [0, 1], [1, 2], [2, 3], [3, 4],
@@ -446,11 +309,11 @@ export const useHandGesture = (
       ctx.lineTo(p2.x * ctx.canvas.width, p2.y * ctx.canvas.height);
     }
     ctx.stroke();
-    ctx.fillStyle = '#fff';
     ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fff';
     for (const p of landmarks) {
       ctx.beginPath();
-      ctx.arc(p.x * ctx.canvas.width, p.y * ctx.canvas.height, 1.8, 0, Math.PI * 2);
+      ctx.arc(p.x * ctx.canvas.width, p.y * ctx.canvas.height, 1.6, 0, Math.PI * 2);
       ctx.fill();
     }
   };
@@ -475,7 +338,6 @@ export const useHandGesture = (
       return;
     }
 
-    // ~12–15 FPS inference
     if (video.currentTime !== lastVideoTimeRef.current) {
       const timeDiff = (video.currentTime - lastVideoTimeRef.current) * 1000;
       if (lastVideoTimeRef.current >= 0 && timeDiff < 70) {
@@ -497,12 +359,11 @@ export const useHandGesture = (
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
 
-      // Outer guide box (visible). Active zone is inset so edge grazing does NOT fire.
       const roiW = canvas.width * 0.52;
       const roiH = canvas.height * 0.58;
       const roiX = (canvas.width - roiW) / 2;
       const roiY = (canvas.height - roiH) / 2;
-      const INSET = 0.14; // 14% margin inside outer frame
+      const INSET = 0.12;
       const inner = {
         x: roiX + roiW * INSET,
         y: roiY + roiH * INSET,
@@ -514,7 +375,7 @@ export const useHandGesture = (
       try {
         results = recognizer.recognizeForVideo(video, performance.now());
       } catch (e) {
-        console.warn('[HandGesture] recognize frame failed', e);
+        console.warn('[HandGesture] frame failed', e);
         if (loopActiveRef.current) {
           requestRef.current = requestAnimationFrame(predictWebcam);
         }
@@ -525,9 +386,11 @@ export const useHandGesture = (
 
       const landmarks = results?.landmarks?.[0];
       const handLabels = results?.handednesses?.[0]?.[0];
+      // MediaPipe: "Left" | "Right" from camera view; works for either physical hand
       const handedness = handLabels?.categoryName as string | undefined;
       const topGesture = results?.gestures?.[0]?.[0];
-      const modelLabel = topGesture?.categoryName === 'None' ? null : topGesture?.categoryName || null;
+      const modelLabel =
+        topGesture?.categoryName === 'None' ? null : topGesture?.categoryName || null;
       const modelScore = topGesture?.score ?? 0;
 
       let inROI = false;
@@ -542,29 +405,40 @@ export const useHandGesture = (
         const tipX = indexTip.x * canvas.width;
         const tipY = indexTip.y * canvas.height;
 
-        // Strict: palm center AND index tip must sit inside the *inner* zone
         const inInner = (x: number, y: number) =>
           x >= inner.x && x <= inner.x + inner.w && y >= inner.y && y <= inner.y + inner.h;
-        inROI = inInner(cx, cy) && inInner(tipX, tipY);
+        // Palm center in inner zone is enough for ROI (tip alone was too strict / flipped hands failed)
+        inROI = inInner(cx, cy);
 
         drawRoiGuide(ctx, roiX, roiY, roiW, roiH, inROI, inner);
-        drawHand(ctx, landmarks, inROI ? 'rgba(167,139,250,0.95)' : 'rgba(244,63,94,0.75)');
+        drawHand(
+          ctx,
+          landmarks,
+          inROI ? 'rgba(167,139,250,0.95)' : 'rgba(244,63,94,0.75)'
+        );
 
         if (inROI && !isPausedRef.current) {
-          const gesture = classifyHandGesture(
+          const raw = classifyHandGesture(
             landmarks,
             modelLabel,
             modelScore,
             handedness
           );
-          handleDwellTime(gesture);
+          // Majority vote across recent frames (kills 1→D flicker)
+          const buf = voteBufRef.current;
+          buf.push(raw);
+          if (buf.length > VOTE_WINDOW) buf.shift();
+          const voted = majorityVote(buf, VOTE_MIN);
+          handleDwellTime(voted);
         } else {
+          voteBufRef.current = [];
           resetDwell();
         }
 
         pushUi({ inRoi: inROI, handPresent: true });
       } else {
         setIsHandDetected(false);
+        voteBufRef.current = [];
         drawRoiGuide(ctx, roiX, roiY, roiW, roiH, false, inner);
         resetDwell();
         pushUi({ inRoi: false, handPresent: false });
