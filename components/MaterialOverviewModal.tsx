@@ -45,9 +45,15 @@ export const MaterialOverviewModal: React.FC<MaterialOverviewModalProps> = ({ qu
     try {
        setIsGeneratingAI(true);
        setAiProgress({ current: 0, total: 1 });
-       const apiKey = getApiKey();
-       if (!apiKey && !import.meta.env.VITE_USE_VERTEX_EXPRESS && !import.meta.env.VITE_USE_FIREBASE_VERTEX_AI) {
-           throw new Error("API key not found.");
+       const { getActiveProvider } = await import('../services/providerService');
+       const provider = getActiveProvider();
+       const apiKey = getApiKey(provider);
+       const vertexOk =
+         import.meta.env.VITE_USE_VERTEX_EXPRESS === 'true' ||
+         import.meta.env.VITE_USE_FIREBASE_VERTEX_AI === 'true' ||
+         import.meta.env.VITE_USE_VERTEX_AI === 'true';
+       if (!apiKey && !(provider === 'gemini' && vertexOk)) {
+           throw new Error("API key not found for the active provider. Set it in Settings.");
        }
        
        // Group data

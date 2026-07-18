@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Upload, FileText, Layout, Zap, TrendingUp, Skull, BookOpen, Type, Cloud, RefreshCw, CheckCircle2, X, PlayCircle, Layers, Settings2, Sparkles, Folder, Target, BrainCircuit, Shuffle, Cpu, ChevronDown, MessageSquarePlus, Check, Link as LinkIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AVAILABLE_MODELS, ModelConfig, QuizMode, ExamStyle, AiProvider, CloudNote, Question, LibraryItem, ModelOption } from '../types';
-import { getCachedModels, getActiveProvider } from '../services/providerService';
+import { getCachedModels, getActiveProvider, setActiveProvider, PROVIDER_CATALOG } from '../services/providerService';
 import { GlassButton } from './GlassButton';
 import { DashboardMascot } from './DashboardMascot';
 import { StudyScheduler } from './StudyScheduler';
@@ -87,12 +87,20 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
   const [, setLocaleTick] = useState(0);
   useEffect(() => subscribeLocale(() => setLocaleTick(n => n + 1)), []);
 
-  const isAiAvailableWithoutUserKey =
+  const isVertexBackendAvailable =
     import.meta.env.VITE_USE_VERTEX_EXPRESS === 'true' ||
     import.meta.env.VITE_USE_FIREBASE_VERTEX_AI === 'true' ||
     import.meta.env.VITE_USE_VERTEX_AI === 'true';
 
-  const hasApiKey = !!getApiKey('gemini') || isAiAvailableWithoutUserKey;
+  // Re-sync active provider + key whenever this screen is shown (e.g. after Settings).
+  useEffect(() => {
+    setProvider(getActiveProvider());
+  }, []);
+
+  // Key must match the *active* provider — not hard-coded Gemini.
+  const hasApiKey =
+    !!getApiKey(provider) ||
+    (provider === 'gemini' && isVertexBackendAvailable);
 
   useEffect(() => {
     getLibraryItems().then(setLibraryItems);
@@ -167,8 +175,13 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
 
   const handleProviderChange = (newProvider: AiProvider) => {
       setProvider(newProvider);
+      setActiveProvider(newProvider);
       // Auto-select first model of that provider to prevent mismatch
-      const firstModel = dynamicModels.find(m => m.provider === newProvider) || AVAILABLE_MODELS.find(m => m.provider === newProvider);
+      const cached = getCachedModels(newProvider);
+      const firstModel =
+        cached[0] ||
+        dynamicModels.find(m => m.provider === newProvider) ||
+        AVAILABLE_MODELS.find(m => m.provider === newProvider);
       if (firstModel) {
           setModelId(firstModel.id);
       } else {
@@ -388,7 +401,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
     }
 
     const apiKey = getApiKey(provider);
-    if (!apiKey && !isAiAvailableWithoutUserKey) {
+    if (!apiKey && !(provider === 'gemini' && isVertexBackendAvailable)) {
       showErrorNotification({
         title: t('flashGenFail'),
         action: "handleFlashcardStart.apiKeyValidation",
@@ -707,14 +720,20 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
 
            {/* --- AI BRAIN CONTROL --- */}
            <div className="bg-white/50 p-4 rounded-3xl border border-white shadow-sm flex flex-col md:flex-row gap-4 items-center">
-              {/* Provider Switcher */}
-              <div className="flex bg-slate-200/50 p-1.5 rounded-xl shrink-0">
-                 <button 
-                    onClick={() => handleProviderChange('gemini')}
-                    className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center transition-all ${provider === 'gemini' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+              {/* Provider Switcher — all providers from Settings catalog */}
+              <div className="relative shrink-0 w-full md:w-auto md:min-w-[10rem]">
+                 <select
+                    value={provider}
+                    onChange={(e) => handleProviderChange(e.target.value as AiProvider)}
+                    className="w-full appearance-none bg-white border border-slate-200 text-slate-700 font-bold text-xs rounded-xl px-4 py-2.5 pr-9 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
                  >
-                    <Zap size={14} className="mr-1.5" /> Gemini
-                 </button>
+                    {PROVIDER_CATALOG.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                 </select>
+                 <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+                    <ChevronDown size={14} />
+                 </div>
               </div>
 
               {/* Model Dropdown */}
@@ -730,7 +749,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                           <option key={m.id || "unknown"} value={m.id || ""}>{m.label || "Unknown Model"}</option>
                        ))
                     ) : (
-                       <option value="">{getApiKey(provider) || import.meta.env.VITE_USE_VERTEX_EXPRESS === 'true' ? t('cfgFailLoadModel') : t('cfgNeedKeySettings')}</option>
+                       <option value="">{getApiKey(provider) || (provider === 'gemini' && isVertexBackendAvailable) ? t('cfgFailLoadModel') : t('cfgNeedKeySettings')}</option>
                     )}
                  </select>
                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
@@ -979,7 +998,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                  <div>
                     <span className="font-bold block mb-1">{t('cfgNoKeyTitle')}</span>
                     <p className="opacity-90">{t('cfgNoKeyBody')}</p>
-                    <p className="text-xs mt-2 text-amber-700 font-medium">💡 Terdapat tutorial cara mendapatkan API Key di menu Settings.</p>
+                    <p className="text-xs mt-2 text-amber-700 font-medium">💡 {t('cfgNoKeyHint')}</p>
                  </div>
               </div>
             )}

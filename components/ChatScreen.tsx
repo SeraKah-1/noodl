@@ -36,7 +36,11 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ contextText, sourceFile,
     setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
     setLoading(true);
 
-    const apiKey = getApiKey('gemini');
+    const { getActiveProvider, getCachedModels } = await import('../services/providerService');
+    const provider = getActiveProvider();
+    const apiKey = getApiKey(provider);
+    const models = getCachedModels(provider);
+    const modelId = models[0]?.id || (provider === 'gemini' ? 'gemini-2.0-flash' : '');
     
     // Convert simplified messages to API history format
     const apiHistory = messages.map(m => ({
@@ -45,10 +49,13 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ contextText, sourceFile,
     }));
 
     try {
+      if (!apiKey && provider !== 'gemini') {
+        throw new Error('API key missing for active provider. Set it in Settings.');
+      }
       
       const response = await chatWithDocument(
-        apiKey,
-        'gemini-3.5-flash', // Use Gemini for reasoning context
+        apiKey || '',
+        modelId,
         apiHistory,
         userMsg,
         contextText,

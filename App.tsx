@@ -220,8 +220,11 @@ const App: React.FC = () => {
 
   const startQuizGeneration = async (files: File[] | null, config: ModelConfig) => {
     const apiKey = getApiKey(config.provider);
+    // Vertex-only backend unlocks Gemini without a user key — not other providers.
+    const canUseWithoutUserKey =
+      config.provider === 'gemini' && isAiAvailableWithoutUserKey;
     
-    if (!apiKey && !isAiAvailableWithoutUserKey) {
+    if (!apiKey && !canUseWithoutUserKey) {
       showErrorNotification({
         title: t('genStartFailed'),
         action: "startQuizGeneration",
@@ -359,7 +362,9 @@ const App: React.FC = () => {
         try {
             const existingTexts = originalQuestions.map(q => q.text);
             const apiKey = getApiKey(lastConfig.config.provider);
-            if (!apiKey && !isAiAvailableWithoutUserKey) throw new Error("API Key missing");
+            if (!apiKey && !(lastConfig.config.provider === 'gemini' && isAiAvailableWithoutUserKey)) {
+              throw new Error("API Key missing");
+            }
             let newQuestions: Question[] = [];
             const { files, config } = lastConfig;
       
