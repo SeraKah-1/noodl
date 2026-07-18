@@ -1,18 +1,26 @@
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { Network, Loader2, RefreshCw, X, Maximize2, Minimize2, FileJson, FileCode } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Network, Loader2, Download, RefreshCw, X, Maximize2, Minimize2, FileJson, FileCode } from 'lucide-react';
 import { generateKnowledgeGraph, type GraphViewResult, type GraphData } from '../services/graphViewService';
-import { saveQuizKnowledgeGraph, getQuizKnowledgeGraph } from '../services/storageService';
+import { saveQuizKnowledgeGraph, HISTORY_IDB_KEY } from '../services/storageService';
+import { get } from 'idb-keyval';
 import type { Question } from '../types';
 import { t, getLocale } from '../services/i18n';
+
+export type CachedKnowledgeGraph = {
+  data: GraphData;
+  htmlCode: string;
+  generatedAt?: string;
+};
 
 interface GraphViewPanelProps {
   questions: Question[];
   title?: string;
   materialContext?: string;
   quizId?: string | number;
-  initialData?: GraphData;
-  initialHtml?: string;
+  /** Cached graph from history — skip regenerate when present */
+  initialGraph?: CachedKnowledgeGraph | null;
   onClose: () => void;
 }
 
@@ -21,64 +29,32 @@ export const GraphViewPanel: React.FC<GraphViewPanelProps> = ({
   title = 'Knowledge Graph',
   materialContext,
   quizId,
-  initialData,
-  initialHtml,
+  initialGraph,
   onClose,
 }) => {
   const [state, setState] = useState<'idle' | 'loading' | 'ready' | 'error'>(
-    initialData && initialHtml ? 'ready' : initialData ? 'ready' : 'idle'
+    initialGraph?.htmlCode || initialGraph?.data?.nodes?.length ? 'ready' : 'idle'
   );
   const [result, setResult] = useState<GraphViewResult | null>(
-    initialData
-      ? { data: initialData, htmlCode: initialHtml || '', status: 'success' }
+    initialGraph?.data
+      ? {
+          data: initialGraph.data,
+          htmlCode: initialGraph.htmlCode || '',
+          status: 'success',
+        }
       : null
   );
   const [progress, setProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [hydrated, setHydrated] = useState(!quizId);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const id = getLocale() === 'id';
-
-  // Load cached graph from IndexedDB when opening
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (initialData && (initialHtml || initialData)) {
-        setHydrated(true);
-        return;
-      }
-      if (!quizId) {
-        setHydrated(true);
-        return;
-      }
-      try {
-        const cached = await getQuizKnowledgeGraph(quizId);
-        if (cancelled) return;
-        if (cached?.htmlCode || cached?.data) {
-          setResult({
-            data: cached.data,
-            htmlCode: cached.htmlCode || '',
-            status: 'success',
-          });
-          setState(cached.htmlCode ? 'ready' : 'idle');
-        }
-      } catch (e) {
-        console.warn('[GraphView] cache load failed', e);
-      } finally {
-        if (!cancelled) setHydrated(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [quizId, initialData, initialHtml]);
+  const bootstrappedRef = useRef(false);
 
   const handleGenerate = useCallback(async () => {
     if (questions.length < 3) {
       setError(
-        id
-          ? 'Minimal 3 soal diperlukan untuk knowledge graph.'
+        getLocale() === 'id'
+          ? 'Minimal 3 soal untuk knowledge graph.'
           : 'Need at least 3 questions for a knowledge graph.'
       );
       setState('error');
@@ -98,34 +74,76 @@ export const GraphViewPanel: React.FC<GraphViewPanelProps> = ({
 
       if (graphResult.status === 'error') {
         setState('error');
-        setError(graphResult.error || (id ? 'Gagal membangun graph.' : 'Could not build graph.'));
+        setError(graphResult.error || t('graphBuildFail'));
         return;
       }
 
       setResult(graphResult);
       setState('ready');
 
-      // Persist so leaving the modal does not force regenerate
-      if (quizId && graphResult.htmlCode) {
+      // Persist so leaving the panel does not force full regenerate
+      if (quizId && graphResult.data) {
         await saveQuizKnowledgeGraph(quizId, {
           data: graphResult.data,
-          htmlCode: graphResult.htmlCode,
-          status: 'success',
-        }).catch((e) => console.error('[GraphView] save failed', e));
+          htmlCode: graphResult.htmlCode || '',
+          generatedAt: graphResult.data.generatedAt || new Date().toISOString(),
+        }).catch((e) => console.error('Failed to save knowledge graph', e));
       }
     } catch (err: any) {
       setState('error');
-      setError(err.message || (id ? 'Terjadi kesalahan.' : 'Something went wrong building the graph.'));
+      setError(err.message || t('graphBuildFail'));
     }
-  }, [questions, title, materialContext, quizId, id]);
+  }, [questions, title, materialContext, quizId]);
 
-  // Auto-generate only if no cached result after hydrate
+  // Bootstrap once: use prop cache → IDB cache → generate
   useEffect(() => {
-    if (!hydrated) return;
-    if (state === 'idle' && !result?.htmlCode) {
-      handleGenerate();
-    }
-  }, [hydrated]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (bootstrappedRef.current) return;
+    bootstrappedRef.current = true;
+
+    let cancelled = false;
+
+    (async () => {
+      if (initialGraph?.data?.nodes?.length) {
+        if (!cancelled) {
+          setResult({
+            data: initialGraph.data,
+            htmlCode: initialGraph.htmlCode || '',
+            status: 'success',
+          });
+          setState('ready');
+        }
+        return;
+      }
+
+      if (quizId) {
+        try {
+          const history: any = await get(HISTORY_IDB_KEY);
+          const quiz = history?.find((q: any) => String(q.id) === String(quizId));
+          const cached = quiz?.knowledgeGraphData as CachedKnowledgeGraph | undefined;
+          if (cached?.data?.nodes?.length) {
+            if (!cancelled) {
+              setResult({
+                data: cached.data,
+                htmlCode: cached.htmlCode || '',
+                status: 'success',
+              });
+              setState('ready');
+            }
+            return;
+          }
+        } catch (e) {
+          console.error('Failed to load knowledge graph cache', e);
+        }
+      }
+
+      if (!cancelled) await handleGenerate();
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleExportHTML = () => {
     if (!result?.htmlCode) return;
@@ -151,6 +169,9 @@ export const GraphViewPanel: React.FC<GraphViewPanelProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  const nodeCount = result?.data?.nodes?.length || 0;
+  const edgeCount = result?.data?.edges?.length || 0;
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -174,12 +195,14 @@ export const GraphViewPanel: React.FC<GraphViewPanelProps> = ({
               <Network size={20} className="text-white" />
             </div>
             <div>
-              <h2 className="font-bold text-lg text-slate-800 dark:text-slate-100">Knowledge Graph</h2>
+              <h2 className="font-bold text-lg text-slate-800 dark:text-slate-100">
+                Knowledge Graph
+              </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                {result?.data?.nodes?.length
-                  ? id
-                    ? `${result.data.nodes.length} konsep · ${result.data.edges?.length || 0} relasi · tersimpan`
-                    : `${result.data.nodes.length} concepts · ${result.data.edges?.length || 0} links · saved`
+                {nodeCount
+                  ? getLocale() === 'id'
+                    ? `${nodeCount} konsep · ${edgeCount} relasi`
+                    : `${nodeCount} concepts · ${edgeCount} links`
                   : t('graphSubtitle')}
               </p>
             </div>
@@ -205,7 +228,7 @@ export const GraphViewPanel: React.FC<GraphViewPanelProps> = ({
                 <button
                   onClick={handleGenerate}
                   className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-xl transition-colors"
-                  title={id ? 'Regenerate' : 'Regenerate'}
+                  title={t('graphRegenerate')}
                 >
                   <RefreshCw size={16} />
                 </button>
@@ -227,7 +250,7 @@ export const GraphViewPanel: React.FC<GraphViewPanelProps> = ({
         </div>
 
         <div className="flex-1 overflow-hidden relative">
-          {(!hydrated || state === 'loading') && (
+          {state === 'loading' && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-white dark:bg-slate-900">
               <div className="relative">
                 <Loader2 size={48} className="text-indigo-500 animate-spin" />
@@ -237,71 +260,70 @@ export const GraphViewPanel: React.FC<GraphViewPanelProps> = ({
               </div>
               <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mt-6">
                 {progress ||
-                  (id ? 'Memuat knowledge graph…' : 'Loading knowledge graph…')}
-              </p>
-              <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">
-                {id
-                  ? 'Disimpan di perangkat — generate ulang hanya jika kamu tekan refresh'
-                  : 'Saved on device — regenerate only if you hit refresh'}
+                  (getLocale() === 'id' ? 'Menganalisis konsep…' : 'Analyzing concepts…')}
               </p>
             </div>
           )}
 
           {state === 'error' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-white dark:bg-slate-900 p-8">
-              <div className="text-5xl mb-4">😵</div>
-              <h3 className="text-lg font-bold text-rose-600 dark:text-rose-400 mb-2">
-                {id ? 'Gagal membangun graph' : 'Could not build graph'}
-              </h3>
-              <p className="text-sm text-slate-500 dark:text-slate-400 text-center max-w-md mb-6">
-                {error}
-              </p>
+            <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
+              <p className="text-rose-600 font-bold mb-2">{t('graphBuildFail')}</p>
+              <p className="text-sm text-slate-500 mb-4 max-w-md">{error}</p>
               <button
                 onClick={handleGenerate}
-                className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors flex items-center gap-2"
+                className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold"
               >
-                <RefreshCw size={16} /> {id ? 'Coba lagi' : 'Try again'}
+                {t('graphRetry')}
               </button>
             </div>
           )}
 
-          {state === 'ready' && result?.htmlCode && (
-            <iframe
-              ref={iframeRef}
-              srcDoc={result.htmlCode}
-              className="w-full h-full border-0"
-              sandbox="allow-scripts"
-              title="Knowledge Graph"
-            />
+          {state === 'ready' && result && (
+            <>
+              {result.htmlCode ? (
+                <iframe
+                  ref={iframeRef}
+                  title="Knowledge Graph"
+                  srcDoc={result.htmlCode}
+                  className="w-full h-full border-0 bg-white dark:bg-slate-950"
+                  sandbox="allow-scripts allow-same-origin"
+                />
+              ) : (
+                <div className="p-6 overflow-y-auto h-full">
+                  <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">
+                    {result.data.summary}
+                  </p>
+                  <ul className="space-y-2">
+                    {result.data.nodes.map((n) => (
+                      <li
+                        key={n.id}
+                        className="text-sm px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800"
+                      >
+                        <span className="font-bold">{n.label}</span>
+                        <span className="text-slate-400 ml-2 text-xs">
+                          {n.category} · {n.importance}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <button
+                    onClick={handleGenerate}
+                    className="mt-4 text-sm text-indigo-600 font-bold"
+                  >
+                    {t('graphRegenerate')} (HTML)
+                  </button>
+                </div>
+              )}
+            </>
           )}
 
-          {state === 'ready' && result && !result.htmlCode && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center p-8">
-              <p className="text-sm text-slate-500 mb-4">
-                {id
-                  ? 'Data graph ada, tapi HTML belum. Generate ulang?'
-                  : 'Graph data exists but HTML is missing. Regenerate?'}
-              </p>
-              <button
-                onClick={handleGenerate}
-                className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl font-bold"
-              >
-                {id ? 'Generate HTML' : 'Generate HTML'}
-              </button>
+          {state === 'idle' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <Loader2 size={32} className="text-indigo-400 animate-spin mb-3" />
+              <p className="text-sm text-slate-500">{t('graphSubtitle')}</p>
             </div>
           )}
         </div>
-
-        {state === 'ready' && result?.data?.summary && (
-          <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 shrink-0">
-            <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2">
-              <span className="font-bold text-indigo-600 dark:text-indigo-400">
-                {id ? 'Ringkasan AI:' : 'AI summary:'}
-              </span>{' '}
-              {result.data.summary}
-            </p>
-          </div>
-        )}
       </motion.div>
     </motion.div>
   );

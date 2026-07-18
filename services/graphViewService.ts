@@ -14,6 +14,7 @@ import {
   getActiveProvider,
   getActiveModel,
   resolveModelName,
+  parseAIJson,
 } from './geminiService';
 import { getProviderApiKey } from './providerService';
 
@@ -196,29 +197,19 @@ Return exact JSON.`;
   const text = data.result;
 
   try {
-    const parsed = JSON.parse(text);
+    const parsed = parseAIJson<any>(text);
     return {
       nodes: parsed.nodes || [],
       edges: parsed.edges || [],
       summary: parsed.summary || '',
-      generatedAt: new Date().toISOString()
+      generatedAt: new Date().toISOString(),
     };
   } catch (err) {
-    // Try to extract JSON from text
-    const start = text.indexOf('{');
-    const end = text.lastIndexOf('}');
-    if (start !== -1 && end !== -1) {
-      const parsed = JSON.parse(text.substring(start, end + 1));
-      return {
-        nodes: parsed.nodes || [],
-        edges: parsed.edges || [],
-        summary: parsed.summary || '',
-        generatedAt: new Date().toISOString()
-      };
-    }
-    throw new Error(getLocale() === 'id'
-      ? 'Gagal parse graph data dari AI response.'
-      : 'Could not parse graph data from the AI response.');
+    throw new Error(
+      getLocale() === 'id'
+        ? 'Gagal parse graph data dari AI response.'
+        : 'Could not parse graph data from the AI response.'
+    );
   }
 }
 
@@ -269,7 +260,7 @@ OUTPUT: One complete HTML file with inline CSS/JS. HTML only — no markdown. St
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     systemInstruction: `You generate educational graph HTML visualizations.\n${langBlock}`,
     temperature: 0.4,
-    maxOutputTokens: 32768
+    maxOutputTokens: 14000,
   });
 
   if (data.error) {
@@ -322,11 +313,7 @@ export async function generateKnowledgeGraph(
       };
     }
 
-    onProgress?.(
-      getLocale() === 'id'
-        ? `✅ Ditemukan ${graphData.nodes.length} konsep dan ${graphData.edges.length} relasi.`
-        : `✅ Found ${graphData.nodes.length} concepts and ${graphData.edges.length} links.`
-    );
+    onProgress?.(`✅ Ditemukan ${graphData.nodes.length} konsep dan ${graphData.edges.length} relasi.`);
 
     // Phase 2: Generate HTML
     const htmlCode = await generateGraphHTML(graphData, title, onProgress);

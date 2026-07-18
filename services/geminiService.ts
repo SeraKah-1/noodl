@@ -66,6 +66,66 @@ export function resolveModelName(provider: AiProvider, modelName?: string): stri
   return raw;
 }
 
+/**
+ * Parse model JSON robustly (markdown fences, trailing junk, truncated braces).
+ * Not stream / Responses API — chat/completions + parse is more reliable for structured cards.
+ */
+export function parseAIJson<T = any>(raw: string | null | undefined): T {
+  if (raw == null) throw new Error('Empty AI response');
+  let text = String(raw).trim();
+  if (!text) throw new Error('Empty AI response');
+
+  // Strip reasoning / thinking blocks some models emit
+  text = text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').trim();
+  text = text.replace(/```(?:json|JSON)?\s*/g, '').replace(/```/g, '').trim();
+
+  const tryParse = (s: string): T => JSON.parse(s) as T;
+
+  try {
+    return tryParse(text);
+  } catch {
+    /* continue */
+  }
+
+  const objStart = text.indexOf('{');
+  const objEnd = text.lastIndexOf('}');
+  if (objStart !== -1 && objEnd > objStart) {
+    try {
+      return tryParse(text.slice(objStart, objEnd + 1));
+    } catch {
+      /* continue */
+    }
+  }
+
+  const arrStart = text.indexOf('[');
+  const arrEnd = text.lastIndexOf(']');
+  if (arrStart !== -1 && arrEnd > arrStart) {
+    try {
+      return tryParse(text.slice(arrStart, arrEnd + 1));
+    } catch {
+      /* continue */
+    }
+  }
+
+  // Last resort: close truncated JSON object (common when max_tokens cuts mid-string)
+  if (objStart !== -1) {
+    let fragment = text.slice(objStart);
+    // Drop incomplete trailing string
+    fragment = fragment.replace(/,\s*"[^"]*$/, '');
+    fragment = fragment.replace(/,\s*$/, '');
+    const opens = (fragment.match(/\{/g) || []).length;
+    const closes = (fragment.match(/\}/g) || []).length;
+    for (let i = 0; i < opens - closes; i++) fragment += '}';
+    try {
+      return tryParse(fragment);
+    } catch {
+      /* fall through */
+    }
+  }
+
+  throw new Error(`Could not parse AI JSON (${text.slice(0, 120)}…)`);
+}
+
 /** Shared multi-provider router — used by quiz, chat, visual lab, knowledge graph. */
 export async function callAI(action: string, payload: any): Promise<any> {
   const { apiKey: customApiKey, modelName, parts, contents, systemInstruction, responseSchema, temperature, maxOutputTokens, provider: explicitProvider } = payload;
@@ -124,25 +184,52 @@ export async function callAI(action: string, payload: any): Promise<any> {
       console.warn(`[AIService] ${provider}: binary file parts were dropped; using text/topic only.`);
     }
 
+    // OpenAI-compatible APIs only get response_format: json_object — inject schema
+    // into the prompt so the model actually returns the expected shape.
+    let schemaHint = '';
+    if (responseSchema) {
+      try {
+        schemaHint =
+          `\n\nReturn ONE JSON object only (no markdown). Match this shape:\n` +
+          JSON.stringify(responseSchema, null, 0).slice(0, 4000);
+      } catch {
+        schemaHint = '\n\nReturn ONE JSON object only (no markdown fences).';
+      }
+    }
+
     const messages: any[] = [];
     if (systemInstruction) {
-      messages.push({ role: 'system', content: typeof systemInstruction === 'string' ? systemInstruction : (systemInstruction.parts?.[0]?.text || String(systemInstruction)) });
+      const sys =
+        typeof systemInstruction === 'string'
+          ? systemInstruction
+          : systemInstruction.parts?.[0]?.text || String(systemInstruction);
+      messages.push({
+        role: 'system',
+        content: schemaHint ? `${sys}${schemaHint}` : sys,
+      });
+    } else if (schemaHint) {
+      messages.push({ role: 'system', content: `You output strict JSON only.${schemaHint}` });
     }
-    messages.push({ role: 'user', content: userPromptText || 'Generate a response following the system instructions.' });
+    messages.push({
+      role: 'user',
+      content: (userPromptText || 'Generate a response following the system instructions.') +
+        (responseSchema ? '\n\nRespond with valid JSON only.' : ''),
+    });
 
     // Cap completion tokens — many OpenRouter/Groq models reject huge max_tokens
     // or truncate mid-JSON, which often surfaces as a late "Smart Overflow" failure.
-    const safeMaxTokens = Math.min(
-      Math.max(1024, maxOutputTokens || 4096),
-      provider === 'groq' ? 8192 : provider === 'openrouter' ? 12000 : 16384
-    );
+    // HTML sims need more room; structured cards stay modest.
+    const isHtmlHeavy = /visual|graph|html|simulation/i.test(action);
+    const cap =
+      provider === 'groq' ? 8192 : provider === 'openrouter' ? (isHtmlHeavy ? 16000 : 8000) : 16384;
+    const safeMaxTokens = Math.min(Math.max(1024, maxOutputTokens || 4096), cap);
 
     const reqBody: any = {
       model: resolvedModel,
       messages,
       temperature: temperature ?? 0.7,
       max_tokens: safeMaxTokens,
-      stream: false // non-stream JSON is more reliable across proxies
+      stream: false // non-stream JSON is more reliable across proxies — no need for Responses API
     };
 
     if (responseSchema) {
@@ -1532,63 +1619,19 @@ export const chatWithDocument = async (apiKey: string, modelId: string, history:
   }
 };
 
-function compactQuestionForInsight(q: any) {
-  const opts = Array.isArray(q.options) ? q.options.slice(0, 6).map((o: any) => String(o).slice(0, 160)) : [];
-  const correct =
-    typeof q.correctIndex === 'number' && opts[q.correctIndex] != null
-      ? opts[q.correctIndex]
-      : undefined;
-  return {
-    text: String(q.text || '').slice(0, 400),
-    options: opts,
-    correct,
-    explanation: String(q.explanation || '').slice(0, 320),
-    keyPoint: String(q.keyPoint || '').slice(0, 120),
-  };
-}
-
-function normalizeInsightCard(
-  topic: string,
-  priority: string,
-  accuracy: number | null,
-  parsed: any,
-  failSummary: string
-): ConceptCardData {
-  const insights = Array.isArray(parsed?.insights)
-    ? parsed.insights
-        .filter((x: any) => x && (x.point || typeof x === 'string'))
-        .map((x: any) =>
-          typeof x === 'string'
-            ? { point: x }
-            : {
-                point: String(x.point || ''),
-                evidence: x.evidence ? String(x.evidence) : undefined,
-                formula: x.formula ? String(x.formula) : undefined,
-              }
-        )
-        .filter((x: any) => x.point)
-    : [];
-  const traps = Array.isArray(parsed?.traps)
-    ? parsed.traps
-        .filter((x: any) => x && x.trap)
-        .map((x: any) => ({
-          trap: String(x.trap),
-          correction: String(x.correction || ''),
-        }))
-    : [];
-  const summary = String(parsed?.summary || '').trim();
-  return {
-    topic,
-    priority,
-    accuracy,
-    summary: summary || failSummary,
-    insights,
-    traps,
-    mnemonic: String(parsed?.mnemonic || ''),
-    connections: Array.isArray(parsed?.connections)
-      ? parsed.connections.map(String)
+/** Compact question payload so each insight call stays small (avoids oneshot timeout / truncate). */
+function compactQuestionsForInsight(questions: any[], max = 6): any[] {
+  return (questions || []).slice(0, max).map((q: any) => ({
+    q: String(q.text || '').slice(0, 280),
+    key: String(q.keyPoint || q.conceptName || '').slice(0, 120),
+    explain: String(q.explanation || '').slice(0, 220),
+    wrongHints: Array.isArray(q.options)
+      ? q.options
+          .filter((o: any) => o && !o.isCorrect)
+          .slice(0, 2)
+          .map((o: any) => String(o.text || o).slice(0, 80))
       : [],
-  };
+  }));
 }
 
 export const generateDeepInsight = async (
@@ -1596,10 +1639,10 @@ export const generateDeepInsight = async (
   apiKey: string,
   onProgress?: (progress: number, total: number) => void
 ): Promise<DeepInsightData> => {
-  const { extractJsonObject } = await import('./jsonExtract');
   const topics = Object.keys(groupedData);
   const resultData: Record<string, ConceptCardData> = {};
 
+  // Sample question text to detect material language (EN materials → EN insights)
   const materialSample = Object.values(groupedData)
     .flatMap((d) => (d.questions || []).map((q: any) => `${q.text || ''} ${q.explanation || ''} ${q.keyPoint || ''}`))
     .join(' ')
@@ -1607,44 +1650,42 @@ export const generateDeepInsight = async (
   const langBlock = outputLanguageRule(materialSample);
   const failSummary =
     getLocale() === 'id'
-      ? 'Gagal memuat insight untuk topik ini. Coba Regenerate AI.'
-      : 'Could not load insight for this topic. Try Regenerate AI.';
+      ? 'Gagal memuat insight untuk topik ini.'
+      : 'Could not load insight for this topic.';
 
-  const systemInstruction = [
-    'You are a sharp study tutor for Noodl.',
-    'Return ONE JSON object only. No markdown fences. No prose outside JSON.',
-    langBlock,
-  ].join('\n');
+  const systemInstruction = `You are a sharp study tutor for Noodl. Be clear and practical. Output a single JSON object only — no markdown fences.\n${langBlock}`;
 
   const CONCEPT_SCHEMA = {
     type: "object",
     properties: {
-      summary: { type: "string" },
+      summary: { type: "string", description: "2-3 sentence core concept summary. Simple, low jargon. Follow OUTPUT LANGUAGE." },
       insights: {
         type: "array",
         items: {
           type: "object",
           properties: {
             point: { type: "string" },
-            evidence: { type: "string" },
-            formula: { type: "string" }
+            evidence: { type: "string", description: "Explanation or evidence from the question data" },
+            formula: { type: "string", description: "Optional relevant formula or code" }
           },
           required: ["point"]
         },
+        description: "2-4 specific insights from the question data"
       },
       traps: {
         type: "array",
         items: {
           type: "object",
           properties: {
-            trap: { type: "string" },
-            correction: { type: "string" }
+            trap: { type: "string", description: "Common misconception or trap" },
+            correction: { type: "string", description: "Correct clarification" }
           },
           required: ["trap", "correction"]
         },
+        description: "1-2 common traps based on wrong options"
       },
-      mnemonic: { type: "string" },
-      connections: { type: "array", items: { type: "string" } }
+      mnemonic: { type: "string", description: "One punchline, analogy, or mnemonic" },
+      connections: { type: "array", items: { type: "string" }, description: "Related concepts" }
     },
     required: ["summary", "insights", "traps", "mnemonic", "connections"]
   };
@@ -1652,101 +1693,117 @@ export const generateDeepInsight = async (
   let completed = 0;
   const activeP = getActiveProvider();
   const insightModel = resolveModelName(activeP, getActiveModel(activeP));
+  const totalSteps = topics.length + 1;
 
-  const generateOneTopic = async (topic: string, attempt = 0): Promise<ConceptCardData> => {
+  // Per-topic generation (same idea as quiz batches): small prompts + parallel waves + soft-fail
+  // Stream / Responses API not needed — failures were parse + oneshot size, not transport.
+  const CONCURRENCY = 3;
+
+  const generateOneTopic = async (topic: string): Promise<ConceptCardData> => {
     const data = groupedData[topic];
     const accuracy =
       data.totalAnswers > 0
         ? Math.round((data.correctAnswers / data.totalAnswers) * 100)
         : null;
-    // Compact payload — full question dumps blow context and cause empty/fail JSON
-    const compactQs = (data.questions || []).slice(0, 6).map(compactQuestionForInsight);
-    const prompt = `Create a deep insight card for topic: "${topic}".
 
-QUESTION DATA (compact JSON):
-${JSON.stringify(compactQs)}
+    const compact = compactQuestionsForInsight(data.questions);
+    const prompt = `Create a deep insight card for topic "${topic}" (priority: ${data.priority}).
+Use ONLY the compact question notes below (not a full dump).
 
-Return JSON with keys: summary, insights[{point,evidence?,formula?}], traps[{trap,correction}], mnemonic, connections[].
-${langBlock}`;
+NOTES (JSON):
+${JSON.stringify(compact)}
 
-    try {
-      const response = await callAI('generateContent', {
+${langBlock}
+
+Return JSON with keys: summary, insights[{point,evidence?,formula?}], traps[{trap,correction}], mnemonic, connections[].`;
+
+    const attempt = async () => {
+      const response = await callAI('deepInsightTopic', {
         apiKey,
         modelName: insightModel,
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        systemInstruction,
+        systemInstruction: { role: 'system', parts: [{ text: systemInstruction }] },
         temperature: 0.3,
         maxOutputTokens: 2048,
         responseMimeType: 'application/json',
         responseSchema: CONCEPT_SCHEMA,
       });
-      if (response.error) throw new Error(response.error);
-      const raw = String(response.result || '');
-      if (!raw.trim()) throw new Error('Empty model response');
-      const parsed = extractJsonObject(raw);
-      const card = normalizeInsightCard(topic, data.priority, accuracy, parsed, failSummary);
-      if (!card.summary || card.summary === failSummary) {
-        throw new Error('Insight card missing summary');
-      }
-      return card;
-    } catch (err: any) {
-      if (attempt < 1) {
-        console.warn(`[DeepInsight] retry topic "${topic}":`, err?.message || err);
-        return generateOneTopic(topic, attempt + 1);
-      }
-      console.error(`Failed to generate insight for ${topic}`, err);
+      if (response?.error) throw new Error(String(response.error));
+      const parsed = parseAIJson<any>(response?.result);
+      if (!parsed || typeof parsed !== 'object') throw new Error('Insight JSON was not an object');
       return {
         topic,
         priority: data.priority,
         accuracy,
-        summary: `${failSummary}${err?.message ? ` (${String(err.message).slice(0, 80)})` : ''}`,
-        insights: [],
-        traps: [],
-        mnemonic: '',
-        connections: [],
-      };
-    }
-  };
+        summary: String(parsed.summary || '').trim() || failSummary,
+        insights: Array.isArray(parsed.insights) ? parsed.insights : [],
+        traps: Array.isArray(parsed.traps) ? parsed.traps : [],
+        mnemonic: String(parsed.mnemonic || ''),
+        connections: Array.isArray(parsed.connections) ? parsed.connections : [],
+      } as ConceptCardData;
+    };
 
-  // Wave parallel like quiz generate (2 at a time — safer for rate limits)
-  const waveSize = 2;
-  for (let i = 0; i < topics.length; i += waveSize) {
-    const wave = topics.slice(i, i + waveSize);
-    const settled = await Promise.allSettled(wave.map((topic) => generateOneTopic(topic)));
-    settled.forEach((res, idx) => {
-      const topic = wave[idx];
-      const data = groupedData[topic];
-      const accuracy =
-        data.totalAnswers > 0
-          ? Math.round((data.correctAnswers / data.totalAnswers) * 100)
-          : null;
-      if (res.status === 'fulfilled') {
-        resultData[topic] = res.value;
-      } else {
-        resultData[topic] = {
+    try {
+      return await attempt();
+    } catch (firstErr: any) {
+      console.warn(`[DeepInsight] retry topic "${topic}":`, firstErr?.message || firstErr);
+      try {
+        return await attempt();
+      } catch (err: any) {
+        const detail = String(err?.message || err || 'unknown').slice(0, 160);
+        console.error(`[DeepInsight] failed topic "${topic}":`, detail);
+        return {
           topic,
           priority: data.priority,
           accuracy,
-          summary: failSummary,
+          summary: `${failSummary} (${detail})`,
           insights: [],
           traps: [],
           mnemonic: '',
           connections: [],
         };
       }
+    } finally {
       completed++;
-      if (onProgress) onProgress(completed, topics.length + 1);
+      onProgress?.(completed, totalSteps);
+    }
+  };
+
+  for (let i = 0; i < topics.length; i += CONCURRENCY) {
+    const wave = topics.slice(i, i + CONCURRENCY);
+    const settled = await Promise.allSettled(wave.map((topic) => generateOneTopic(topic)));
+    settled.forEach((s, idx) => {
+      const topic = wave[idx];
+      if (s.status === 'fulfilled') {
+        resultData[topic] = s.value;
+      } else {
+        const data = groupedData[topic];
+        const accuracy =
+          data.totalAnswers > 0
+            ? Math.round((data.correctAnswers / data.totalAnswers) * 100)
+            : null;
+        resultData[topic] = {
+          topic,
+          priority: data.priority,
+          accuracy,
+          summary: `${failSummary} (${String(s.reason?.message || s.reason).slice(0, 120)})`,
+          insights: [],
+          traps: [],
+          mnemonic: '',
+          connections: [],
+        };
+      }
     });
   }
 
-  // Phase 2: Overall Summary
+  // Phase 2: Overall Summary (separate small call — not oneshot with all cards)
   const SUMMARY_SCHEMA = {
     type: "object",
     properties: {
-      overallAssessment: { type: "string" },
+      overallAssessment: { type: "string", description: "Short overall assessment of the learner" },
       strongAreas: { type: "array", items: { type: "string" } },
       weakAreas: { type: "array", items: { type: "string" } },
-      studyPlan: { type: "string" },
+      studyPlan: { type: "string", description: "Concrete study advice" },
       motivationalQuote: { type: "string" }
     },
     required: ["overallAssessment", "strongAreas", "weakAreas", "studyPlan", "motivationalQuote"]
@@ -1773,41 +1830,41 @@ ${langBlock}`;
 
   try {
     const okTopics = Object.values(resultData).filter(
-      (d) => d.summary && !d.summary.startsWith(failSummary.slice(0, 20))
+      (d) => d.summary && !d.summary.startsWith(failSummary)
     );
-    const summaryPrompt = `Write a final wrap-up for this quiz analysis.
-TOPIC SNAPSHOT:
+    const summaryPrompt = `Write a final wrap-up for this quiz result.
+TOPIC & ACCURACY DATA:
 ${JSON.stringify(
-  Object.values(resultData).map((d) => ({
-    topic: d.topic,
-    accuracy: d.accuracy,
-    priority: d.priority,
-    hasInsight: okTopics.includes(d),
-  })),
-  null,
-  2
+      Object.values(resultData).map((d) => ({
+        topic: d.topic,
+        accuracy: d.accuracy,
+        priority: d.priority,
+        ok: !String(d.summary || '').startsWith(failSummary),
+      })),
+      null,
+      2
 )}
+Successful insight cards: ${okTopics.length}/${topics.length}
 
-Return JSON: overallAssessment, strongAreas[], weakAreas[], studyPlan, motivationalQuote.
 ${langBlock}`;
 
-    const response = await callAI('generateContent', {
+    const response = await callAI('deepInsightSummary', {
       apiKey,
       modelName: insightModel,
       contents: [{ role: 'user', parts: [{ text: summaryPrompt }] }],
-      systemInstruction,
+      systemInstruction: { role: 'system', parts: [{ text: systemInstruction }] },
       temperature: 0.3,
       maxOutputTokens: 1024,
       responseMimeType: 'application/json',
       responseSchema: SUMMARY_SCHEMA,
     });
 
-    if (!response.error && response.result) {
-      const parsed = extractJsonObject(String(response.result));
+    if (!response?.error && response?.result) {
+      const parsed = parseAIJson<any>(response.result);
       summaryData = {
         overallAssessment: String(parsed.overallAssessment || summaryFallback.overallAssessment),
-        strongAreas: Array.isArray(parsed.strongAreas) ? parsed.strongAreas.map(String) : [],
-        weakAreas: Array.isArray(parsed.weakAreas) ? parsed.weakAreas.map(String) : [],
+        strongAreas: Array.isArray(parsed.strongAreas) ? parsed.strongAreas : [],
+        weakAreas: Array.isArray(parsed.weakAreas) ? parsed.weakAreas : [],
         studyPlan: String(parsed.studyPlan || summaryFallback.studyPlan),
         motivationalQuote: String(parsed.motivationalQuote || summaryFallback.motivationalQuote),
       };
@@ -1816,7 +1873,7 @@ ${langBlock}`;
     console.error('Failed to generate overall summary', err);
   }
 
-  if (onProgress) onProgress(topics.length + 1, topics.length + 1);
+  onProgress?.(totalSteps, totalSteps);
 
   return {
     summary: summaryData,

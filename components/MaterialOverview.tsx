@@ -130,7 +130,7 @@ export const MaterialOverview: React.FC<MaterialOverviewProps> = ({
                 ? t('analyzingAi')
                 : aiOverviewData
                   ? t('regenerateAi')
-                  : t('deepInsightAi')}
+                  : t('deepInsightBtn')}
             </button>
           )}
           
@@ -140,7 +140,7 @@ export const MaterialOverview: React.FC<MaterialOverviewProps> = ({
             className="flex items-center px-4 py-2 bg-slate-800 text-white rounded-xl text-sm font-bold hover:bg-slate-700 transition-colors shadow-sm disabled:opacity-50"
           >
             {isExporting ? <Loader2 size={16} className="mr-2 animate-spin" /> : <Download size={16} className="mr-2" />}
-            {isExporting ? t('makingPdf') : t('exportPdf')}
+            {isExporting ? t('makingPdf') : 'Export PDF'}
           </button>
         </div>
       </div>
@@ -156,17 +156,17 @@ export const MaterialOverview: React.FC<MaterialOverviewProps> = ({
         {isGeneratingAI ? (
            <div className="py-20 flex flex-col items-center justify-center text-indigo-500">
               <Loader2 size={40} className="animate-spin mb-4" />
-              <p className="font-bold">{t('aiCookingInsight')}</p>
+              <p className="font-bold">{t('analyzingAiLong')}</p>
               {aiProgress && (
                 <div className="w-64 bg-slate-200 rounded-full h-2 mt-4 overflow-hidden">
                    <div 
                      className="bg-indigo-500 h-full transition-all duration-300"
-                     style={{ width: `${(aiProgress.current / Math.max(1, aiProgress.total)) * 100}%` }}
+                     style={{ width: `${(aiProgress.current / aiProgress.total) * 100}%` }}
                    />
                 </div>
               )}
               <p className="text-sm opacity-70 mt-2">
-                ( ˘ ³˘)♥ {t('pleaseWait')} {aiProgress ? `(${aiProgress.current}/${aiProgress.total})` : ''}
+                ( ˘ ³˘)♥ {aiProgress ? `(${aiProgress.current}/${aiProgress.total})` : ''}
               </p>
            </div>
         ) : aiOverviewData ? (
@@ -201,21 +201,21 @@ export const MaterialOverview: React.FC<MaterialOverviewProps> = ({
                 </div>
             </div>
 
-            {/* CONCEPT CARDS */}
-            {Object.values(aiOverviewData.topics).map((topicCard, idx) => {
-               const style = getCalloutStyles(topicCard.priority);
+            {/* CONCEPT CARDS — avoid shadowing i18n `t` */}
+            {Object.values(aiOverviewData.topics).map((card, idx) => {
+               const style = getCalloutStyles(card.priority);
                return (
-                 <div id={`ai-topic-${idx}`} key={`topic-${idx}-${topicCard.topic}`} className={`scroll-mt-4 p-6 rounded-2xl ${style.wrapper} shadow-sm`}>
+                 <div id={`ai-topic-${idx}`} key={`topic-${idx}-${card.topic}`} className={`scroll-mt-4 p-6 rounded-2xl ${style.wrapper} shadow-sm`}>
                     <div className="flex justify-between items-start mb-4 border-b border-slate-200/50 pb-4">
                        <div>
                          <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-black tracking-wider text-white mb-2 ${style.badge}`}>
                            {style.label}
                          </span>
-                         <h2 className={`text-2xl font-black ${style.text}`}>{topicCard.topic}</h2>
+                         <h2 className={`text-2xl font-black ${style.text}`}>{card.topic}</h2>
                        </div>
-                       {topicCard.accuracy !== null && topicCard.accuracy !== undefined && (
+                       {card.accuracy !== null && (
                          <div className="bg-white/80 px-3 py-1.5 rounded-lg font-bold text-sm shadow-sm">
-                           {t('scoreLabel')}: <span className={topicCard.accuracy >= 70 ? 'text-emerald-600' : 'text-rose-600'}>{topicCard.accuracy}%</span>
+                           {t('scoreLabel')}: <span className={card.accuracy >= 70 ? 'text-emerald-600' : 'text-rose-600'}>{card.accuracy}%</span>
                          </div>
                        )}
                     </div>
@@ -225,7 +225,7 @@ export const MaterialOverview: React.FC<MaterialOverviewProps> = ({
                          <h4 className="font-bold text-slate-800 mb-2 flex items-center text-sm">
                            <span className="mr-2 opacity-50">👓</span> {t('whatIsThis')}
                          </h4>
-                         <p className="text-slate-600 text-sm leading-relaxed">{topicCard.summary}</p>
+                         <p className="text-slate-600 text-sm leading-relaxed">{card.summary}</p>
                        </div>
 
                        <div>
@@ -233,7 +233,7 @@ export const MaterialOverview: React.FC<MaterialOverviewProps> = ({
                            <span className="mr-2 opacity-50">💡</span> {t('keyInsights')}
                          </h4>
                          <ul className="space-y-3">
-                           {(topicCard.insights || []).map((ins, i) => (
+                           {card.insights.map((ins, i) => (
                              <li key={i} className="bg-white/60 p-3 rounded-xl border border-slate-100 text-sm">
                                 <strong className="text-slate-800">{ins.point}</strong>
                                 {ins.evidence && <p className="text-slate-500 mt-1">{ins.evidence}</p>}
@@ -247,13 +247,13 @@ export const MaterialOverview: React.FC<MaterialOverviewProps> = ({
                          </ul>
                        </div>
 
-                       {topicCard.traps && topicCard.traps.length > 0 && (
+                       {card.traps && card.traps.length > 0 && (
                          <div>
                            <h4 className="font-bold text-rose-700 mb-2 flex items-center text-sm">
                              <span className="mr-2">⚠️</span> {t('commonTraps')}
                            </h4>
                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                             {topicCard.traps.map((trap, i) => (
+                             {card.traps.map((trap, i) => (
                                <div key={i} className="bg-rose-50 p-3 rounded-xl border border-rose-100 text-sm">
                                  <div className="text-rose-600 line-through decoration-rose-300 mb-1">{trap.trap}</div>
                                  <div className="text-emerald-700 font-medium">✨ {trap.correction}</div>
@@ -263,11 +263,11 @@ export const MaterialOverview: React.FC<MaterialOverviewProps> = ({
                          </div>
                        )}
 
-                       <div className={`p-4 rounded-xl font-medium text-sm flex items-start ${topicCard.priority === 'HIGH' ? 'bg-rose-100 text-rose-800' : 'bg-indigo-100 text-indigo-800'}`}>
+                       <div className={`p-4 rounded-xl font-medium text-sm flex items-start ${card.priority === 'HIGH' ? 'bg-rose-100 text-rose-800' : 'bg-indigo-100 text-indigo-800'}`}>
                          <span className="mr-2 text-lg">💎</span>
                          <div>
-                           <div className="text-xs font-bold opacity-70 mb-0.5">{t('rememberThis')}:</div>
-                           {topicCard.mnemonic}
+                           <div className="text-xs font-bold opacity-70 mb-0.5 uppercase tracking-wide">{t('rememberThis')}:</div>
+                           {card.mnemonic}
                          </div>
                        </div>
                     </div>
@@ -284,12 +284,12 @@ export const MaterialOverview: React.FC<MaterialOverviewProps> = ({
                             ${isSidebarOpen ? 'w-full md:w-64 opacity-100' : 'w-0 opacity-0 overflow-hidden hidden md:block'}`}>
                <div className="bg-white/80 dark:bg-slate-800/80 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm max-h-[75vh] overflow-y-auto">
                   <h3 className="font-black text-slate-800 dark:text-slate-200 mb-3 text-sm flex items-center">
-                    <Hash size={16} className="mr-2 opacity-50" /> INDEKS MATERI
+                    <Hash size={16} className="mr-2 opacity-50" /> {t('materialIndex')}
                   </h3>
                   <div className="space-y-1">
                      {sortedTopics.map(topic => {
-                        const t = groupedData![topic];
-                        const style = getCalloutStyles(t.priority);
+                        const group = groupedData![topic];
+                        const style = getCalloutStyles(group.priority);
                         return (
                           <a href={`#topic-${topic.replace(/\s+/g, '-')}`} key={topic} 
                              className="block px-3 py-2 text-xs font-bold rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors group">
@@ -297,9 +297,9 @@ export const MaterialOverview: React.FC<MaterialOverviewProps> = ({
                                <div className={`w-2 h-2 rounded-full mr-2 shrink-0 ${style.badge}`}></div>
                                <span className="truncate text-slate-700 dark:text-slate-300 group-hover:text-indigo-600">{topic}</span>
                              </div>
-                             {t.totalAnswers > 0 && (
+                             {group.totalAnswers > 0 && (
                                 <div className="pl-4 text-[10px] text-slate-500 mt-0.5">
-                                   Skor: {Math.round((t.correctAnswers/t.totalAnswers)*100)}%
+                                   {t('scoreLabel')}: {Math.round((group.correctAnswers/group.totalAnswers)*100)}%
                                 </div>
                              )}
                           </a>
