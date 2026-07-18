@@ -100,7 +100,7 @@ export const TurnstileWidget: React.FC<Props> = ({ onToken, theme = 'auto', clas
     <div className={className}>
       <div ref={ref} className="cf-turnstile min-h-[65px]" />
       <p className="text-[10px] text-theme-muted mt-1.5 text-center">
-        Protected by Cloudflare Turnstile
+        Human check (Cloudflare) — for sign-in only, not AI
       </p>
     </div>
   );

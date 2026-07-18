@@ -6,20 +6,38 @@ import { getLocale } from "./i18n";
  * ==========================================
  * Phase 1: Scan material → identify visualizable concepts
  * Phase 2: Generate self-contained interactive HTML simulations
- * 
- * Uses Gemini 3+ models only via Firebase Vertex AI.
+ *
+ * Uses the SAME multi-provider router as quiz generate (Settings → AI providers).
  */
 
-import { getFirebaseVertexAIModel } from "../supabase";
-type FirebaseGenerationConfig = Record<string, unknown>;
 import type { VisualizationBlueprint, VisualizationResult, VisualizationType } from "../types";
+import {
+  callAI,
+  getActiveProvider,
+  defaultModelForProvider,
+  resolveModelName,
+} from "./geminiService";
+import { getProviderApiKey } from "./providerService";
 
-// ─── CONFIG ───
-const SCAN_MODEL: string = 'gemini-3.5-flash';
-const GENERATION_MODEL: string = 'gemini-3.1-pro-preview';
-const FALLBACK_GENERATION_MODEL: string = 'gemini-3.5-flash';
+// ─── CONFIG: ids are resolved per active provider (never force dead Vertex) ───
+const geminiScan = 'gemini-2.0-flash';
+const geminiGen = 'gemini-2.0-flash';
+const geminiFallback = 'gemini-2.0-flash';
 
-// ─── INTERNAL AI CALL (same routing as geminiService) ───
+function scanModel(): string {
+  const p = getActiveProvider();
+  return p === 'gemini' ? geminiScan : defaultModelForProvider(p);
+}
+function genModel(): string {
+  const p = getActiveProvider();
+  return p === 'gemini' ? geminiGen : defaultModelForProvider(p);
+}
+function fallbackModel(): string {
+  const p = getActiveProvider();
+  return p === 'gemini' ? geminiFallback : defaultModelForProvider(p);
+}
+
+// ─── INTERNAL AI CALL → global Settings pipeline ───
 async function callVisualizationAI(payload: {
   modelName: string;
   contents: any[];
@@ -28,27 +46,36 @@ async function callVisualizationAI(payload: {
   temperature?: number;
   maxOutputTokens?: number;
 }): Promise<{ result: string; error?: string }> {
-  const { modelName, contents, systemInstruction, responseSchema, temperature, maxOutputTokens } = payload;
+  const { modelName, contents, systemInstruction, responseSchema, temperature, maxOutputTokens } =
+    payload;
+  const provider = getActiveProvider();
+  const apiKey = getProviderApiKey(provider);
+  const resolved = resolveModelName(provider, modelName);
 
   try {
-    const genConfig: Partial<FirebaseGenerationConfig> = {};
-    if (responseSchema) {
-      genConfig.responseMimeType = "application/json";
-      genConfig.responseSchema = responseSchema;
+    if (!apiKey && provider !== 'gemini') {
+      return {
+        result: '',
+        error: `API key for ${provider} is missing. Open Settings → AI providers, paste key, Save.`,
+      };
     }
-    if (temperature !== undefined) genConfig.temperature = temperature;
-    if (maxOutputTokens) genConfig.maxOutputTokens = maxOutputTokens;
-
-    const model = getFirebaseVertexAIModel(
-      modelName,
-      genConfig,
-      systemInstruction
-    );
-
-    const result = await model.generateContent({ contents });
-    return { result: result.response.text() };
+    // Flatten Gemini-style contents to text parts for OpenAI-compatible providers
+    const data = await callAI('visualization', {
+      apiKey: apiKey || undefined,
+      modelName: resolved,
+      contents,
+      systemInstruction:
+        typeof systemInstruction === 'string'
+          ? systemInstruction
+          : systemInstruction,
+      responseSchema,
+      temperature,
+      maxOutputTokens: maxOutputTokens ?? 8192,
+    });
+    if (data?.error) return { result: '', error: String(data.error) };
+    return { result: data?.result || '' };
   } catch (err: any) {
-    console.error(`[VisualizationAI] Error with ${modelName}:`, err);
+    console.error(`[VisualizationAI] Error with ${resolved}:`, err);
     return { result: '', error: err.message || 'Unknown AI error' };
   }
 }
@@ -101,7 +128,7 @@ ${outputLanguageRule()}
 Return a JSON array of visualization concepts.`;
 
   const data = await callVisualizationAI({
-    modelName: SCAN_MODEL,
+    modelName: scanModel(),
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     systemInstruction: scanSystemInstruction(),
     responseSchema: SCAN_SCHEMA,
@@ -288,7 +315,7 @@ Generate kode HTML yang lengkap, interaktif, dan indah.`;
 
   try {
     // Try primary model first
-    const parsedData = await attemptGeneration(GENERATION_MODEL);
+    const parsedData = await attemptGeneration(genModel());
     return {
       id: blueprint.id,
       blueprint,
@@ -298,35 +325,22 @@ Generate kode HTML yang lengkap, interaktif, dan indah.`;
       status: 'success'
     };
   } catch (primaryErr: any) {
-    console.warn(`[Phase 2] Primary model (${GENERATION_MODEL}) failed for "${blueprint.concept}": ${primaryErr.message}`);
-    
-    if (GENERATION_MODEL !== FALLBACK_GENERATION_MODEL) {
-      onProgress?.(getLocale() === 'id'
-        ? `⚡ Mencoba model lanjutan untuk: ${blueprint.concept}…`
-        : `⚡ Trying a stronger model for: ${blueprint.concept}…`);
-      try {
-        const fallbackData = await attemptGeneration(FALLBACK_GENERATION_MODEL);
-        return {
-          id: blueprint.id,
-          blueprint,
-          htmlCode: fallbackData.htmlCode,
-          explanation: fallbackData.explanation,
-          interactionGuide: fallbackData.interactionGuide,
-          status: 'success'
-        };
-      } catch (fallbackErr: any) {
-        console.error(`[Phase 2] Fallback model (${FALLBACK_GENERATION_MODEL}) also failed for "${blueprint.concept}":`, fallbackErr);
-        return {
-          id: blueprint.id,
-          blueprint,
-          htmlCode: '',
-          explanation: '',
-          interactionGuide: '',
-          status: 'error',
-          error: `Gagal memproses visualisasi: ${fallbackErr.message}`
-        };
-      }
-    } else {
+    console.warn(`[Phase 2] Primary model failed for "${blueprint.concept}": ${primaryErr.message}`);
+    onProgress?.(getLocale() === 'id'
+      ? `⚡ Mencoba model lanjutan untuk: ${blueprint.concept}…`
+      : `⚡ Trying a stronger model for: ${blueprint.concept}…`);
+    try {
+      const fallbackData = await attemptGeneration(fallbackModel());
+      return {
+        id: blueprint.id,
+        blueprint,
+        htmlCode: fallbackData.htmlCode,
+        explanation: fallbackData.explanation,
+        interactionGuide: fallbackData.interactionGuide,
+        status: 'success'
+      };
+    } catch (fallbackErr: any) {
+      console.error(`[Phase 2] Fallback model also failed for "${blueprint.concept}":`, fallbackErr);
       return {
         id: blueprint.id,
         blueprint,
@@ -334,7 +348,7 @@ Generate kode HTML yang lengkap, interaktif, dan indah.`;
         explanation: '',
         interactionGuide: '',
         status: 'error',
-        error: `Gagal memproses visualisasi: ${primaryErr.message}`
+        error: `Gagal memproses visualisasi: ${fallbackErr.message || primaryErr.message}`
       };
     }
   }
@@ -391,7 +405,7 @@ Cari konsep yang BERBEDA dari yang sudah ada di atas. Fokus pada sub-topik, deta
 Kembalikan array JSON berisi konsep-konsep BARU yang bisa divisualisasikan.`;
 
   const data = await callVisualizationAI({
-    modelName: SCAN_MODEL,
+    modelName: scanModel(),
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     systemInstruction: scanSystemInstruction(),
     responseSchema: SCAN_SCHEMA,

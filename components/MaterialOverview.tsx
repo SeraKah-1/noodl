@@ -167,13 +167,17 @@ export const MaterialOverview: React.FC<MaterialOverviewProps> = ({
           // NEW HYBRID SCROLL CARDS UI
           <div className="flex flex-col gap-6">
             
-            {/* MINI MAP STICKY NAV */}
-            <div className="sticky top-0 z-30 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md p-3 rounded-2xl border border-slate-200 shadow-sm flex gap-2 overflow-x-auto hide-scrollbar">
-               {Object.values(aiOverviewData.topics).map((t, idx) => {
-                 const isHigh = t.priority === 'HIGH';
+            {/* Topic jump links — NOT sticky (sticky inside nested overflow left ghost layers) */}
+            <div className="p-3 rounded-2xl border border-slate-200 bg-white/80 dark:bg-slate-900/80 shadow-sm flex gap-2 overflow-x-auto hide-scrollbar">
+               {Object.values(aiOverviewData.topics).map((topicItem, idx) => {
+                 const isHigh = topicItem.priority === 'HIGH';
                  return (
-                   <a href={`#ai-topic-${idx}`} key={idx} className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${isHigh ? 'bg-rose-50 text-rose-700 hover:bg-rose-100' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`}>
-                     {isHigh ? '🔴' : '🔵'} {t.topic}
+                   <a
+                     href={`#ai-topic-${idx}`}
+                     key={`nav-${idx}-${topicItem.topic}`}
+                     className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${isHigh ? 'bg-rose-50 text-rose-700 hover:bg-rose-100' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`}
+                   >
+                     {isHigh ? '🔴' : '🔵'} {topicItem.topic}
                    </a>
                  );
                })}
@@ -195,7 +199,7 @@ export const MaterialOverview: React.FC<MaterialOverviewProps> = ({
             {Object.values(aiOverviewData.topics).map((t, idx) => {
                const style = getCalloutStyles(t.priority);
                return (
-                 <div id={`ai-topic-${idx}`} key={idx} className={`scroll-mt-24 p-6 rounded-2xl ${style.wrapper} shadow-sm`}>
+                 <div id={`ai-topic-${idx}`} key={`topic-${idx}-${t.topic}`} className={`scroll-mt-4 p-6 rounded-2xl ${style.wrapper} shadow-sm`}>
                     <div className="flex justify-between items-start mb-4 border-b border-slate-200/50 pb-4">
                        <div>
                          <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-black tracking-wider text-white mb-2 ${style.badge}`}>

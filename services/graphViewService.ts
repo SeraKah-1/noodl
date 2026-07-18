@@ -5,19 +5,17 @@ import { getLocale } from "./i18n";
  * ==========================================
  * GRAPH VIEW SERVICE (Knowledge Graph)
  * ==========================================
- * Generates interactive knowledge graphs from quiz questions.
- * 
- * 2-Phase Pipeline (consistent with visualizationService):
- * Phase 1: Extract graph data (nodes + edges) via Gemini Flash
- * Phase 2: Generate self-contained interactive HTML via Gemini Pro
- * 
- * Data source: Bank Soal (Question[])
- * Output: Interactive HTML graph + raw GraphData for caching
+ * Same multi-provider AI pipeline as quiz generate (Settings → AI providers).
  */
 
 import type { Question } from '../types';
-import { getFirebaseVertexAIModel } from '../supabase';
-type FirebaseGenerationConfig = Record<string, unknown>;
+import {
+  callAI,
+  getActiveProvider,
+  defaultModelForProvider,
+  resolveModelName,
+} from './geminiService';
+import { getProviderApiKey } from './providerService';
 
 // ── TYPES ──
 
@@ -51,12 +49,17 @@ export interface GraphViewResult {
   error?: string;
 }
 
-// ── AI CONFIG ──
+// ── AI CONFIG (resolved per active provider) ──
 
-const EXTRACT_MODEL = 'gemini-3.5-flash';
-const RENDER_MODEL = 'gemini-3.1-pro-preview';
+function extractModel(): string {
+  const p = getActiveProvider();
+  return p === 'gemini' ? 'gemini-2.0-flash' : defaultModelForProvider(p);
+}
+function renderModel(): string {
+  const p = getActiveProvider();
+  return p === 'gemini' ? 'gemini-2.0-flash' : defaultModelForProvider(p);
+}
 
-// Internal AI call wrapper (consistent with visualizationService pattern)
 async function callGraphAI(payload: {
   modelName: string;
   contents: any[];
@@ -66,30 +69,32 @@ async function callGraphAI(payload: {
   maxOutputTokens?: number;
   responseMimeType?: string;
 }): Promise<{ result: string; error?: string }> {
-  const { modelName, contents, systemInstruction, responseSchema, temperature, maxOutputTokens, responseMimeType } = payload;
+  const { modelName, contents, systemInstruction, responseSchema, temperature, maxOutputTokens } =
+    payload;
+  const provider = getActiveProvider();
+  const apiKey = getProviderApiKey(provider);
+  const resolved = resolveModelName(provider, modelName);
 
   try {
-    const generationConfig: Partial<FirebaseGenerationConfig> = {
+    if (!apiKey && provider !== 'gemini') {
+      return {
+        result: '',
+        error: `API key for ${provider} is missing. Open Settings → AI providers.`,
+      };
+    }
+    const data = await callAI('knowledgeGraph', {
+      apiKey: apiKey || undefined,
+      modelName: resolved,
+      contents,
+      systemInstruction,
+      responseSchema,
       temperature: temperature ?? 0.3,
       maxOutputTokens: maxOutputTokens ?? 8192,
-    };
-    if (responseMimeType) {
-      generationConfig.responseMimeType = responseMimeType;
-    }
-    if (responseSchema) {
-      generationConfig.responseSchema = responseSchema;
-      generationConfig.responseMimeType = 'application/json';
-    }
-
-    const model = getFirebaseVertexAIModel(
-      modelName,
-      generationConfig,
-      systemInstruction
-    );
-    const response = await model.generateContent({ contents });
-    return { result: response.response.text() };
+    });
+    if (data?.error) return { result: '', error: String(data.error) };
+    return { result: data?.result || '' };
   } catch (err: any) {
-    console.error(`[GraphView AI] Error with ${modelName}:`, err);
+    console.error(`[GraphView AI] Error with ${resolved}:`, err);
     return { result: '', error: err.message || 'AI call failed' };
   }
 }
@@ -167,7 +172,7 @@ Kembalikan response dalam format JSON yang tepat.`;
   };
 
   const data = await callGraphAI({
-    modelName: EXTRACT_MODEL,
+    modelName: extractModel(),
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     responseSchema: schema as any,
     temperature: 0.2,
@@ -242,7 +247,7 @@ REQUIREMENTS:
 OUTPUT: Satu file HTML lengkap dengan inline CSS dan JavaScript. HANYA HTML, tanpa markdown, tanpa penjelasan. Mulai dengan <!DOCTYPE html>.`;
 
   const data = await callGraphAI({
-    modelName: RENDER_MODEL,
+    modelName: renderModel(),
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     temperature: 0.4,
     maxOutputTokens: 32768

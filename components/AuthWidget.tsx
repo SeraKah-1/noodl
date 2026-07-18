@@ -30,7 +30,14 @@ export const AuthWidget: React.FC = () => {
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
-    pingSupabase().then((r) => setHealth(r.ok ? `Cloud: ${r.message}` : `Cloud issue: ${r.message}`));
+    // Health of Supabase (sync/auth only) — NOT the AI provider in Settings
+    pingSupabase().then((r) =>
+      setHealth(
+        r.ok
+          ? `Sync cloud: ${r.message}`
+          : `Sync cloud issue: ${r.message}`
+      )
+    );
   }, []);
 
   const ensureHuman = async () => {

@@ -26,7 +26,7 @@ export function getActiveProvider(): AiProvider {
 // Default model IDs — MUST match the active provider (never force Gemini on OpenRouter).
 const DEFAULT_GENERATION_MODEL = 'gemini-2.0-flash';
 
-function defaultModelForProvider(provider: AiProvider): string {
+export function defaultModelForProvider(provider: AiProvider): string {
   switch (provider) {
     case 'openrouter':
       return 'openai/gpt-4o-mini';
@@ -47,7 +47,7 @@ function defaultModelForProvider(provider: AiProvider): string {
 }
 
 /** Resolve a model id that is valid for the provider. Avoids sending "gemini-*" to OpenRouter. */
-function resolveModelName(provider: AiProvider, modelName?: string): string {
+export function resolveModelName(provider: AiProvider, modelName?: string): string {
   const raw = (modelName || '').trim();
   if (!raw) return defaultModelForProvider(provider);
   if (provider !== 'gemini' && /^gemini/i.test(raw)) {
@@ -57,8 +57,8 @@ function resolveModelName(provider: AiProvider, modelName?: string): string {
   return raw;
 }
 
-// Internal helper for AI Call Routing
-async function callAI(action: string, payload: any): Promise<any> {
+/** Shared multi-provider router — used by quiz, chat, visual lab, knowledge graph. */
+export async function callAI(action: string, payload: any): Promise<any> {
   const { apiKey: customApiKey, modelName, parts, contents, systemInstruction, responseSchema, temperature, maxOutputTokens, provider: explicitProvider } = payload;
 
   const provider = explicitProvider || getActiveProvider();
@@ -1581,9 +1581,10 @@ DATA SOAL:
 ${JSON.stringify(data.questions, null, 2)}`;
 
       try {
+        const activeP = getActiveProvider();
         const response = await callAI('generateContent', {
           apiKey,
-          modelName: 'gemini-3.5-flash',
+          modelName: defaultModelForProvider(activeP),
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
           systemInstruction: { role: 'system', parts: [{ text: systemInstruction }] },
           temperature: 0.3,
