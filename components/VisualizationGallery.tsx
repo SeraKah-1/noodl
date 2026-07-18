@@ -205,7 +205,11 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
         pendingBlueprints,
         materialContext,
         (result, index, total) => {
-          setResults(prev => [...prev, result]);
+          // Upsert by id (parallel waves finish out of order)
+          setResults(prev => {
+            const without = prev.filter(r => r.id !== result.id);
+            return [...without, result];
+          });
           setProgress({ current: index + 1, total, message: `${result.blueprint.concept}` });
         },
         (msg) => setProgress(prev => ({ ...prev, message: msg }))

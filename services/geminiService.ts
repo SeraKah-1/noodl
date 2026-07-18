@@ -67,63 +67,46 @@ export function resolveModelName(provider: AiProvider, modelName?: string): stri
 }
 
 /**
- * Parse model JSON robustly (markdown fences, trailing junk, truncated braces).
- * Not stream / Responses API — chat/completions + parse is more reliable for structured cards.
+ * Robust JSON object parse for AI responses (markdown fences, truncated braces, wrappers).
+ * Prefer this over bare JSON.parse for insights / graph / simulations.
  */
-export function parseAIJson<T = any>(raw: string | null | undefined): T {
-  if (raw == null) throw new Error('Empty AI response');
-  let text = String(raw).trim();
-  if (!text) throw new Error('Empty AI response');
+export function parseAIJsonObject(rawText: string): any {
+  if (!rawText || !String(rawText).trim()) {
+    throw new Error('Empty AI response (no text to parse).');
+  }
+  let text = String(rawText);
+  if (text.includes('<thinking>')) {
+    text = text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').trim();
+  }
+  text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
 
-  // Strip reasoning / thinking blocks some models emit
-  text = text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').trim();
-  text = text.replace(/```(?:json|JSON)?\s*/g, '').replace(/```/g, '').trim();
+  const lightRepair = (s: string) =>
+    s.replace(/:\s*undefined/g, ': null').replace(/,(\s*[}\]])/g, '$1');
 
-  const tryParse = (s: string): T => JSON.parse(s) as T;
+  const tryParse = (s: string): any | null => {
+    try { return JSON.parse(s); } catch (_) {}
+    try { return JSON.parse(lightRepair(s)); } catch (_) {}
+    return null;
+  };
 
-  try {
-    return tryParse(text);
-  } catch {
-    /* continue */
+  const direct = tryParse(text);
+  if (direct && typeof direct === 'object') return direct;
+
+  const firstBrace = text.indexOf('{');
+  const lastBrace = text.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    const mid = tryParse(text.substring(firstBrace, lastBrace + 1));
+    if (mid && typeof mid === 'object') return mid;
   }
 
-  const objStart = text.indexOf('{');
-  const objEnd = text.lastIndexOf('}');
-  if (objStart !== -1 && objEnd > objStart) {
-    try {
-      return tryParse(text.slice(objStart, objEnd + 1));
-    } catch {
-      /* continue */
-    }
+  const firstArr = text.indexOf('[');
+  const lastArr = text.lastIndexOf(']');
+  if (firstArr !== -1 && lastArr > firstArr) {
+    const arr = tryParse(text.substring(firstArr, lastArr + 1));
+    if (Array.isArray(arr)) return { items: arr };
   }
 
-  const arrStart = text.indexOf('[');
-  const arrEnd = text.lastIndexOf(']');
-  if (arrStart !== -1 && arrEnd > arrStart) {
-    try {
-      return tryParse(text.slice(arrStart, arrEnd + 1));
-    } catch {
-      /* continue */
-    }
-  }
-
-  // Last resort: close truncated JSON object (common when max_tokens cuts mid-string)
-  if (objStart !== -1) {
-    let fragment = text.slice(objStart);
-    // Drop incomplete trailing string
-    fragment = fragment.replace(/,\s*"[^"]*$/, '');
-    fragment = fragment.replace(/,\s*$/, '');
-    const opens = (fragment.match(/\{/g) || []).length;
-    const closes = (fragment.match(/\}/g) || []).length;
-    for (let i = 0; i < opens - closes; i++) fragment += '}';
-    try {
-      return tryParse(fragment);
-    } catch {
-      /* fall through */
-    }
-  }
-
-  throw new Error(`Could not parse AI JSON (${text.slice(0, 120)}…)`);
+  throw new Error(`Could not parse AI JSON (first 120 chars): ${text.slice(0, 120)}`);
 }
 
 /** Shared multi-provider router — used by quiz, chat, visual lab, knowledge graph. */
@@ -136,7 +119,11 @@ export async function callAI(action: string, payload: any): Promise<any> {
   // Empty modelName → Settings global selection (Vertex-style default for all features)
   const resolvedModel = resolveModelName(provider, modelName || fetchActiveModel(provider));
 
-  console.log(`[AIService] Routing ${action} via provider: ${provider} (model: ${resolvedModel})...`);
+  const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  console.log(
+    `[AIService] ▶ REQUEST action=${action} provider=${provider} model=${resolvedModel} ` +
+    `hasKey=${Boolean(apiKey)} maxOut=${maxOutputTokens ?? 'default'} schema=${Boolean(responseSchema)}`
+  );
 
   // 1. OPENAI-COMPATIBLE PROVIDERS (OpenRouter, OpenAI, Groq, 9Router, Custom REST, Ollama)
   if (provider === 'openai' || provider === 'openrouter' || provider === 'groq' || provider === 'ninerouter' || provider === 'custom') {
@@ -184,59 +171,39 @@ export async function callAI(action: string, payload: any): Promise<any> {
       console.warn(`[AIService] ${provider}: binary file parts were dropped; using text/topic only.`);
     }
 
-    // OpenAI-compatible APIs only get response_format: json_object — inject schema
-    // into the prompt so the model actually returns the expected shape.
-    let schemaHint = '';
-    if (responseSchema) {
-      try {
-        schemaHint =
-          `\n\nReturn ONE JSON object only (no markdown). Match this shape:\n` +
-          JSON.stringify(responseSchema, null, 0).slice(0, 4000);
-      } catch {
-        schemaHint = '\n\nReturn ONE JSON object only (no markdown fences).';
-      }
-    }
-
     const messages: any[] = [];
     if (systemInstruction) {
-      const sys =
-        typeof systemInstruction === 'string'
-          ? systemInstruction
-          : systemInstruction.parts?.[0]?.text || String(systemInstruction);
-      messages.push({
-        role: 'system',
-        content: schemaHint ? `${sys}${schemaHint}` : sys,
-      });
-    } else if (schemaHint) {
-      messages.push({ role: 'system', content: `You output strict JSON only.${schemaHint}` });
+      messages.push({ role: 'system', content: typeof systemInstruction === 'string' ? systemInstruction : (systemInstruction.parts?.[0]?.text || String(systemInstruction)) });
     }
-    messages.push({
-      role: 'user',
-      content: (userPromptText || 'Generate a response following the system instructions.') +
-        (responseSchema ? '\n\nRespond with valid JSON only.' : ''),
-    });
+    // json_object mode needs the word "json" in the prompt on some providers (OpenAI strictness)
+    let userContent = userPromptText || 'Generate a response following the system instructions.';
+    if (responseSchema && !/\bjson\b/i.test(userContent)) {
+      userContent += '\n\nReturn a single valid JSON object only.';
+    }
+    messages.push({ role: 'user', content: userContent });
 
-    // Cap completion tokens — many OpenRouter/Groq models reject huge max_tokens
-    // or truncate mid-JSON, which often surfaces as a late "Smart Overflow" failure.
-    // HTML sims need more room; structured cards stay modest.
-    const isHtmlHeavy = /visual|graph|html|simulation/i.test(action);
-    const cap =
-      provider === 'groq' ? 8192 : provider === 'openrouter' ? (isHtmlHeavy ? 16000 : 8000) : 16384;
-    const safeMaxTokens = Math.min(Math.max(1024, maxOutputTokens || 4096), cap);
+    // Cap completion tokens — huge values get rejected (no log on some dashboards) or truncate mid-JSON.
+    // Best practice: structured small JSON ≤4–8k; HTML sims ≤8–12k; never 32k oneshot.
+    const hardCap =
+      provider === 'groq' ? 8192 :
+      provider === 'openrouter' ? 10000 :
+      12288;
+    const safeMaxTokens = Math.min(Math.max(512, maxOutputTokens || 4096), hardCap);
 
     const reqBody: any = {
       model: resolvedModel,
       messages,
       temperature: temperature ?? 0.7,
       max_tokens: safeMaxTokens,
-      stream: false // non-stream JSON is more reliable across proxies — no need for Responses API
+      stream: false // non-stream: reliable parse, simpler error path (stream only helps UX for long chat)
     };
 
     if (responseSchema) {
-      // json_object requires a top-level object (not a raw array). Models that
-      // ignore this often fail only on large late-stage overflow calls.
+      // Top-level MUST be object for json_object mode (never raw array).
       reqBody.response_format = { type: 'json_object' };
     }
+
+    console.log(`[AIService] fetch ${endpoint} model=${resolvedModel} max_tokens=${safeMaxTokens} chars=${userContent.length}`);
 
     let response: Response;
     try {
@@ -246,6 +213,7 @@ export async function callAI(action: string, payload: any): Promise<any> {
         body: JSON.stringify(reqBody)
       });
     } catch (fetchErr: any) {
+      console.error(`[AIService] ✖ NETWORK fail action=${action} provider=${provider}:`, fetchErr?.message || fetchErr);
       if (typeof window !== 'undefined' && window.location && !endpoint.includes('localhost')) {
         console.warn(`[AIService] Direct fetch failed for ${provider} (${fetchErr.message}). Retrying via CORS proxy...`);
         const proxyUrl = `${window.location.origin}/api/cors-proxy?url=${encodeURIComponent(endpoint)}`;
@@ -261,7 +229,8 @@ export async function callAI(action: string, payload: any): Promise<any> {
 
     if (!response.ok) {
       const errText = await response.text();
-      throw new Error(`[${provider.toUpperCase()}] HTTP ${response.status}: ${errText.slice(0, 200)}`);
+      console.error(`[AIService] ✖ HTTP ${response.status} action=${action}:`, errText.slice(0, 300));
+      throw new Error(`[${provider.toUpperCase()}] HTTP ${response.status}: ${errText.slice(0, 280)}`);
     }
 
     const bodyText = await response.text();
@@ -279,11 +248,31 @@ export async function callAI(action: string, payload: any): Promise<any> {
           } catch (e) {}
         }
       }
+      const ms = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0);
+      console.log(`[AIService] ✔ OK action=${action} stream-reconstructed chars=${reconstructed.length} ${ms}ms`);
       return { result: reconstructed };
     }
 
-    const jsonRes = JSON.parse(bodyText.replace('data: [DONE]', ''));
-    const resultText = jsonRes.choices?.[0]?.message?.content || '';
+    let jsonRes: any;
+    try {
+      jsonRes = JSON.parse(bodyText.replace('data: [DONE]', ''));
+    } catch {
+      console.error(`[AIService] ✖ Bad envelope action=${action}`, bodyText.slice(0, 200));
+      throw new Error(`[${provider}] Invalid API envelope (not JSON).`);
+    }
+    const resultText = jsonRes.choices?.[0]?.message?.content || jsonRes.choices?.[0]?.text || '';
+    const finish = jsonRes.choices?.[0]?.finish_reason || jsonRes.choices?.[0]?.finish_reason;
+    const ms = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0);
+    console.log(
+      `[AIService] ✔ OK action=${action} chars=${resultText.length} finish=${finish || '?'} ${ms}ms ` +
+      `preview=${JSON.stringify(String(resultText).slice(0, 80))}`
+    );
+    if (!resultText) {
+      throw new Error(
+        `[${provider}] Empty model content (finish=${finish || 'unknown'}). ` +
+        `Check model id, rate limits, and max_tokens. Provider may have rejected the request silently.`
+      );
+    }
     return { result: resultText };
   }
 
@@ -1619,21 +1608,6 @@ export const chatWithDocument = async (apiKey: string, modelId: string, history:
   }
 };
 
-/** Compact question payload so each insight call stays small (avoids oneshot timeout / truncate). */
-function compactQuestionsForInsight(questions: any[], max = 6): any[] {
-  return (questions || []).slice(0, max).map((q: any) => ({
-    q: String(q.text || '').slice(0, 280),
-    key: String(q.keyPoint || q.conceptName || '').slice(0, 120),
-    explain: String(q.explanation || '').slice(0, 220),
-    wrongHints: Array.isArray(q.options)
-      ? q.options
-          .filter((o: any) => o && !o.isCorrect)
-          .slice(0, 2)
-          .map((o: any) => String(o.text || o).slice(0, 80))
-      : [],
-  }));
-}
-
 export const generateDeepInsight = async (
   groupedData: Record<string, { priority: string; questions: any[]; totalAnswers: number; correctAnswers: number }>,
   apiKey: string,
@@ -1653,7 +1627,7 @@ export const generateDeepInsight = async (
       ? 'Gagal memuat insight untuk topik ini.'
       : 'Could not load insight for this topic.';
 
-  const systemInstruction = `You are a sharp study tutor for Noodl. Be clear and practical. Output a single JSON object only — no markdown fences.\n${langBlock}`;
+  const systemInstruction = `You are a sharp study tutor for Noodl. Be clear and practical. Output one JSON object only (no markdown).\n${langBlock}`;
 
   const CONCEPT_SCHEMA = {
     type: "object",
@@ -1693,110 +1667,83 @@ export const generateDeepInsight = async (
   let completed = 0;
   const activeP = getActiveProvider();
   const insightModel = resolveModelName(activeP, getActiveModel(activeP));
-  const totalSteps = topics.length + 1;
+  const lastErrors: string[] = [];
 
-  // Per-topic generation (same idea as quiz batches): small prompts + parallel waves + soft-fail
-  // Stream / Responses API not needed — failures were parse + oneshot size, not transport.
-  const CONCURRENCY = 3;
+  // Compact per-topic payload (full dumps blow context + fail JSON silently)
+  const slimQuestions = (qs: any[]) =>
+    (qs || []).slice(0, 6).map((q) => ({
+      text: String(q.text || '').slice(0, 400),
+      options: (q.options || []).slice(0, 4).map((o: any) => String(o).slice(0, 120)),
+      explanation: String(q.explanation || '').slice(0, 280),
+      keyPoint: String(q.keyPoint || '').slice(0, 80),
+    }));
 
-  const generateOneTopic = async (topic: string): Promise<ConceptCardData> => {
-    const data = groupedData[topic];
-    const accuracy =
-      data.totalAnswers > 0
-        ? Math.round((data.correctAnswers / data.totalAnswers) * 100)
-        : null;
+  // Parallel waves (like quiz generate) — allSettled so one failure never kills the wave
+  const concurrency = 4;
+  for (let i = 0; i < topics.length; i += concurrency) {
+    const batch = topics.slice(i, i + concurrency);
 
-    const compact = compactQuestionsForInsight(data.questions);
-    const prompt = `Create a deep insight card for topic "${topic}" (priority: ${data.priority}).
-Use ONLY the compact question notes below (not a full dump).
-
-NOTES (JSON):
-${JSON.stringify(compact)}
-
-${langBlock}
-
-Return JSON with keys: summary, insights[{point,evidence?,formula?}], traps[{trap,correction}], mnemonic, connections[].`;
-
-    const attempt = async () => {
-      const response = await callAI('deepInsightTopic', {
-        apiKey,
-        modelName: insightModel,
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        systemInstruction: { role: 'system', parts: [{ text: systemInstruction }] },
-        temperature: 0.3,
-        maxOutputTokens: 2048,
-        responseMimeType: 'application/json',
-        responseSchema: CONCEPT_SCHEMA,
-      });
-      if (response?.error) throw new Error(String(response.error));
-      const parsed = parseAIJson<any>(response?.result);
-      if (!parsed || typeof parsed !== 'object') throw new Error('Insight JSON was not an object');
-      return {
-        topic,
-        priority: data.priority,
-        accuracy,
-        summary: String(parsed.summary || '').trim() || failSummary,
-        insights: Array.isArray(parsed.insights) ? parsed.insights : [],
-        traps: Array.isArray(parsed.traps) ? parsed.traps : [],
-        mnemonic: String(parsed.mnemonic || ''),
-        connections: Array.isArray(parsed.connections) ? parsed.connections : [],
-      } as ConceptCardData;
-    };
-
-    try {
-      return await attempt();
-    } catch (firstErr: any) {
-      console.warn(`[DeepInsight] retry topic "${topic}":`, firstErr?.message || firstErr);
-      try {
-        return await attempt();
-      } catch (err: any) {
-        const detail = String(err?.message || err || 'unknown').slice(0, 160);
-        console.error(`[DeepInsight] failed topic "${topic}":`, detail);
-        return {
-          topic,
-          priority: data.priority,
-          accuracy,
-          summary: `${failSummary} (${detail})`,
-          insights: [],
-          traps: [],
-          mnemonic: '',
-          connections: [],
-        };
-      }
-    } finally {
-      completed++;
-      onProgress?.(completed, totalSteps);
-    }
-  };
-
-  for (let i = 0; i < topics.length; i += CONCURRENCY) {
-    const wave = topics.slice(i, i + CONCURRENCY);
-    const settled = await Promise.allSettled(wave.map((topic) => generateOneTopic(topic)));
-    settled.forEach((s, idx) => {
-      const topic = wave[idx];
-      if (s.status === 'fulfilled') {
-        resultData[topic] = s.value;
-      } else {
+    await Promise.allSettled(
+      batch.map(async (topic) => {
         const data = groupedData[topic];
         const accuracy =
-          data.totalAnswers > 0
-            ? Math.round((data.correctAnswers / data.totalAnswers) * 100)
-            : null;
-        resultData[topic] = {
-          topic,
-          priority: data.priority,
-          accuracy,
-          summary: `${failSummary} (${String(s.reason?.message || s.reason).slice(0, 120)})`,
-          insights: [],
-          traps: [],
-          mnemonic: '',
-          connections: [],
-        };
-      }
-    });
+          data.totalAnswers > 0 ? Math.round((data.correctAnswers / data.totalAnswers) * 100) : null;
+
+        const prompt = `Create a deep insight card for topic "${topic}".
+Return JSON with keys: summary, insights[{point,evidence?,formula?}], traps[{trap,correction}], mnemonic, connections[].
+
+QUESTION DATA (compact):
+${JSON.stringify(slimQuestions(data.questions))}
+
+${langBlock}`;
+
+        try {
+          const response = await callAI('deepInsightTopic', {
+            apiKey,
+            modelName: insightModel,
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            systemInstruction: { role: 'system', parts: [{ text: systemInstruction }] },
+            temperature: 0.3,
+            maxOutputTokens: 2048,
+            responseMimeType: 'application/json',
+            responseSchema: CONCEPT_SCHEMA,
+          });
+
+          if (response.error) throw new Error(response.error);
+          const parsed = parseAIJsonObject(response.result || '{}');
+          resultData[topic] = {
+            topic,
+            priority: data.priority,
+            accuracy,
+            summary: String(parsed.summary || ''),
+            insights: Array.isArray(parsed.insights) ? parsed.insights : [],
+            traps: Array.isArray(parsed.traps) ? parsed.traps : [],
+            mnemonic: String(parsed.mnemonic || ''),
+            connections: Array.isArray(parsed.connections) ? parsed.connections : [],
+          };
+        } catch (err: any) {
+          const msg = err?.message || String(err);
+          console.error(`[DeepInsight] topic="${topic}" failed:`, msg);
+          lastErrors.push(`${topic}: ${msg.slice(0, 120)}`);
+          resultData[topic] = {
+            topic,
+            priority: data.priority,
+            accuracy,
+            summary: `${failSummary} (${msg.slice(0, 100)})`,
+            insights: [],
+            traps: [],
+            mnemonic: '',
+            connections: [],
+          };
+        }
+
+        completed++;
+        if (onProgress) onProgress(completed, topics.length + 1);
+      })
+    );
   }
 
-  // Phase 2: Overall Summary (separate small call — not oneshot with all cards)
+  // Phase 2: Overall Summary
   const SUMMARY_SCHEMA = {
     type: "object",
     properties: {
@@ -1812,14 +1759,18 @@ Return JSON with keys: summary, insights[{point,evidence?,formula?}], traps[{tra
   const summaryFallback =
     getLocale() === 'id'
       ? {
-          overallAssessment: 'Kuis selesai dianalisis.',
+          overallAssessment: lastErrors.length
+            ? `Analisis selesai dengan ${lastErrors.length} topik gagal. Cek API key/model di Settings.`
+            : 'Kuis selesai dianalisis.',
           strongAreas: [] as string[],
           weakAreas: [] as string[],
           studyPlan: 'Terus semangat belajar!',
           motivationalQuote: 'Kamu pasti bisa!',
         }
       : {
-          overallAssessment: 'Quiz analysis complete.',
+          overallAssessment: lastErrors.length
+            ? `Analysis finished with ${lastErrors.length} topic error(s). Check Settings → AI provider/key/model. ${lastErrors[0] || ''}`
+            : 'Quiz analysis complete.',
           strongAreas: [] as string[],
           weakAreas: [] as string[],
           studyPlan: 'Keep practicing the weak topics.',
@@ -1829,22 +1780,12 @@ Return JSON with keys: summary, insights[{point,evidence?,formula?}], traps[{tra
   let summaryData: any = { ...summaryFallback };
 
   try {
-    const okTopics = Object.values(resultData).filter(
-      (d) => d.summary && !d.summary.startsWith(failSummary)
-    );
-    const summaryPrompt = `Write a final wrap-up for this quiz result.
+    const summaryPrompt = `Write a final wrap-up for this quiz result as JSON keys:
+overallAssessment, strongAreas[], weakAreas[], studyPlan, motivationalQuote.
 TOPIC & ACCURACY DATA:
 ${JSON.stringify(
-      Object.values(resultData).map((d) => ({
-        topic: d.topic,
-        accuracy: d.accuracy,
-        priority: d.priority,
-        ok: !String(d.summary || '').startsWith(failSummary),
-      })),
-      null,
-      2
+    Object.values(resultData).map(d => ({ topic: d.topic, accuracy: d.accuracy, priority: d.priority })), null, 2
 )}
-Successful insight cards: ${okTopics.length}/${topics.length}
 
 ${langBlock}`;
 
@@ -1855,29 +1796,22 @@ ${langBlock}`;
       systemInstruction: { role: 'system', parts: [{ text: systemInstruction }] },
       temperature: 0.3,
       maxOutputTokens: 1024,
-      responseMimeType: 'application/json',
-      responseSchema: SUMMARY_SCHEMA,
+      responseMimeType: "application/json",
+      responseSchema: SUMMARY_SCHEMA
     });
 
-    if (!response?.error && response?.result) {
-      const parsed = parseAIJson<any>(response.result);
-      summaryData = {
-        overallAssessment: String(parsed.overallAssessment || summaryFallback.overallAssessment),
-        strongAreas: Array.isArray(parsed.strongAreas) ? parsed.strongAreas : [],
-        weakAreas: Array.isArray(parsed.weakAreas) ? parsed.weakAreas : [],
-        studyPlan: String(parsed.studyPlan || summaryFallback.studyPlan),
-        motivationalQuote: String(parsed.motivationalQuote || summaryFallback.motivationalQuote),
-      };
+    if (!response.error && response.result) {
+       summaryData = { ...summaryFallback, ...parseAIJsonObject(response.result) };
     }
   } catch (err) {
-    console.error('Failed to generate overall summary', err);
+    console.error("Failed to generate overall summary", err);
   }
-
-  onProgress?.(totalSteps, totalSteps);
+  
+  if (onProgress) onProgress(topics.length + 1, topics.length + 1);
 
   return {
     summary: summaryData,
-    topics: resultData,
+    topics: resultData
   };
 };
 

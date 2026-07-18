@@ -520,8 +520,19 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onS
               title={graphViewModal.quiz.fileName || graphViewModal.quiz.topicSummary || 'Knowledge Graph'}
               materialContext={graphViewModal.quiz.libraryContext}
               quizId={graphViewModal.quiz.id}
-              initialGraph={graphViewModal.quiz.knowledgeGraphData || null}
-              onClose={() => setGraphViewModal({ isOpen: false, quiz: null })} 
+              initialData={graphViewModal.quiz.knowledgeGraphData?.data}
+              initialHtml={graphViewModal.quiz.knowledgeGraphData?.htmlCode}
+              onClose={() => setGraphViewModal({ isOpen: false, quiz: null })}
+              onSaved={(payload) => {
+                // Keep in-memory list warm so reopen is instant this session
+                setQuizHistory((prev: any) =>
+                  (prev || []).map((q: any) =>
+                    String(q.id) === String(graphViewModal.quiz.id)
+                      ? { ...q, knowledgeGraphData: { data: payload.data, htmlCode: payload.htmlCode, generatedAt: payload.data.generatedAt } }
+                      : q
+                  )
+                );
+              }}
           />
       )}
 

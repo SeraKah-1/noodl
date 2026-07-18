@@ -2,12 +2,16 @@ import { outputLanguageRule } from "./languagePolicy";
 import { getLocale } from "./i18n";
 /**
  * ==========================================
- * VISUALIZATION SERVICE (2-PHASE AI PIPELINE)
+ * VISUALIZATION SERVICE (scan + parallel gen)
  * ==========================================
- * Phase 1: Scan material → identify visualizable concepts
- * Phase 2: Generate self-contained interactive HTML simulations
+ * Phase 1: Scan material → blueprints (small JSON)
+ * Phase 2: Generate each sim in parallel waves (like quiz batches)
  *
- * Uses the SAME multi-provider router as quiz generate (Settings → AI providers).
+ * Best practice (not oneshot mega-HTML for all sims):
+ * - Small structured scan first
+ * - Per-concept HTML generation with concurrency limit
+ * - Direct HTML preferred over JSON-wrapped HTML (less truncate)
+ * - Shared callAI + Settings model/key
  */
 
 import type { VisualizationBlueprint, VisualizationResult, VisualizationType } from "../types";
@@ -16,7 +20,7 @@ import {
   getActiveProvider,
   getActiveModel,
   resolveModelName,
-  parseAIJson,
+  parseAIJsonObject,
 } from "./geminiService";
 import { getProviderApiKey } from "./providerService";
 
@@ -31,9 +35,6 @@ function scanModel(): string {
 function genModel(): string {
   return globalModel();
 }
-function fallbackModel(): string {
-  return globalModel();
-}
 
 // ─── INTERNAL AI CALL → global Settings pipeline ───
 async function callVisualizationAI(payload: {
@@ -43,9 +44,17 @@ async function callVisualizationAI(payload: {
   responseSchema?: any;
   temperature?: number;
   maxOutputTokens?: number;
+  action?: string;
 }): Promise<{ result: string; error?: string }> {
-  const { modelName, contents, systemInstruction, responseSchema, temperature, maxOutputTokens } =
-    payload;
+  const {
+    modelName,
+    contents,
+    systemInstruction,
+    responseSchema,
+    temperature,
+    maxOutputTokens,
+    action = 'visualization',
+  } = payload;
   const provider = getActiveProvider();
   const apiKey = getProviderApiKey(provider);
   const resolved = resolveModelName(provider, modelName);
@@ -57,8 +66,7 @@ async function callVisualizationAI(payload: {
         error: `API key for ${provider} is missing. Open Settings → AI providers, paste key, Save.`,
       };
     }
-    // Flatten Gemini-style contents to text parts for OpenAI-compatible providers
-    const data = await callAI('visualization', {
+    const data = await callAI(action, {
       apiKey: apiKey || undefined,
       modelName: resolved,
       contents,
@@ -68,7 +76,7 @@ async function callVisualizationAI(payload: {
           : systemInstruction,
       responseSchema,
       temperature,
-      maxOutputTokens: maxOutputTokens ?? 8192,
+      maxOutputTokens: maxOutputTokens ?? 4096,
     });
     if (data?.error) return { result: '', error: String(data.error) };
     return { result: data?.result || '' };
@@ -78,6 +86,31 @@ async function callVisualizationAI(payload: {
   }
 }
 
+function extractHtmlDocument(raw: string): string {
+  let html = String(raw || '');
+  if (html.includes('```')) {
+    html = html.replace(/```html/gi, '').replace(/```/g, '').trim();
+  }
+  if (html.includes('<thinking>')) {
+    html = html.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').trim();
+  }
+  // Prefer full document
+  const doctype = html.search(/<!DOCTYPE\s+html/i);
+  if (doctype >= 0) return html.slice(doctype).trim();
+  const htmlTag = html.search(/<html[\s>]/i);
+  if (htmlTag >= 0) return html.slice(htmlTag).trim();
+  // JSON wrapper { htmlCode: "..." }
+  try {
+    const obj = parseAIJsonObject(html);
+    if (obj.htmlCode && String(obj.htmlCode).length > 80) return String(obj.htmlCode);
+    if (obj.html && String(obj.html).length > 80) return String(obj.html);
+  } catch {
+    /* not json */
+  }
+  if (html.includes('<') && html.length > 100) return html;
+  throw new Error('No usable HTML in AI response');
+}
+
 // ═══════════════════════════════════════════
 // PHASE 1: SCAN FOR VISUALIZATIONS
 // ═══════════════════════════════════════════
@@ -85,27 +118,45 @@ async function callVisualizationAI(payload: {
 const scanSystemInstruction = (materialSample?: string) => `ROLE: You are an instructional designer specializing in educational visualizations.
 TASK: Extract concepts from the material that are best explained visually.
 ${outputLanguageRule(materialSample)}
-Return structured concept blueprints only.`;
+Return ONE JSON object: {"concepts":[...]} — never a bare array.`;
 
 const SCAN_SCHEMA = {
-  type: "ARRAY" as const,
-  items: {
-    type: "OBJECT" as const,
-    properties: {
-      concept: { type: "STRING" as const, description: "Specific concept name (3-8 words). Follow OUTPUT LANGUAGE." },
-      vizType: { type: "STRING" as const, description: "SIMULATION | DIAGRAM | CHART | PROCESS_FLOW | 3D_MODEL" },
-      description: { type: "STRING" as const, description: "Short description of the visualization. Follow OUTPUT LANGUAGE." },
-      variables: {
-        type: "ARRAY" as const,
-        items: { type: "STRING" as const },
-        description: "Interactive parameters the user can change"
+  type: "object" as const,
+  properties: {
+    concepts: {
+      type: "array" as const,
+      items: {
+        type: "object" as const,
+        properties: {
+          concept: { type: "string" as const },
+          vizType: { type: "string" as const },
+          description: { type: "string" as const },
+          variables: { type: "array" as const, items: { type: "string" as const } },
+          priority: { type: "string" as const },
+          rationale: { type: "string" as const },
+        },
+        required: ["concept", "vizType", "description", "variables", "priority", "rationale"] as const,
       },
-      priority: { type: "STRING" as const, description: "HIGH | MODERATE | LOW" },
-      rationale: { type: "STRING" as const, description: "Why this concept needs visualization. Follow OUTPUT LANGUAGE." }
     },
-    required: ["concept", "vizType", "description", "variables", "priority", "rationale"] as const
-  }
+  },
+  required: ["concepts"] as const,
 };
+
+function mapScanItems(parsed: any[]): VisualizationBlueprint[] {
+  const validVizTypes: VisualizationType[] = ['SIMULATION', 'DIAGRAM', 'CHART', 'PROCESS_FLOW', '3D_MODEL'];
+  const conceptFallback = getLocale() === 'id' ? 'Konsep' : 'Concept';
+  return parsed.map((item: any, idx: number) => ({
+    id: `viz-${Date.now()}-${idx}`,
+    concept: String(item.concept || conceptFallback),
+    vizType: validVizTypes.includes(item.vizType) ? (item.vizType as VisualizationType) : 'DIAGRAM',
+    description: String(item.description || ''),
+    variables: Array.isArray(item.variables) ? item.variables.map(String) : [],
+    priority: (['HIGH', 'MODERATE', 'LOW'].includes(item.priority)
+      ? item.priority
+      : 'MODERATE') as 'HIGH' | 'MODERATE' | 'LOW',
+    rationale: String(item.rationale || ''),
+  }));
+}
 
 export async function scanForVisualizations(
   materialText: string,
@@ -120,90 +171,57 @@ export async function scanForVisualizations(
 
 MATERIAL:
 """
-${materialText.substring(0, 100000)}
+${materialText.substring(0, 60000)}
 """
 
 ${langBlock}
-Return a JSON array of visualization concepts.`;
+Return JSON object: {"concepts":[{concept,vizType,description,variables,priority,rationale}, ...]}
+Max 8 concepts. vizType one of SIMULATION|DIAGRAM|CHART|PROCESS_FLOW|3D_MODEL.`;
 
   const data = await callVisualizationAI({
+    action: 'vizScan',
     modelName: scanModel(),
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     systemInstruction: scanSystemInstruction(materialText),
     responseSchema: SCAN_SCHEMA,
     temperature: 0.2,
-    maxOutputTokens: 4096
+    maxOutputTokens: 3072,
   });
 
   if (data.error) {
     console.error("[Phase 1] Scan failed:", data.error);
-    return [];
+    throw new Error(data.error);
   }
 
   try {
-    let jsonStr = data.result;
-    // Clean up potential markdown wrapping
-    if (jsonStr.includes('```')) {
-      jsonStr = jsonStr.replace(/```json/gi, '').replace(/```/g, '').trim();
-    }
-    // Remove thinking tags
-    if (jsonStr.includes('<thinking>')) {
-      jsonStr = jsonStr.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').trim();
-    }
-
-    const startIdx = jsonStr.indexOf('[');
-    const endIdx = jsonStr.lastIndexOf(']');
-    if (startIdx === -1 || endIdx === -1) throw new Error("No array found in response");
-
-    const parsed = JSON.parse(jsonStr.substring(startIdx, endIdx + 1));
-    if (!Array.isArray(parsed)) throw new Error("Parsed result is not an array");
-
-    const validVizTypes: VisualizationType[] = ['SIMULATION', 'DIAGRAM', 'CHART', 'PROCESS_FLOW', '3D_MODEL'];
-    const conceptFallback = getLocale() === 'id' ? 'Konsep' : 'Concept';
-
-    return parsed.map((item: any, idx: number) => ({
-      id: `viz-${Date.now()}-${idx}`,
-      concept: String(item.concept || conceptFallback),
-      vizType: validVizTypes.includes(item.vizType) ? item.vizType as VisualizationType : 'DIAGRAM',
-      description: String(item.description || ''),
-      variables: Array.isArray(item.variables) ? item.variables.map(String) : [],
-      priority: (['HIGH', 'MODERATE', 'LOW'].includes(item.priority) ? item.priority : 'MODERATE') as 'HIGH' | 'MODERATE' | 'LOW',
-      rationale: String(item.rationale || '')
-    }));
-  } catch (err) {
+    const obj = parseAIJsonObject(data.result);
+    const arr = Array.isArray(obj)
+      ? obj
+      : Array.isArray(obj.concepts)
+        ? obj.concepts
+        : Array.isArray(obj.items)
+          ? obj.items
+          : Array.isArray(obj.visualizations)
+            ? obj.visualizations
+            : null;
+    if (!arr) throw new Error('No concepts array in scan response');
+    return mapScanItems(arr);
+  } catch (err: any) {
     console.error("[Phase 1] Parse error:", err);
-    return [];
+    throw new Error(err?.message || 'Failed to parse visualization scan');
   }
 }
 
 
 // ═══════════════════════════════════════════
-// PHASE 2: GENERATE VISUALIZATION
+// PHASE 2: GENERATE VISUALIZATION (per concept)
 // ═══════════════════════════════════════════
 
 const generationSystemInstruction = (materialSample?: string) => `ROLE: You build single-file interactive HTML5 learning simulations.
 Make them clear, responsive, and useful for studying.
 ${outputLanguageRule(materialSample)}
-All control labels, instructions, button text, tooltips, and dynamic explanations in the HTML MUST follow the output language rule.`;
-
-const GENERATION_SCHEMA = {
-  type: "OBJECT" as const,
-  properties: {
-    htmlCode: {
-      type: "STRING" as const,
-      description: "Complete self-contained HTML file with embedded CSS and JS"
-    },
-    explanation: {
-      type: "STRING" as const,
-      description: "Short explanation of what the visualization shows (follow OUTPUT LANGUAGE)"
-    },
-    interactionGuide: {
-      type: "STRING" as const,
-      description: "Short how-to-interact guide (follow OUTPUT LANGUAGE)"
-    }
-  },
-  required: ["htmlCode", "explanation", "interactionGuide"] as const
-};
+All control labels, instructions, button text, tooltips, and dynamic explanations in the HTML MUST follow the output language rule.
+Prefer compact, working code over decorative fluff. Keep total HTML under ~600 lines.`;
 
 export async function generateVisualization(
   blueprint: VisualizationBlueprint,
@@ -223,101 +241,84 @@ export async function generateVisualization(
 
   let prompt = '';
   if (userFeedback && existingHtmlCode) {
-    prompt = `You are refining an existing single-file HTML5 interactive visualization based on user feedback.
+    prompt = `Refine this single-file HTML5 visualization.
 
 CONCEPT: ${blueprint.concept}
 TYPE: ${blueprint.vizType}
-DESCRIPTION: ${blueprint.description}
 ${variablesStr}
 
-CURRENT HTML (use as the base; change only what feedback requires):
+CURRENT HTML:
 """
-${existingHtmlCode}
+${existingHtmlCode.substring(0, 24000)}
 """
 
-USER FEEDBACK (apply precisely):
+USER FEEDBACK:
 """
 ${userFeedback}
 """
 
-MATERIAL CONTEXT (use for factual accuracy):
+MATERIAL (accuracy):
 """
-${materialContext.substring(0, 20000)}
+${materialContext.substring(0, 12000)}
 """
 
 ${langBlock}
 
-Tasks:
-1. Apply the feedback precisely.
-2. Keep the HTML self-contained, responsive, and interactive.
-3. Do not remove unrelated JS/CSS that still works.
-4. Return full data matching the schema.`;
+OUTPUT: complete HTML document only. Start with <!DOCTYPE html>. No markdown. No JSON wrapper.`;
   } else {
-    prompt = `Build an interactive visualization for:
+    prompt = `Build one interactive visualization.
 
 CONCEPT: ${blueprint.concept}
 TYPE: ${blueprint.vizType}
 DESCRIPTION: ${blueprint.description}
 ${variablesStr}
 
-MATERIAL CONTEXT (use for factual accuracy):
+MATERIAL CONTEXT:
 """
-${materialContext.substring(0, 30000)}
+${materialContext.substring(0, 16000)}
 """
 
 ${langBlock}
 
-Generate complete, interactive, polished HTML. All visible UI text must follow OUTPUT LANGUAGE.`;
+REQUIREMENTS:
+- Single HTML file, inline CSS+JS, no CDN
+- Working interactive controls
+- Visible UI text follows OUTPUT LANGUAGE
+- Keep compact (fit in one response)
+
+OUTPUT: complete HTML document only. Start with <!DOCTYPE html>. No markdown. No JSON.`;
   }
 
-  // One concept = one AI call (not a mega oneshot of all sims). Retry once; soft-fail.
-  const attemptGeneration = async (modelName: string) => {
+  const attemptGeneration = async () => {
+    // Direct HTML (no responseSchema) — avoids double-encoding HTML inside JSON and token blowups
     const data = await callVisualizationAI({
-      modelName: modelName,
+      action: 'vizGenerate',
+      modelName: genModel(),
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       systemInstruction: generationSystemInstruction(materialContext),
-      responseSchema: GENERATION_SCHEMA,
       temperature: 0.4,
-      maxOutputTokens: 12000,
+      maxOutputTokens: 8192,
+      // no responseSchema → free-form HTML (best practice for long HTML)
     });
 
-    if (data.error) {
-      throw new Error(data.error);
-    }
+    if (data.error) throw new Error(data.error);
+    const htmlCode = extractHtmlDocument(data.result);
+    if (htmlCode.length < 100) throw new Error('Generated HTML is too short');
 
-    let jsonStr = data.result;
-    if (!jsonStr) {
-      throw new Error('Empty response from AI');
-    }
-
-    const parsed = parseAIJson<any>(jsonStr);
-    // Some models nest html under different keys
-    let htmlCode = String(parsed.htmlCode || parsed.html || parsed.code || '');
-    if ((!htmlCode || htmlCode.length < 80) && typeof parsed === 'object') {
-      const nested = Object.values(parsed).find(
-        (v) => typeof v === 'string' && (v.includes('<html') || v.includes('<!DOCTYPE'))
-      );
-      if (typeof nested === 'string') htmlCode = nested;
-    }
-    if (!htmlCode || htmlCode.length < 100) {
-      throw new Error('Generated HTML is too short or empty');
-    }
-
-    const en = getLocale() !== 'id';
+    const isId = getLocale() === 'id';
     return {
       htmlCode,
-      explanation: String(
-        parsed.explanation || (en ? 'Interactive visualization' : 'Visualisasi interaktif')
-      ),
-      interactionGuide: String(
-        parsed.interactionGuide ||
-          (en ? 'Use the on-screen controls to explore.' : 'Gunakan kontrol di layar untuk berinteraksi')
-      ),
+      explanation: isId
+        ? `Simulasi interaktif: ${blueprint.concept}`
+        : `Interactive simulation: ${blueprint.concept}`,
+      interactionGuide: isId
+        ? 'Gunakan kontrol di layar untuk bereksperimen.'
+        : 'Use on-screen controls to experiment.',
     };
   };
 
   try {
-    const parsedData = await attemptGeneration(genModel());
+    const parsedData = await attemptGeneration();
     return {
       id: blueprint.id,
       blueprint,
@@ -327,25 +328,37 @@ Generate complete, interactive, polished HTML. All visible UI text must follow O
       status: 'success',
     };
   } catch (primaryErr: any) {
-    console.warn(`[Phase 2] Primary failed for "${blueprint.concept}": ${primaryErr.message}`);
-    onProgress?.(
-      getLocale() === 'id'
-        ? `⚡ Mencoba ulang: ${blueprint.concept}…`
-        : `⚡ Retrying: ${blueprint.concept}…`
-    );
+    console.warn(`[Phase 2] Failed for "${blueprint.concept}": ${primaryErr.message}`);
+    // One retry with shorter context
     try {
-      const fallbackData = await attemptGeneration(fallbackModel());
+      onProgress?.(getLocale() === 'id'
+        ? `⚡ Retry ringkas: ${blueprint.concept}…`
+        : `⚡ Compact retry: ${blueprint.concept}…`);
+      const shortPrompt = `Create a minimal interactive HTML demo for "${blueprint.concept}" (${blueprint.vizType}).
+Description: ${blueprint.description}
+Variables: ${(blueprint.variables || []).join(', ') || 'none'}
+${langBlock}
+Single HTML file, inline CSS/JS, no CDN. Start with <!DOCTYPE html>.`;
+      const data = await callVisualizationAI({
+        action: 'vizGenerateRetry',
+        modelName: genModel(),
+        contents: [{ role: 'user', parts: [{ text: shortPrompt }] }],
+        systemInstruction: generationSystemInstruction(materialContext),
+        temperature: 0.35,
+        maxOutputTokens: 6144,
+      });
+      if (data.error) throw new Error(data.error);
+      const htmlCode = extractHtmlDocument(data.result);
       return {
         id: blueprint.id,
         blueprint,
-        htmlCode: fallbackData.htmlCode,
-        explanation: fallbackData.explanation,
-        interactionGuide: fallbackData.interactionGuide,
+        htmlCode,
+        explanation: blueprint.description || blueprint.concept,
+        interactionGuide: getLocale() === 'id' ? 'Gunakan kontrol di layar.' : 'Use on-screen controls.',
         status: 'success',
       };
     } catch (fallbackErr: any) {
-      console.error(`[Phase 2] Failed for "${blueprint.concept}":`, fallbackErr);
-      const msg = fallbackErr.message || primaryErr.message || 'unknown';
+      console.error(`[Phase 2] Retry also failed for "${blueprint.concept}":`, fallbackErr);
       return {
         id: blueprint.id,
         blueprint,
@@ -353,16 +366,15 @@ Generate complete, interactive, polished HTML. All visible UI text must follow O
         explanation: '',
         interactionGuide: '',
         status: 'error',
-        error:
-          getLocale() === 'id'
-            ? `Gagal memproses visualisasi: ${msg}`
-            : `Could not build visualization: ${msg}`,
+        error: fallbackErr.message || primaryErr.message || 'Visualization failed',
       };
     }
   }
 }
 
-// ─── BATCH: parallel waves (like quiz generate) — each concept separate ───
+// ─── BATCH GENERATION — parallel waves (quiz-style), NOT sequential oneshot ───
+const VIZ_CONCURRENCY = 3;
+
 export async function generateVisualizations(
   blueprints: VisualizationBlueprint[],
   materialContext: string,
@@ -370,45 +382,59 @@ export async function generateVisualizations(
   onProgress?: (msg: string) => void
 ): Promise<VisualizationResult[]> {
   const results: VisualizationResult[] = new Array(blueprints.length);
-  const CONCURRENCY = 2; // parallel but not all-at-once (rate limits)
+  let done = 0;
+  const total = blueprints.length;
 
-  for (let i = 0; i < blueprints.length; i += CONCURRENCY) {
-    const wave = blueprints.slice(i, i + CONCURRENCY);
+  for (let i = 0; i < blueprints.length; i += VIZ_CONCURRENCY) {
+    const slice = blueprints.slice(i, i + VIZ_CONCURRENCY);
     onProgress?.(
       getLocale() === 'id'
-        ? `⚡ Membuat visualisasi ${i + 1}–${Math.min(i + CONCURRENCY, blueprints.length)}/${blueprints.length} (paralel)…`
-        : `⚡ Building visualizations ${i + 1}–${Math.min(i + CONCURRENCY, blueprints.length)}/${blueprints.length} (parallel)…`
+        ? `⚡ Parallel batch ${Math.floor(i / VIZ_CONCURRENCY) + 1}: ${slice.map((b) => b.concept).join(', ')}…`
+        : `⚡ Parallel batch ${Math.floor(i / VIZ_CONCURRENCY) + 1}: ${slice.map((b) => b.concept).join(', ')}…`
     );
 
     const settled = await Promise.allSettled(
-      wave.map((bp) => generateVisualization(bp, materialContext, onProgress))
+      slice.map((bp, j) =>
+        generateVisualization(bp, materialContext, onProgress).then((result) => {
+          const index = i + j;
+          results[index] = result;
+          done++;
+          onResult(result, index, total);
+          onProgress?.(
+            getLocale() === 'id'
+              ? `✅ ${done}/${total}: ${bp.concept}`
+              : `✅ ${done}/${total}: ${bp.concept}`
+          );
+          return result;
+        })
+      )
     );
 
+    // Fill errors for rejected promises (shouldn't happen — generateVisualization catches)
     settled.forEach((s, j) => {
-      const index = i + j;
-      const bp = wave[j];
-      if (s.status === 'fulfilled') {
-        results[index] = s.value;
-      } else {
-        results[index] = {
+      if (s.status === 'rejected') {
+        const index = i + j;
+        const bp = slice[j];
+        const errResult: VisualizationResult = {
           id: bp.id,
           blueprint: bp,
           htmlCode: '',
           explanation: '',
           interactionGuide: '',
           status: 'error',
-          error: String(s.reason?.message || s.reason || 'failed'),
+          error: String(s.reason?.message || s.reason || 'Unknown error'),
         };
+        results[index] = errResult;
+        done++;
+        onResult(errResult, index, total);
       }
-      onResult(results[index], index, blueprints.length);
     });
   }
 
-  return results;
+  return results.filter(Boolean);
 }
 
-// ─── FITUR 4: SCAN FOR ADDITIONAL VISUALIZATIONS ───
-// Scans material for NEW concepts not already visualized
+// ─── SCAN FOR ADDITIONAL VISUALIZATIONS ───
 export async function scanForAdditionalVisualizations(
   materialText: string,
   existingConcepts: string[],
@@ -419,29 +445,31 @@ export async function scanForAdditionalVisualizations(
     : '🔍 Looking for more concepts to visualize…');
 
   const existingList = existingConcepts.map((c, i) => `${i + 1}. ${c}`).join('\n');
+  const langBlock = outputLanguageRule(materialText);
 
-  const prompt = `Analisis materi berikut dan identifikasi konsep-konsep BARU yang bisa divisualisasikan.
+  const prompt = `Find NEW visualizable concepts not already listed.
 
-KONSEP YANG SUDAH DIBUAT (JANGAN ULANGI):
+ALREADY MADE (do not repeat):
 """
 ${existingList}
 """
 
-MATERI:
+MATERIAL:
 """
-${materialText.substring(0, 100000)}
+${materialText.substring(0, 60000)}
 """
 
-Cari konsep yang BERBEDA dari yang sudah ada di atas. Fokus pada sub-topik, detail, atau perspektif yang belum di-cover.
-Kembalikan array JSON berisi konsep-konsep BARU yang bisa divisualisasikan.`;
+${langBlock}
+Return JSON: {"concepts":[{concept,vizType,description,variables,priority,rationale}, ...]} max 5 new.`;
 
   const data = await callVisualizationAI({
+    action: 'vizScanMore',
     modelName: scanModel(),
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    systemInstruction: scanSystemInstruction(),
+    systemInstruction: scanSystemInstruction(materialText),
     responseSchema: SCAN_SCHEMA,
     temperature: 0.3,
-    maxOutputTokens: 4096
+    maxOutputTokens: 2048,
   });
 
   if (data.error) {
@@ -450,37 +478,12 @@ Kembalikan array JSON berisi konsep-konsep BARU yang bisa divisualisasikan.`;
   }
 
   try {
-    let jsonStr = data.result;
-    if (jsonStr.includes('```')) {
-      jsonStr = jsonStr.replace(/```json/gi, '').replace(/```/g, '').trim();
-    }
-    if (jsonStr.includes('<thinking>')) {
-      jsonStr = jsonStr.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').trim();
-    }
-
-    const startIdx = jsonStr.indexOf('[');
-    const endIdx = jsonStr.lastIndexOf(']');
-    if (startIdx === -1 || endIdx === -1) throw new Error('No array found');
-
-    const parsed = JSON.parse(jsonStr.substring(startIdx, endIdx + 1));
-    if (!Array.isArray(parsed)) throw new Error('Not an array');
-
-    const validVizTypes: VisualizationType[] = ['SIMULATION', 'DIAGRAM', 'CHART', 'PROCESS_FLOW', '3D_MODEL'];
-
-    // Filter out any that match existing concepts (case-insensitive)
-    const existingLower = new Set(existingConcepts.map(c => c.toLowerCase().trim()));
-
-    return parsed
-      .filter((item: any) => !existingLower.has(String(item.concept || '').toLowerCase().trim()))
-      .map((item: any, idx: number) => ({
-        id: `viz-add-${Date.now()}-${idx}`,
-        concept: String(item.concept || 'Konsep'),
-        vizType: validVizTypes.includes(item.vizType) ? item.vizType as VisualizationType : 'DIAGRAM',
-        description: String(item.description || ''),
-        variables: Array.isArray(item.variables) ? item.variables.map(String) : [],
-        priority: (['HIGH', 'MODERATE', 'LOW'].includes(item.priority) ? item.priority : 'MODERATE') as 'HIGH' | 'MODERATE' | 'LOW',
-        rationale: String(item.rationale || '')
-      }));
+    const obj = parseAIJsonObject(data.result);
+    const arr = Array.isArray(obj?.concepts) ? obj.concepts : Array.isArray(obj?.items) ? obj.items : [];
+    const existingLower = new Set(existingConcepts.map((c) => c.toLowerCase().trim()));
+    return mapScanItems(arr)
+      .filter((item) => !existingLower.has(item.concept.toLowerCase().trim()))
+      .map((item, idx) => ({ ...item, id: `viz-add-${Date.now()}-${idx}` }));
   } catch (err) {
     console.error('[Phase 1 Additional] Parse error:', err);
     return [];
