@@ -57,21 +57,13 @@ const MixRoom = lazyWithRetry(
   () => import('./components/MixRoom').then((m) => ({ default: m.MixRoom })),
   'MixRoom'
 );
-const ChatScreen = lazyWithRetry(
-  () => import('./components/ChatScreen').then((m) => ({ default: m.ChatScreen })),
-  'ChatScreen'
-);
-const VisualizationGallery = lazyWithRetry(
-  () => import('./components/VisualizationGallery').then((m) => ({ default: m.VisualizationGallery })),
-  'VisualizationGallery'
-);
-const MaterialOverview = lazyWithRetry(
-  () => import('./components/MaterialOverview').then((m) => ({ default: m.MaterialOverview })),
-  'MaterialOverview'
-);
 const ResultScreen = lazyWithRetry(
   () => import('./components/ResultScreen').then((m) => ({ default: m.ResultScreen })),
   'ResultScreen'
+);
+const HubStudyToolPage = lazyWithRetry(
+  () => import('./components/HubStudyToolPage').then((m) => ({ default: m.HubStudyToolPage })),
+  'HubStudyToolPage'
 );
 
 /** Noodl is BYOK-only — no built-in Vertex/Firebase free path. */
@@ -486,8 +478,10 @@ const App: React.FC = () => {
          questionCount: 10,
          mode: savedQuiz.mode,
          examStyle: styles, // Safe array
-         topic: savedQuiz.topicSummary,
-         customPrompt: "" 
+         topic: savedQuiz.fileName || savedQuiz.topicSummary || savedQuiz.title || '',
+         customPrompt: '',
+         // Keep full material so More hub tools (Chat / Viz / Material) stay grounded
+         libraryContext: savedQuiz.libraryContext || '',
        }
     });
     setCurrentView(AppView.GENERATOR);
@@ -723,29 +717,35 @@ const App: React.FC = () => {
       case AppView.NEURO_SYNC: 
         return <NeuroSyncDashboard keycardId="global" onExit={() => setCurrentView(AppView.GENERATOR)} />;
       case AppView.CHAT:
+      case AppView.VISUALIZATION:
+      case AppView.MATERIAL_OVERVIEW: {
+        const tool =
+          currentView === AppView.CHAT
+            ? 'chat'
+            : currentView === AppView.VISUALIZATION
+              ? 'visualization'
+              : 'material';
+        const sessionQuestions = questions.length > 0 ? questions : originalQuestions;
         return (
-          <ChatScreen
-            contextText={lastConfig?.config.topic || "Noodl study tutor"}
-            sourceFile={lastConfig?.files?.[0] || null}
+          <HubStudyToolPage
+            tool={tool}
+            sessionPack={{
+              quizId: activeQuizId,
+              title:
+                lastConfig?.config.topic?.split('\n')[0]?.substring(0, 80) ||
+                t('pageMaterialTitle'),
+              questions: sessionQuestions,
+              result,
+              libraryContext: lastConfig?.config.libraryContext || '',
+              topic: lastConfig?.config.topic || '',
+            }}
             onClose={() => setCurrentView(AppView.GENERATOR)}
+            onBindActiveQuiz={(id) => {
+              if (id != null) setActiveQuizId(id);
+            }}
           />
         );
-case AppView.VISUALIZATION:
-        return (
-          <VisualizationGallery
-            quizId={activeQuizId || "global"}
-            materialContext={lastConfig?.config.topic || "Visualisation Lab"}
-          />
-        );
-      case AppView.MATERIAL_OVERVIEW:
-        return (
-          <MaterialOverview
-            questions={questions.length > 0 ? questions : originalQuestions}
-            result={result}
-            title={lastConfig?.config.topic || t('pageMaterialTitle')}
-            quizId={activeQuizId || undefined}
-          />
-        );
+      }
       case AppView.GENERATOR: 
       default: 
         return (
