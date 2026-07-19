@@ -156,6 +156,29 @@ flowchart TD
 
 This is the part where I get loud. Bloom + generate is the spine — but the *loop* is what makes Noodl feel like a product, not a prompt wrapper.
 
+**Big picture first** — one study pack unlocks a whole constellation of tools:
+
+```mermaid
+flowchart TB
+    PACK["Study pack<br/>material + questions + Bloom plan"]
+
+    PACK --> QZ["Quiz modes<br/>Standard · Survival · Time Rush"]
+    PACK --> FC["Swipe flashcards<br/>→ SRS ratings"]
+    PACK --> AM["Add more questions<br/>grow the pack"]
+    PACK --> RX["Remix<br/>same truth, new shape"]
+    PACK --> MX["Mix Room<br/>multi-pack mock exam"]
+    PACK --> VL["HTML5 Visual Lab<br/>interactive sims"]
+    PACK --> KG["Knowledge graph<br/>map + zoom + review"]
+    PACK --> TT["Study Tutor + Material bank<br/>chat · insight · export"]
+
+    FC --> SRS["Neuro-Sync / spaced return"]
+    QZ --> SRS
+    AM --> PACK
+    RX --> QZ
+    MX --> QZ
+    MX --> FC
+```
+
 #### Flashcards you can doomscroll (Tinder energy, study brain)
 
 I am so done with flashcard UIs that feel like filling a government form.
@@ -167,6 +190,19 @@ Noodl flashcards are **full-screen, flip-to-reveal, then swipe**:
 - Ratings feed **SRS** so "I blanked" actually changes what comes back later  
 - Keyboard arrows when you're at a desk; drag when you're on a phone in bed  
 
+```mermaid
+flowchart LR
+    A["Show question"] --> B["Tap = flip"]
+    B --> C["Answer + explanation"]
+    C --> D{"Rate recall"}
+    D -->|Lupa / swipe left| E["Harder later · SRS"]
+    D -->|Sulit| E
+    D -->|Bagus / Mudah / swipe right| F["Easier later · SRS"]
+    E --> G["Next card"]
+    F --> G
+    G --> A
+```
+
 The dream: studying that hijacks the same thumb muscle as doomscrolling — except instead of rotting your attention, you're burning weak concepts until they stick. Short session? Ten cards. Can't sleep? Keep swiping. That is intentional product cruelty in a good way.
 
 #### HTML5 Visual Lab (sims you can *touch*)
@@ -175,11 +211,34 @@ Some ideas refuse to live in MCQ. Circulatory flow. Algorithm steps. Trade-offs 
 
 Visual Lab scans a real study pack, proposes concepts + types (simulation / process flow / diagram / chart / 3D-ish), then generates **self-contained interactive HTML5** — canvas/SVG, controls, live "what just changed" feedback — sandboxed in-app. Pick the pack first (session or Files). Save sims back onto that quiz. Fullscreen when you want to show a friend.
 
+```mermaid
+flowchart TD
+    P["Pick study pack"] --> S["Scan material for visual concepts"]
+    S --> R["Review blueprint list<br/>SIM · FLOW · DIAGRAM · CHART · 3D"]
+    R --> G["Generate HTML5 sim per concept"]
+    G --> I["Iframe sandbox<br/>sliders · canvas · insight text"]
+    I --> SV["Save onto quiz record"]
+    I --> FS["Fullscreen show-and-tell"]
+```
+
 Not a stock photo of a "smart classroom." An actual toy for the concept you're about to be tested on.
 
 #### Knowledge Graph (your exam as a map)
 
 After you've got questions + explanations, Noodl can build a **review map**: core / supporting / detail nodes, edges from shared language, click a node → question/answer/why. Zoom, pan, pinch, focus a branch. Export HTML/JSON if you want to keep the map outside the app.
+
+```mermaid
+flowchart LR
+    Q["Questions + explanations"] --> B["Cluster into concept nodes"]
+    B --> N["Core · Supporting · Detail"]
+    B --> E["Edges / review paths"]
+    N --> M["Interactive map"]
+    E --> M
+    M --> Z["Zoom · pan · pinch"]
+    M --> C["Click node"]
+    C --> RV["Q · A · Why · related"]
+    M --> X["Export HTML / JSON"]
+```
 
 This is for the moment after a mock exam when you don't need *more* random questions — you need to see **which islands of the material you actually own**.
 
@@ -187,13 +246,45 @@ This is for the moment after a mock exam when you don't need *more* random quest
 
 Finished a set and still feel thin on C4? **Add more** reuses the same topic/context/config, generates another batch against what you already have (dedupe-aware), and folds into the saved quiz. Study packs should *grow* with your anxiety, not force a full regenerate from zero.
 
+```mermaid
+flowchart LR
+    A["Existing quiz pack"] --> B["Add more · N new items"]
+    B --> C["Same material + config"]
+    C --> D["Generate · avoid near-dupes"]
+    D --> E["Merge into pack"]
+    E --> A
+```
+
 #### Remix (same truth, new shape)
 
 Bored of the option order? Remix shuffles structure — mixed types, reshuffled options, reordered items — so you're practicing **the idea**, not memorizing "B was always correct on card 7." One button. Instantly less gameable.
 
+```mermaid
+flowchart LR
+    A["Original questions"] --> B["Remix"]
+    B --> C["Shuffle order"]
+    B --> D["Reshuffle options"]
+    B --> E["Optional mixed types"]
+    C --> F["Fresh run · same source truth"]
+    D --> F
+    E --> F
+```
+
 #### Mix Room / Virtual Room (exam simulation from many packs)
 
 Midterms are never one PDF. Mix Room lets you multi-select saved quizzes, combine questions, optional "varied" transform, then launch as a full quiz **or** swipe flashcards. It's the "everything from weeks 1–6, shuffled" panic button — on purpose.
+
+```mermaid
+flowchart TD
+    H["Files · saved packs"] --> S["Multi-select week 1…N"]
+    S --> C["Combine + shuffle"]
+    C --> V{"Varied mode?"}
+    V -->|Yes| T["Transform item shapes"]
+    V -->|No| L["Launch"]
+    T --> L
+    L --> QZ["Full quiz run"]
+    L --> FC["Swipe flashcards"]
+```
 
 #### Study Tutor, Material Bank, bank-soal export
 
@@ -201,13 +292,40 @@ Midterms are never one PDF. Mix Room lets you multi-select saved quizzes, combin
 - **Material overview / Deep Insight** — cluster what the quiz is testing; AI insight when you want the "so what do I study tonight" view  
 - **Export bank soal** — JSON / CSV / PDF with or without answers for offline drills or sharing with a study group the old-fashioned way  
 
+```mermaid
+flowchart LR
+    P["Pick pack"] --> T["Study Tutor chat"]
+    P --> M["Material overview / insight"]
+    P --> X["Export bank<br/>JSON · CSV · PDF"]
+    T --> U["Answers grounded in material"]
+    M --> U2["Tonight's study plan"]
+    X --> U3["Offline / share with group"]
+```
+
 #### Hands-free experiments (optional, never a trap)
 
 Nose-tip dwell pointer and hand gestures (A–D + nav) after eye-tracking on consumer webcams proved unreliable. Compact dwell UI so overlays don't eat the question. Camera **off by default**. Keyboard and touch stay first-class. This is accessibility R&D with an exit hatch, not a gimmick forced on everyone.
 
+```mermaid
+flowchart TB
+    PRIM["Primary: keyboard + touch"] --> QUIZ["Quiz / flashcards / nav"]
+    OPT["Optional: nose dwell · hand gestures"] --> QUIZ
+    CAM["Webcam · off by default"] --> MP["MediaPipe on-device"]
+    MP --> OPT
+```
+
 #### Themes, PWA, More hub, the "small" stuff that isn't small
 
 Glass themes. Installable PWA. A **More** hub that routes to tutor / visual lab / material tools with a real pack picker (and **change source** when you picked wrong). Dynamic island-style status during heavy work. i18n. The glue that makes a Build Week app feel like something you'd open tomorrow morning, not only during judging.
+
+```mermaid
+flowchart LR
+    MORE["More hub"] --> PICK["Pick / change study source"]
+    PICK --> TT["Tutor"]
+    PICK --> VL["Visual Lab"]
+    PICK --> MB["Material bank"]
+    HOME["Home · Files · Mix · Sync · Settings"] --> CORE["Core study loop"]
+```
 
 ### 5) Access & ownership (the political part, said out loud)
 
@@ -232,6 +350,15 @@ So:
 1. **Find it out yourself** — click [the live demo](https://noodl-beta.vercel.app/), generate on *your* notes, swipe flashcards until 2am, open Mix Room, grow a pack with Add more, open the graph after you fail a concept.  
 2. **Contribute** — issues and PRs that preserve source-grounded practice, inspectable learning design, local-first ownership, and honest claims.  
 3. **Share the benefits** — every improvement lands for every student who shouldn't need a private engineering team to get a serious study loop.
+
+```mermaid
+flowchart LR
+    YOU["You try the demo"] --> LOVE["Find a gap / dream a feature"]
+    LOVE --> PR["Issue or PR · MIT"]
+    PR --> MAIN["Lands on main"]
+    MAIN --> ALL["Every student / classmate benefits"]
+    ALL --> YOU
+```
 
 If OpenAI Build Week is about what agentic coding unlocks for builders, open source is how that unlock becomes a public good instead of a private flex.
 
