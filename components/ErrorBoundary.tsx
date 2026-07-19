@@ -24,23 +24,8 @@ const EB = class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Uncaught error:', error, errorInfo);
-    // After a deploy, old tabs often throw on missing hashed chunks.
-    // One automatic hard reload (session-guarded) recovers without user panic.
-    const message = String(error?.message || error || '');
-    const isChunkError =
-      /Failed to fetch dynamically imported module|Importing a module script failed|Loading chunk [\d]+ failed|ChunkLoadError/i.test(
-        message
-      );
-    if (isChunkError && typeof window !== 'undefined') {
-      try {
-        if (sessionStorage.getItem('noodl_chunk_error_reload') !== '1') {
-          sessionStorage.setItem('noodl_chunk_error_reload', '1');
-          window.location.reload();
-        }
-      } catch {
-        /* private mode */
-      }
-    }
+    // Chunk failures are handled by lazyWithRetry → buildCoherence hard reload.
+    // Avoid a second competing reload path here (Option B: one coherence gate).
   }
 
   render(): ReactNode {

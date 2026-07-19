@@ -1,4 +1,8 @@
 /// <reference types="vite/client" />
+/// <reference types="vite-plugin-pwa/client" />
+
+/** Baked at build time in vite.config.ts — compared to /version.json at runtime. */
+declare const __NOODL_BUILD_ID__: string;
 
 declare var process: {
   env: {
