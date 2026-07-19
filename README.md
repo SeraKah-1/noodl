@@ -47,7 +47,7 @@ Noodl is a new Education-track project assembled during OpenAI Build Week from m
 | Source | [github.com/SeraKah-1/noodl](https://github.com/SeraKah-1/noodl) · MIT |
 | Live product | [noodl-beta.vercel.app](https://noodl-beta.vercel.app/) |
 | Demo video | **Pending final public YouTube upload** |
-| Codex evidence | **Pending `/feedback` session export** |
+| Codex evidence | 019f7807-92f5-7843-8952-86762a81fb1b |
 | Runtime model policy | Multi-provider, bring your own key |
 
 The required GPT-5.6 use happened in the Codex engineering workflow described below. Noodl remains provider-neutral at runtime so learners are not forced into one vendor or subscription.
