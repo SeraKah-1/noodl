@@ -6,8 +6,10 @@ import { NeuroSync } from '../services/srsService';
 import { SRSItem } from '../types';
 import { NeuroSyncReview } from './NeuroSyncReview';
 import { EmptyState } from './EmptyState';
-import { t } from '../services/i18n';
+import { getLocale, t } from '../services/i18n';
 import { PageHeader } from './PageHeader';
+import { notifyUser } from '../services/uiFeedbackService';
+import { ConfirmDialog } from './ConfirmDialog';
 // PageHeader used for clear screen purpose
 
 interface NeuroSyncDashboardProps {
@@ -22,6 +24,7 @@ export const NeuroSyncDashboard: React.FC<NeuroSyncDashboardProps> = ({ keycardI
   const [stats, setStats] = useState({ total: 0, due: 0, learned: 0 });
 
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showClearConfirmation, setShowClearConfirmation] = useState(false);
 
   const fetchItems = async () => {
     setLoading(true);
@@ -48,17 +51,15 @@ export const NeuroSyncDashboard: React.FC<NeuroSyncDashboardProps> = ({ keycardI
   }, [keycardId]);
 
   const handleClearData = async () => {
-      const confirmDelete = window.confirm(t('srsClearConfirm'));
-      if (confirmDelete) {
-         setIsDeleting(true);
-         const success = await NeuroSync.clearSyncData();
-         setIsDeleting(false);
-         if (success) {
-            alert(t('srsCleared'));
-            fetchItems();
-         } else {
-            alert(t('srsClearFail'));
-         }
+      setIsDeleting(true);
+      const success = await NeuroSync.clearSyncData();
+      setIsDeleting(false);
+      if (success) {
+         setShowClearConfirmation(false);
+         notifyUser(t('srsCleared'), 'success');
+         fetchItems();
+      } else {
+         notifyUser(t('srsClearFail'), 'error');
       }
   };
 
@@ -89,7 +90,7 @@ export const NeuroSyncDashboard: React.FC<NeuroSyncDashboardProps> = ({ keycardI
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={handleClearData}
+                onClick={() => setShowClearConfirmation(true)}
                 disabled={isDeleting || stats.total === 0}
                 className="px-4 py-2 rounded-full border border-rose-200 text-rose-500 hover:bg-rose-50 text-sm font-bold disabled:opacity-50 flex items-center gap-2"
               >
@@ -218,6 +219,17 @@ export const NeuroSyncDashboard: React.FC<NeuroSyncDashboardProps> = ({ keycardI
           </div>
         </div>
       </div>
+      <ConfirmDialog
+        open={showClearConfirmation}
+        title={getLocale() === 'id' ? 'Hapus semua data review?' : 'Clear all review data?'}
+        message={t('srsClearConfirm')}
+        confirmLabel={getLocale() === 'id' ? 'Hapus semua' : 'Clear all'}
+        cancelLabel={t('cancel')}
+        danger
+        busy={isDeleting}
+        onCancel={() => setShowClearConfirmation(false)}
+        onConfirm={() => void handleClearData()}
+      />
     </div>
   );
 };

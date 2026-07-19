@@ -61,3 +61,18 @@ export function normalizeProxyTarget(rawUrl) {
     return null;
   }
 }
+
+/** Only allow the app's own origin (plus localhost-to-localhost development). */
+export function isAllowedProxyOrigin(origin, requestHost) {
+  if (!origin || !requestHost) return false;
+  try {
+    const u = new URL(origin);
+    const normalizedRequestHost = String(requestHost).toLowerCase();
+    const originHost = u.host.toLowerCase();
+    const localOrigin = u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+    const localRequest = normalizedRequestHost.startsWith('localhost:') || normalizedRequestHost.startsWith('127.0.0.1:');
+    return originHost === normalizedRequestHost || (localOrigin && localRequest);
+  } catch {
+    return false;
+  }
+}

@@ -4,6 +4,8 @@ import { AnimatePresence } from 'framer-motion';
 import { useCamera } from '../contexts/CameraContext';
 import { DwellIndicator, DwellRingBadge } from './DwellIndicator';
 import { getLocale } from '../services/i18n';
+import visionWasmLoaderUrl from '@mediapipe/tasks-vision/vision_wasm_module_internal.js?url';
+import visionWasmBinaryUrl from '@mediapipe/tasks-vision/vision_wasm_module_internal.wasm?url';
 
 /**
  * Nose pointer — comfort-first head mouse (micromovement).
@@ -43,6 +45,7 @@ const RESPONSE_POWER = 0.92;
 const VEL_FAST = 0.35;
 /** Slow adaptation of origin while nearly still — reduces long-session neck strain */
 const ORIGIN_ADAPT = 0.0018;
+const FACE_LANDMARKER_MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 interface NoseTrackingManagerProps {
   onOptionSelect: (index: number) => void;
@@ -129,26 +132,36 @@ export const NoseTrackingManager: React.FC<NoseTrackingManagerProps> = ({
             if (active) setStatus('Connection slow...');
         }, 15000);
 
-        // @ts-ignore
-        const { FilesetResolver, FaceLandmarker } = await import("https://esm.sh/@mediapipe/tasks-vision@0.10.17");
-        const vision = await FilesetResolver.forVisionTasks(
-          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.17/wasm"
-        );
+        const { FaceLandmarker } = await import('@mediapipe/tasks-vision');
+        const vision = {
+          wasmLoaderPath: visionWasmLoaderUrl,
+          wasmBinaryPath: visionWasmBinaryUrl,
+        };
 
         if (!active) return;
 
-        const landmarker = await FaceLandmarker.createFromOptions(vision, {
+        const options = {
           baseOptions: {
-            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
-            delegate: "GPU"
+            modelAssetPath: FACE_LANDMARKER_MODEL_URL,
+            delegate: 'GPU' as const,
           },
-          runningMode: "VIDEO",
+          runningMode: 'VIDEO' as const,
           numFaces: 1, 
           minFaceDetectionConfidence: 0.5,
           minFacePresenceConfidence: 0.5,
           minTrackingConfidence: 0.5,
           outputFaceBlendshapes: true
-        });
+        };
+
+        let landmarker: any;
+        try {
+          landmarker = await FaceLandmarker.createFromOptions(vision, options);
+        } catch {
+          landmarker = await FaceLandmarker.createFromOptions(vision, {
+            ...options,
+            baseOptions: { modelAssetPath: FACE_LANDMARKER_MODEL_URL, delegate: 'CPU' },
+          });
+        }
 
         clearTimeout(loadTimeout);
 

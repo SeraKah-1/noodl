@@ -1,68 +1,35 @@
+import { fetchWithTimeout, readTextWithLimit } from './requestService';
 
-/**
- * ==========================================
- * UNIVERSAL FILE SERVICE
- * Handles extraction of text from various file formats
- * ==========================================
- */
+const MAX_PAGE_BYTES = 2 * 1024 * 1024;
 
-export const extractYouTubeTranscript = async (html: string): Promise<string> => {
+export const fetchUrlContent = async (value: string): Promise<string> => {
+  let url: URL;
   try {
-    const captionsRegex = /"captionTracks":(\[.*?\])/;
-    const match = html.match(captionsRegex);
-    if (!match) {
-      throw new Error("Tidak ada subtitle/caption yang ditemukan di video ini. Pastikan video memiliki CC/Subtitle.");
-    }
-    
-    const captionTracks = JSON.parse(match[1]);
-    let track = captionTracks.find((t: any) => t.languageCode === 'id') || 
-                captionTracks.find((t: any) => t.languageCode === 'en') || 
-                captionTracks[0];
-                
-    if (!track || !track.baseUrl) throw new Error("URL subtitle tidak ditemukan.");
-    
-    const transcriptUrl = track.baseUrl;
-    const transcriptResponse = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(transcriptUrl)}`);
-    const transcriptData = await transcriptResponse.json();
-    const transcriptXml = transcriptData.contents;
-    
-    const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(transcriptXml, "text/xml");
-    const textNodes = xmlDoc.getElementsByTagName("text");
-    
-    let transcript = "";
-    for (let i = 0; i < textNodes.length; i++) {
-      const text = textNodes[i].textContent || "";
-      const decodedText = text.replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"');
-      transcript += decodedText + " ";
-    }
-    
-    if (!transcript || !transcript.trim()) throw new Error("Subtitle kosong.");
-    return transcript;
-  } catch (error: any) {
-    console.error("YouTube Transcript Error:", error);
-    throw new Error("Gagal mengambil transkrip YouTube: " + error.message);
+    url = new URL(value);
+  } catch {
+    throw new Error('Enter a complete http:// or https:// URL.');
   }
-};
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Only HTTP(S) URLs are supported.');
+  if (url.hostname.includes('youtube.com') || url.hostname === 'youtu.be') {
+    throw new Error('YouTube blocks private browser extraction. Paste the transcript as text instead.');
+  }
 
-export const fetchUrlContent = async (url: string): Promise<string> => {
   try {
-    const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
-    if (!response.ok) throw new Error('Network response was not ok.');
-    const data = await response.json();
-    const html = data.contents;
-    
-    if (url.includes('youtube.com/watch') || url.includes('youtu.be/')) {
-      return await extractYouTubeTranscript(html);
-    }
-    
+    const response = await fetchWithTimeout(url, { headers: { Accept: 'text/html, text/plain' } }, 20_000);
+    if (!response.ok) throw new Error(`URL returned HTTP ${response.status}.`);
+    const html = await readTextWithLimit(response, MAX_PAGE_BYTES);
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('text/plain')) return html.trim();
+
     const doc = new DOMParser().parseFromString(html, 'text/html');
-    const scripts = doc.querySelectorAll('script, style, nav, footer, header, aside');
-    scripts.forEach(s => s.remove());
-    
-    return doc.body.textContent || "";
+    doc.querySelectorAll('script, style, nav, footer, header, aside, form').forEach((node) => node.remove());
+    const text = (doc.body.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!text) throw new Error('The page did not contain readable text.');
+    return text;
   } catch (error: any) {
-    console.error("Error fetching URL:", error);
-    throw new Error(error.message || "Gagal mengambil konten dari URL.");
+    if (error?.name === 'TypeError') {
+      throw new Error('This site blocks direct browser access (CORS). Paste its text or upload a file instead.');
+    }
+    throw new Error(error?.message || 'Could not read this URL.');
   }
 };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, FileText, Brain, KeyRound } from 'lucide-react';
 import {
@@ -20,6 +20,7 @@ type Props = {
 export const OnboardingModal: React.FC<Props> = ({ onClose }) => {
   const [step, setStep] = useState(0);
   const [locale, setLoc] = useState<Locale>(getLocale());
+  const skipButtonRef = useRef<HTMLButtonElement>(null);
 
   const pick = (l: Locale) => {
     setLoc(l);
@@ -30,6 +31,15 @@ export const OnboardingModal: React.FC<Props> = ({ onClose }) => {
     setOnboardingDone();
     onClose();
   };
+
+  useEffect(() => {
+    skipButtonRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') finish();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   const next = () => {
     if (step >= 2) finish();
@@ -111,6 +121,7 @@ export const OnboardingModal: React.FC<Props> = ({ onClose }) => {
             ))}
           </div>
           <button
+            ref={skipButtonRef}
             type="button"
             onClick={finish}
             className="text-xs font-bold text-slate-400 hover:text-slate-600"

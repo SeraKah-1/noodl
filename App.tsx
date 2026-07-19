@@ -4,19 +4,9 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ConfigScreen } from './components/ConfigScreen';
 import { LoadingScreen } from './components/LoadingScreen';
 import { QuizInterface } from './components/QuizInterface';
-import { ResultScreen } from './components/ResultScreen';
-import { SettingsScreen } from './components/SettingsScreen';
-import { HistoryScreen } from './components/HistoryScreen';
 import { Navigation } from './components/Navigation';
-import { NeuroSyncDashboard } from './components/NeuroSyncDashboard';
 import { FlashcardScreen } from './components/FlashcardScreen';
-import { SignInScreen } from './components/SignInScreen';
-import { MixRoom } from './components/MixRoom';
 import { DynamicIsland } from './components/DynamicIsland';
-import { ChatScreen } from './components/ChatScreen';
-import { VisualizationGallery } from './components/VisualizationGallery';
-import { MaterialOverview } from './components/MaterialOverview';
-import { generateQuiz } from './services/geminiService';
 import { transformToMixed, shuffleOptions } from './services/questionTransformer'; 
 import { 
   saveGeneratedQuiz, 
@@ -28,16 +18,17 @@ import {
   searchCloudQuiz,
   downloadQuizFromCloud,
   registerNetworkSyncListener,
-  flushPendingUploads
+  flushPendingUploads,
+  generateId,
 } from './services/storageService'; 
 import { createRetentionSequence, NeuroSync } from './services/srsService'; 
 import { checkAndTriggerNotification } from './services/notificationService';
-import { notifyQuizReady } from './services/kaomojiNotificationService'; 
+import { notifyQuizReady, notifyReviewDue, setupIdleReminders } from './services/kaomojiNotificationService';
 import { showErrorNotification } from './services/errorNotificationService';
 import { initTheme } from './services/themeService'; 
 import { loadSession, clearSession } from './services/quizSessionService';
 import { QuizState, Question, QuizResult, ModelConfig, QuizMode, AppView, ExamStyle } from './types';
-import { Info, CreditCard, AlertTriangle, Play, RotateCcw, X as XIcon } from 'lucide-react';
+import { AlertTriangle, Play, RotateCcw, X as XIcon } from 'lucide-react';
 import { useAppStore } from './store/useAppStore';
 import { auth, isSupabaseConfigured } from './supabase';
 import { onSignedIn, onSignedOut } from './services/syncService';
@@ -46,6 +37,17 @@ import { onSignedIn, onSignedOut } from './services/syncService';
 import { useAutoSave } from './hooks/useAutoSave';
 import { OnboardingModal } from './components/OnboardingModal';
 import { getLocale, isOnboardingDone, t, subscribeLocale } from './services/i18n';
+import { notifyUser } from './services/uiFeedbackService';
+import { validateQuizImport } from './services/quizImportValidation';
+
+const SettingsScreen = React.lazy(() => import('./components/SettingsScreen').then((m) => ({ default: m.SettingsScreen })));
+const HistoryScreen = React.lazy(() => import('./components/HistoryScreen').then((m) => ({ default: m.HistoryScreen })));
+const NeuroSyncDashboard = React.lazy(() => import('./components/NeuroSyncDashboard').then((m) => ({ default: m.NeuroSyncDashboard })));
+const MixRoom = React.lazy(() => import('./components/MixRoom').then((m) => ({ default: m.MixRoom })));
+const ChatScreen = React.lazy(() => import('./components/ChatScreen').then((m) => ({ default: m.ChatScreen })));
+const VisualizationGallery = React.lazy(() => import('./components/VisualizationGallery').then((m) => ({ default: m.VisualizationGallery })));
+const MaterialOverview = React.lazy(() => import('./components/MaterialOverview').then((m) => ({ default: m.MaterialOverview })));
+const ResultScreen = React.lazy(() => import('./components/ResultScreen').then((m) => ({ default: m.ResultScreen })));
 
 /** Noodl is BYOK-only — no built-in Vertex/Firebase free path. */
 const App: React.FC = () => {
@@ -60,27 +62,31 @@ const App: React.FC = () => {
     errorMsg, setErrorMsg,
     loadingStatus, setLoadingStatus,
     activeMode, setActiveMode,
-    showAnalysis, setShowAnalysis,
+    setResumeSession,
     resetApp
   } = useAppStore();
 
   const [authLoading, setAuthLoading] = useState(true);
-  const [bypassLogin, setBypassLogin] = useState(false);
-  const [currentUser, setCurrentUser] = useState<any>(null);
-  
-  const handleBypassLogin = () => {
-    setBypassLogin(true);
-    setAuthLoading(false);
-  };
 
   // ── EXIT CONFIRMATION STATE ──
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const exitStayButtonRef = React.useRef<HTMLButtonElement>(null);
   // ── RESUME SESSION STATE ──
   const [pendingSession, setPendingSession] = useState<any>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [, setLocaleTick] = useState(0);
 
   useAutoSave();
+
+  useEffect(() => {
+    if (!showExitConfirm) return;
+    exitStayButtonRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowExitConfirm(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [showExitConfirm]);
 
   useEffect(() => {
     document.documentElement.lang = getLocale();
@@ -110,8 +116,7 @@ const App: React.FC = () => {
              const lastSrsNotify = localStorage.getItem('srs_last_notify_date');
              const todayStr = new Date().toDateString();
              if (lastSrsNotify !== todayStr) {
-                // To avoid import cycle/complexity just dynamically import or use the imported kaomoji method
-                import('./services/kaomojiNotificationService').then(m => m.notifyReviewDue(items.length));
+                notifyReviewDue(items.length);
                 localStorage.setItem('srs_last_notify_date', todayStr);
              }
          }
@@ -126,29 +131,17 @@ const App: React.FC = () => {
     // Login → one background pull. Never re-subscribe full sync on token refresh.
     const unsubscribe = auth.onAuthStateChanged((user) => {
       if (user) {
-        setCurrentUser({
-          ...user,
-          email: user.email,
-          uid: user.uid,
-          displayName: user.displayName,
-          photoURL: user.photoURL,
-          isAdmin: false,
-        });
         setAuthLoading(false);
         console.log('[auth] signed in — local UI ready; cloud pull in background');
         onSignedIn().catch((e) => console.warn('[auth] cloud pull', e));
       } else {
-        setCurrentUser(null);
         onSignedOut();
         setAuthLoading(false);
       }
     });
 
-    // --- SETUP IDLE REMINDER ---
-    import('./services/kaomojiNotificationService').then(m => {
-       m.requestKaomojiPermission();
-       if (m.setupIdleReminders) m.setupIdleReminders();
-    });
+    // Permission is requested only from the explicit Settings action.
+    const cleanupIdleReminders = setupIdleReminders();
 
     // ── CHECK FOR RESUMABLE SESSION ──
     loadSession().then(async (session) => {
@@ -175,18 +168,19 @@ const App: React.FC = () => {
     if (shareId) {
        searchCloudQuiz(shareId).then((quiz: any) => {
            if (quiz) {
-               downloadQuizFromCloud(quiz).then(() => {
-                   setQuestions(quiz.questions);
-                   setOriginalQuestions(quiz.questions);
-                   setActiveQuizId(quiz.id);
-                   setQuizState(QuizState.CONFIG);
+               downloadQuizFromCloud(quiz).then((downloaded) => {
+                   setQuestions(downloaded.questions);
+                   setOriginalQuestions(downloaded.questions);
+                   setActiveQuizId(downloaded.id);
+                   setActiveMode(downloaded.mode || QuizMode.STANDARD);
+                   setQuizState(QuizState.QUIZ_ACTIVE);
                    setCurrentView(AppView.GENERATOR);
                    // Clean up URL
                    window.history.replaceState({}, document.title, window.location.pathname);
                });
            }
        }).catch((err) => {
-           alert(t('loadQuizFailed') + ': ' + err.message);
+           notifyUser(t('loadQuizFailed') + ': ' + err.message, 'error');
        });
     }
 
@@ -194,6 +188,7 @@ const App: React.FC = () => {
         unsubscribe();
         onSignedOut();
         clearInterval(intervalId);
+        cleanupIdleReminders();
     };
   }, []);
 
@@ -243,6 +238,7 @@ const App: React.FC = () => {
 
     setTimeout(async () => {
         try {
+            const { generateQuiz } = await import('./services/geminiService');
           let generatedQuestions: Question[] = [];
           let finalContext = "";
 
@@ -336,25 +332,23 @@ const App: React.FC = () => {
     setTimeout(async () => {
         try {
             const existingTexts = originalQuestions.map(q => q.text);
+            const { generateQuiz } = await import('./services/geminiService');
             const apiKey = getApiKey(lastConfig.config.provider);
             if (!apiKey) {
               throw new Error("API key missing (BYOK). Set it in Settings → AI providers.");
             }
             let newQuestions: Question[] = [];
             const { files, config } = lastConfig;
-      
-            if (config.provider === 'gemini') {
-              const res = await generateQuiz(
-                apiKey, files, config.topic, config.modelId, count, config.mode, config.examStyle,
-                (status) => setLoadingStatus(status),
-                existingTexts,
-                config.customPrompt,
-                config.libraryContext,
-                config.conceptMap, // Reuse cached concept map from first generation
-                config.bloomPercentages
-              );
-              newQuestions = res.questions;
-            }
+            const res = await generateQuiz(
+              apiKey, files, config.topic, config.modelId, count, config.mode, config.examStyle,
+              (status) => setLoadingStatus(status),
+              existingTexts,
+              config.customPrompt,
+              config.libraryContext,
+              config.conceptMap,
+              config.bloomPercentages
+            );
+            newQuestions = res.questions;
             
             // --- TRANSFORM NEW QUESTIONS TOO ---
             if (config.enableMixedTypes) {
@@ -364,7 +358,12 @@ const App: React.FC = () => {
             // --- SHUFFLE OPTIONS ---
             newQuestions = shuffleOptions(newQuestions);
 
-            const maxId = Math.max(...(originalQuestions || []).map(q => q?.id || 0), 0);
+            const maxId = Math.max(
+              ...(originalQuestions || []).map((q) =>
+                typeof q?.id === 'number' ? q.id : Number.parseInt(String(q?.id), 10) || 0
+              ),
+              0
+            );
             const indexedNewQuestions = (newQuestions || []).filter(q => q).map((q, i) => ({ ...q, id: maxId + i + 1 }));
             
             // Merge Originals
@@ -397,27 +396,27 @@ const App: React.FC = () => {
   };
 
   const handleImportQuiz = (file: File) => {
+    if (file.size > 5 * 1024 * 1024) {
+      notifyUser(t('importInvalid') + ': maximum file size is 5MB.', 'error');
+      return;
+    }
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
         const content = e.target?.result as string;
-        const importedData = JSON.parse(content);
-        
-        if (!importedData.questions || !Array.isArray(importedData.questions)) {
-          throw new Error(t('importInvalid'));
-        }
+        const importedData = validateQuizImport(JSON.parse(content));
 
         setLoadingStatus(t('loading') + '…');
         setQuizState(QuizState.PROCESSING);
 
         // Save to local history
         await saveGeneratedQuiz(null, {
-          provider: importedData.provider || 'gemini',
-          modelId: importedData.modelId || 'imported',
+          provider: importedData.provider,
+          modelId: importedData.modelId,
           questionCount: importedData.questions.length,
-          mode: importedData.mode || QuizMode.STANDARD,
-          examStyle: importedData.examStyle || [ExamStyle.C2_CONCEPT],
-          topic: importedData.fileName || "Imported Quiz"
+          mode: importedData.mode,
+          examStyle: importedData.examStyle,
+          topic: importedData.title,
         }, importedData.questions);
 
         const latest = await getSavedQuizzes();
@@ -425,7 +424,7 @@ const App: React.FC = () => {
            handleLoadHistory(latest[0]);
         }
         
-        alert(t('importOk'));
+        notifyUser(t('importOk'), 'success');
       } catch (err: any) {
         showErrorNotification({
           title: t('importFailed'),
@@ -572,6 +571,7 @@ const App: React.FC = () => {
     setOriginalQuestions(quiz.questions);
     setActiveQuizId(quiz.id);
     setActiveMode(session.mode || QuizMode.STANDARD);
+    setResumeSession(session);
     setErrorMsg(null);
     setResult(null);
     setQuizState(QuizState.QUIZ_ACTIVE);
@@ -614,9 +614,10 @@ const App: React.FC = () => {
 
   const handleContinueQuiz = () => { if (questions.length > 0) setQuizState(QuizState.QUIZ_ACTIVE); };
 
-  const handleStartFlashcards = (sourceQuestions: Question[]) => {
+  const handleStartFlashcards = (sourceQuestions: Question[], sourceId?: string | number) => {
      setQuestions(sourceQuestions);
      setOriginalQuestions(sourceQuestions);
+     setActiveQuizId(sourceId || generateId());
      setQuizState(QuizState.FLASHCARDS);
   };
 
@@ -649,6 +650,7 @@ const App: React.FC = () => {
         return (
             <FlashcardScreen 
                 questions={questions} 
+                keycardId={String(activeQuizId || 'global')}
                 onClose={handleExitQuiz} 
             />
         );
@@ -726,6 +728,7 @@ case AppView.VISUALIZATION:
                 onStart={startQuizGeneration} 
                 onContinue={handleContinueQuiz}
                 onStartFlashcards={handleStartFlashcards}
+                onOpenWorkspace={() => setCurrentView(AppView.WORKSPACE)}
                 hasActiveSession={questions.length > 0 && quizState === QuizState.CONFIG && !result}
             />
         );
@@ -743,10 +746,6 @@ case AppView.VISUALIZATION:
     );
   }
 
-  if (!currentUser && false && !bypassLogin) /* optional force-login when you want cloud-only */ {
-    return <SignInScreen onBypass={handleBypassLogin} />;
-  }
-
   const isQuizImmersive =
     quizState === QuizState.QUIZ_ACTIVE || quizState === QuizState.PROCESSING;
 
@@ -762,18 +761,6 @@ case AppView.VISUALIZATION:
         <OnboardingModal onClose={() => setShowOnboarding(false)} />
       )}
       <DynamicIsland />
-      {/* Hide chrome that steals space during live quiz */}
-      {!isQuizImmersive && (
-        <div className="fixed top-6 right-6 z-40 flex items-center space-x-3">
-          <button
-            onClick={() => setShowAnalysis(!showAnalysis)}
-            className="p-2 rounded-full bg-theme-glass border border-theme-border text-theme-muted hover:bg-theme-bg shadow-sm"
-          >
-            <Info size={24} />
-          </button>
-        </div>
-      )}
-
       {/* ── RESUME SESSION BANNER ── */}
       <AnimatePresence>
         {pendingSession && quizState === QuizState.CONFIG && (
@@ -830,16 +817,20 @@ case AppView.VISUALIZATION:
               exit={{ scale: 0.95, opacity: 0 }}
               className="bg-white/95 dark:bg-slate-800/95 backdrop-blur-xl max-w-sm w-full rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700"
               onClick={e => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="exit-quiz-title"
             >
               <div className="text-center mb-6">
                 <div className="text-4xl mb-3">⚠️</div>
-                <h3 className="text-lg font-black text-slate-800 dark:text-slate-100">{t('exitQuizTitle')}</h3>
+                <h3 id="exit-quiz-title" className="text-lg font-black text-slate-800 dark:text-slate-100">{t('exitQuizTitle')}</h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
                   {t('exitQuizBody')}
                 </p>
               </div>
               <div className="space-y-3">
                 <button
+                  ref={exitStayButtonRef}
                   onClick={() => setShowExitConfirm(false)}
                   className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
                 >
@@ -859,27 +850,6 @@ case AppView.VISUALIZATION:
                 </button>
               </div>
             </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {showAnalysis && (
-          <motion.div 
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-slate-900/20 backdrop-blur-sm flex items-center justify-center p-4"
-            onClick={() => setShowAnalysis(false)}
-          >
-            <div className="bg-theme-bg/90 backdrop-blur-xl max-w-lg w-full rounded-3xl p-8 shadow-2xl border border-theme-border" onClick={e => e.stopPropagation()}>
-              <h2 className="text-xl font-bold mb-4 text-theme-text">Noodl ( •_•)</h2>
-              <p className="text-sm text-theme-text mb-4">
-                Noodl runs in your browser. Your notes stay local unless you connect Supabase for optional sync.
-              </p>
-              <div className="p-4 bg-theme-primary/10 rounded-xl mb-4 border border-theme-primary/20">
-                <p className="text-xs text-theme-primary font-medium">Crafted with 🌽 by Bakwan Jagung</p>
-              </div>
-              <button onClick={() => setShowAnalysis(false)} className="w-full py-2 bg-theme-primary text-white rounded-xl">Tutup</button>
-            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -910,13 +880,6 @@ case AppView.VISUALIZATION:
         <Navigation currentView={currentView} onChangeView={setCurrentView} />
       )}
 
-      {!isQuizImmersive && (
-        <div className="fixed bottom-1 left-0 w-full text-center z-40 pointer-events-none">
-          <p className="text-[10px] text-theme-muted opacity-50 font-medium tracking-widest uppercase">
-            crafted by Bakwan Jagung 🌽
-          </p>
-        </div>
-      )}
     </div>
   );
 };

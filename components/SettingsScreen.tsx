@@ -25,9 +25,10 @@ import {
   getHandTrackingEnabled,
   saveAdvancedHandsFree,
   getAdvancedHandsFree,
+  saveWakeLockEnabled,
+  getWakeLockEnabled,
 } from '../services/storageService';
 import { useExperimentalSettings } from '../contexts/ExperimentalSettingsContext';
-import { setWakelockRunning } from '../services/wakelockService';
 import { requestKaomojiPermission } from '../services/kaomojiNotificationService';
 import { scheduleDailyReminder, getReminderTime } from '../services/notificationService';
 import { getSavedTheme } from '../services/themeService';
@@ -36,11 +37,23 @@ import { AuthWidget } from './AuthWidget';
 import { AiProvider, ModelOption, ThemeName } from '../types';
 import { getLocale, setLocale, t, type Locale } from '../services/i18n';
 import { PageHeader } from './PageHeader';
+import { notifyUser } from '../services/uiFeedbackService';
 
 type SettingsTab = 'providers' | 'account' | 'appearance' | 'features' | 'notifications';
 
+const PROVIDER_DESCRIPTIONS_ID: Partial<Record<AiProvider, string>> = {
+  gemini: 'Model multimodal cepat dengan API key Gemini milikmu.',
+  openrouter: 'Satu key untuk banyak model dari berbagai provider.',
+  openai: 'Akses langsung ke model OpenAI melalui API resminya.',
+  groq: 'Inferensi cepat untuk model open-source yang didukung Groq.',
+  anthropic: 'Akses langsung ke model Claude melalui API Anthropic.',
+  ninerouter: 'Gateway OpenAI-compatible self-hosted dengan base URL milikmu.',
+  custom: 'Hubungkan Ollama, LM Studio, vLLM, atau endpoint OpenAI-compatible lain.',
+};
+
 export const SettingsScreen: React.FC = () => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('providers');
+  const [locale, setCurrentLocale] = useState<Locale>(getLocale());
   const [selectedProvider, setSelectedProvider] = useState<AiProvider>(getActiveProvider());
   const { isExperimentalEnabled, setExperimental } = useExperimentalSettings();
   
@@ -60,7 +73,6 @@ export const SettingsScreen: React.FC = () => {
   const [srsEnabled, setSrsEnabled] = useState(true);
   const [wakelockEnabled, setWakelockEnabled] = useState(true);
   const [gestureEnabled, setHandTrackingEnabled] = useState(false);
-  const [dynamicIslandEnabled, setDynamicIslandEnabled] = useState(true);
 
   // Theme State
   const [currentTheme, setCurrentTheme] = useState<ThemeName>(getSavedTheme());
@@ -78,6 +90,7 @@ export const SettingsScreen: React.FC = () => {
     if (savedTime) setReminderTime(savedTime);
 
     setSrsEnabled(getSRSEnabled());
+    setWakelockEnabled(getWakeLockEnabled());
     setHandTrackingEnabled(getHandTrackingEnabled());
 
     // Load active provider settings
@@ -150,7 +163,7 @@ export const SettingsScreen: React.FC = () => {
 
   const handleToggleWakelock = (v: boolean) => {
     setWakelockEnabled(v);
-    setWakelockRunning(v);
+    saveWakeLockEnabled(v);
   };
 
   const handleRequestNotif = async () => {
@@ -160,12 +173,12 @@ export const SettingsScreen: React.FC = () => {
 
   const handleSaveReminder = () => {
     if (notifPermission !== 'granted') {
-      alert(t('confirmHuman'));
+      notifyUser(t('confirmHuman'), 'error');
       return;
     }
     if (reminderTime) {
       scheduleDailyReminder(reminderTime);
-      alert(t('reminderSet').replace('{time}', reminderTime));
+      notifyUser(t('reminderSet').replace('{time}', reminderTime), 'success');
     }
   };
 
@@ -277,7 +290,7 @@ export const SettingsScreen: React.FC = () => {
                             )}
                           </div>
                           <p className="text-xs text-theme-muted leading-relaxed line-clamp-2">
-                            {prov.description}
+                            {locale === 'id' ? (PROVIDER_DESCRIPTIONS_ID[prov.id] || prov.description) : prov.description}
                           </p>
                         </button>
                       );
@@ -290,10 +303,12 @@ export const SettingsScreen: React.FC = () => {
                   <div className="flex items-center justify-between pb-4 border-b border-theme-border">
                     <div>
                       <h3 className="font-bold text-base text-theme-text flex items-center gap-2">
-                        Konfigurasi {currentProviderCatalog.name}
+                        {locale === 'id' ? 'Konfigurasi' : 'Configure'} {currentProviderCatalog.name}
                       </h3>
                       <p className="text-xs text-theme-muted mt-0.5">
-                        Paste the API key for this provider. Change Base URL only if you use a proxy or local server.
+                        {locale === 'id'
+                          ? 'Tempel API key provider ini. Ubah Base URL hanya untuk proxy atau server lokal.'
+                          : 'Paste this provider API key. Change Base URL only for a proxy or local server.'}
                       </p>
                     </div>
                     <a
@@ -302,7 +317,7 @@ export const SettingsScreen: React.FC = () => {
                       rel="noreferrer"
                       className="text-xs font-bold text-indigo-400 hover:underline flex items-center gap-1 shrink-0"
                     >
-                      Get key <ExternalLink size={12} />
+                      {locale === 'id' ? 'Dapatkan key' : 'Get key'} <ExternalLink size={12} />
                     </a>
                   </div>
 
@@ -374,7 +389,7 @@ export const SettingsScreen: React.FC = () => {
                         className="px-5 py-3 bg-theme-bg border border-indigo-500/30 hover:border-indigo-500 text-indigo-400 hover:text-indigo-300 rounded-xl font-bold text-sm shadow-sm active:scale-95 transition-all flex items-center gap-2 disabled:opacity-50"
                       >
                         <RefreshCw size={16} className={isFetchingModels ? 'animate-spin' : ''} />
-                        {isFetchingModels ? t('fetchingModels') : '⚡ Auto-Fetch Available Models'}
+                        {isFetchingModels ? t('fetchingModels') : (locale === 'id' ? '⚡ Ambil daftar model' : '⚡ Fetch available models')}
                       </button>
                     </div>
 
@@ -533,9 +548,12 @@ export const SettingsScreen: React.FC = () => {
                       <button
                         key={opt.id}
                         type="button"
-                        onClick={() => setLocale(opt.id)}
+                        onClick={() => {
+                          setLocale(opt.id);
+                          setCurrentLocale(opt.id);
+                        }}
                         className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-colors ${
-                          getLocale() === opt.id
+                          locale === opt.id
                             ? 'bg-indigo-600 text-white border-indigo-600'
                             : 'bg-theme-bg text-theme-text border-theme-border hover:border-indigo-300'
                         }`}
@@ -548,10 +566,10 @@ export const SettingsScreen: React.FC = () => {
                 <div className="bg-theme-glass border border-theme-border rounded-3xl p-6 shadow-xl space-y-4">
                   <h2 className="text-lg font-bold text-theme-text flex items-center gap-2">
                     <Palette className="text-indigo-500" size={20} />
-                    Theme
+                    {t('themeTitle')}
                   </h2>
                   <p className="text-sm text-theme-muted mb-4">
-                    Pick a look that feels calm for long study sessions.
+                    {t('themeHint')}
                   </p>
                   <ThemeSelector currentTheme={currentTheme} onThemeChange={setCurrentTheme} />
                 </div>
@@ -577,11 +595,12 @@ export const SettingsScreen: React.FC = () => {
                     <div>
                       <h4 className="font-bold text-sm text-theme-text">{t('featuresSrs')}</h4>
                       <p className="text-xs text-theme-muted mt-0.5">
-                        Save missed cards for spaced review.
+                        {locale === 'id' ? 'Simpan kartu yang salah untuk direview berkala.' : 'Save missed cards for spaced review.'}
                       </p>
                     </div>
                     <input
                       type="checkbox"
+                      aria-label={t('featuresSrs')}
                       checked={srsEnabled}
                       onChange={(e) => handleToggleSrs(e.target.checked)}
                       className="w-5 h-5 accent-indigo-600 rounded cursor-pointer shrink-0"
@@ -592,11 +611,12 @@ export const SettingsScreen: React.FC = () => {
                     <div>
                       <h4 className="font-bold text-sm text-theme-text">{t('featuresWakelock')}</h4>
                       <p className="text-xs text-theme-muted mt-0.5">
-                        Prevent screen sleep during quizzes.
+                        {locale === 'id' ? 'Cegah layar mati selama kuis berlangsung.' : 'Prevent screen sleep during quizzes.'}
                       </p>
                     </div>
                     <input
                       type="checkbox"
+                      aria-label={t('featuresWakelock')}
                       checked={wakelockEnabled}
                       onChange={(e) => handleToggleWakelock(e.target.checked)}
                       className="w-5 h-5 accent-indigo-600 rounded cursor-pointer shrink-0"
@@ -612,11 +632,12 @@ export const SettingsScreen: React.FC = () => {
                     <div>
                       <h4 className="font-bold text-sm text-theme-text">{t('handsFreeEnable')}</h4>
                       <p className="text-xs text-theme-muted mt-0.5">
-                        Unlocks nose/hand controls during a quiz.
+                        {locale === 'id' ? 'Aktifkan kontrol hidung dan tangan saat kuis.' : 'Enable nose and hand controls during a quiz.'}
                       </p>
                     </div>
                     <input
                       type="checkbox"
+                      aria-label={t('handsFreeEnable')}
                       checked={isExperimentalEnabled}
                       onChange={(e) => setExperimental(e.target.checked)}
                       className="w-5 h-5 accent-indigo-600 rounded cursor-pointer shrink-0"
@@ -626,10 +647,11 @@ export const SettingsScreen: React.FC = () => {
                     <div className="flex items-center justify-between p-4 rounded-2xl bg-theme-bg/60 border border-theme-border opacity-90">
                       <div>
                         <h4 className="font-bold text-sm text-theme-text">{t('handsFreeHand')}</h4>
-                        <p className="text-xs text-theme-muted mt-0.5">Remember preference for hand mode.</p>
+                        <p className="text-xs text-theme-muted mt-0.5">{locale === 'id' ? 'Ingat preferensi kontrol tangan.' : 'Remember the hand-control preference.'}</p>
                       </div>
                       <input
                         type="checkbox"
+                        aria-label="Remember hand control preference"
                         checked={gestureEnabled}
                         onChange={(e) => {
                           setHandTrackingEnabled(e.target.checked);
@@ -655,14 +677,14 @@ export const SettingsScreen: React.FC = () => {
                 <div className="bg-theme-glass border border-theme-border rounded-3xl p-6 shadow-xl space-y-6">
                   <h2 className="text-lg font-bold text-theme-text flex items-center gap-2">
                     <Bell className="text-indigo-500" size={20} />
-                    Reminders
+                    {locale === 'id' ? 'Pengingat' : 'Reminders'}
                   </h2>
 
                   {/* Browser Permission Card */}
                   <div className="p-4 rounded-2xl bg-theme-bg/60 border border-theme-border space-y-3">
                     <div className="flex items-center justify-between">
                       <div>
-                        <h4 className="font-bold text-sm text-theme-text">Browser notification permission</h4>
+                        <h4 className="font-bold text-sm text-theme-text">{locale === 'id' ? 'Izin notifikasi browser' : 'Browser notification permission'}</h4>
                         <p className="text-xs text-theme-muted mt-0.5">
                           {t('permStatus')}: <strong className="capitalize text-indigo-400">{notifPermission}</strong>
                         </p>
@@ -671,7 +693,7 @@ export const SettingsScreen: React.FC = () => {
                         onClick={handleRequestNotif}
                         className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm"
                       >
-                        Allow notifications
+                        {locale === 'id' ? 'Izinkan notifikasi' : 'Allow notifications'}
                       </button>
                     </div>
                   </div>
@@ -680,7 +702,7 @@ export const SettingsScreen: React.FC = () => {
                   <div className="p-4 rounded-2xl bg-theme-bg/60 border border-theme-border space-y-3">
                     <h4 className="font-bold text-sm text-theme-text">{t('dailyReminder')}</h4>
                     <p className="text-xs text-theme-muted">
-                      Noodl can send a gentle study reminder at this time.
+                      {locale === 'id' ? 'Noodl dapat mengirim pengingat belajar pada jam ini.' : 'Noodl can send a gentle study reminder at this time.'}
                     </p>
                     <div className="flex items-center gap-3 pt-2">
                       <input

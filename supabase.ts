@@ -125,7 +125,9 @@ export const auth = {
     listeners.add(wrapped);
     // Immediate current snapshot (may be null until getSession resolves)
     wrapped(_user);
-    return () => listeners.delete(wrapped);
+    return () => {
+      listeners.delete(wrapped);
+    };
   },
   async signOut() {
     if (supabase) await supabase.auth.signOut();
@@ -191,7 +193,7 @@ export function explainOAuthUrlError(
   return desc || error || 'Google sign-in failed';
 }
 
-/** Cached so SignInScreen + AuthWidget both see the same OAuth error once. */
+/** Cached so the settings auth widget sees an OAuth callback error once. */
 let _oauthCallbackError: string | null | undefined;
 
 /**

@@ -1,8 +1,8 @@
 import { PageHeader } from './PageHeader';
-import { t, subscribeLocale } from '../services/i18n';
-import React, { useState, useEffect, useMemo } from 'react';
+import { getLocale, t, subscribeLocale } from '../services/i18n';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { History, Search, Layout, TrendingUp, Skull, Play, Trash2, Tag, Download, Book, ChevronDown, ChevronUp, Share2, Filter, AlertCircle, CheckCircle2, Clock, Folder, RefreshCw, FileText, Edit3, FolderInput, CloudLightning, Sparkles, FileJson, FileSpreadsheet, Printer, Network } from 'lucide-react';
+import { Search, Layout, TrendingUp, Skull, Play, Trash2, Tag, Download, Book, ChevronDown, ChevronUp, Share2, Filter, AlertCircle, CheckCircle2, Clock, Folder, RefreshCw, FileText, Edit3, FolderInput, CloudLightning, Sparkles, FileJson, FileSpreadsheet, Printer, Network } from 'lucide-react';
 import { auth } from '../supabase';
 import { VisualizationModal } from './VisualizationModal';
 import { GraphViewPanel } from './GraphViewPanel';
@@ -15,10 +15,12 @@ import {
 import { exportBankSoalJSON, exportBankSoalCSV, exportBankSoalPDF } from '../services/bankSoalExportService';
 import { QuizMode, Question } from '../types';
 import { MaterialOverviewModal } from './MaterialOverviewModal';
+import { notifyUser } from '../services/uiFeedbackService';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface HistoryScreenProps {
   onLoadHistory: (quiz: any) => void;
-  onStartFlashcards: (questions: Question[]) => void;
+  onStartFlashcards: (questions: Question[], sourceId?: string | number) => void;
   onImportQuiz: (file: File) => void;
 }
 
@@ -37,7 +39,7 @@ const getScoreColor = (score: number | null) => {
   return "bg-rose-100 text-rose-600 border-rose-200";
 };
 
-export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onStartFlashcards }) => {
+export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onStartFlashcards, onImportQuiz }) => {
   const [, setLocaleTick] = useState(0);
   useEffect(() => subscribeLocale(() => setLocaleTick(n => n + 1)), []);
   const [quizHistory, setQuizHistory] = useState<any[]>([]);
@@ -62,6 +64,15 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onS
   const [renameFolderModal, setRenameFolderModal] = useState<{ oldName: string, isOpen: boolean }>({ oldName: '', isOpen: false });
   const [newFolderName, setNewFolderName] = useState('');
   const [exportMenuQuizId, setExportMenuQuizId] = useState<string | null>(null);
+  const [confirmation, setConfirmation] = useState<null | {
+    title: string;
+    message: string;
+    confirmLabel: string;
+    danger?: boolean;
+    action: () => Promise<void> | void;
+  }>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -119,36 +130,78 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onS
   const handleShareLink = async (quiz: any) => {
     setIsLoading(true);
     try {
-      await uploadQuizToCloud(quiz);
+      await uploadQuizToCloud({ ...quiz, visibility: 'public', isPublic: true });
       const link = `${window.location.origin}?share=${quiz.id}`;
       await navigator.clipboard.writeText(link);
       setUploadModal({ quiz, isOpen: true, shareLink: link });
     } catch (err: any) {
-      alert(t('errorGeneric') + ': ' + err.message);
+      notifyUser(t('errorGeneric') + ': ' + err.message, 'error');
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleDownloadQuiz = async (quiz: any) => {
-    if (confirm(t('downloadLocalQ'))) {
-       try {
+    setConfirmation({
+      title: getLocale() === 'id' ? 'Simpan untuk offline?' : 'Save for offline?',
+      message: t('downloadLocalQ'),
+      confirmLabel: getLocale() === 'id' ? 'Unduh' : 'Download',
+      action: async () => {
+        try {
           await downloadQuizFromCloud(quiz);
-          alert(t('downloadOk'));
+          notifyUser(t('downloadOk'), 'success');
           refreshQuizzes();
-       } catch (e) {
-          alert(t('downloadFail') + ': ' + (e instanceof Error ? e.message : String(e)));
-       }
+        } catch (e) {
+          notifyUser(t('downloadFail') + ': ' + (e instanceof Error ? e.message : String(e)), 'error');
+        }
+      },
+    });
+  };
+
+  const requestShareLink = (quiz: any) => {
+    setConfirmation({
+      title: getLocale() === 'id' ? 'Publikasikan kuis?' : 'Publish this quiz?',
+      message: getLocale() === 'id'
+        ? 'Siapa pun yang memiliki tautan dapat membuka dan menyalin kuis ini. Catatan sumber tidak ikut dibagikan.'
+        : 'Anyone with the link can open and copy this quiz. Source notes are not shared.',
+      confirmLabel: getLocale() === 'id' ? 'Publikasikan' : 'Publish',
+      action: () => handleShareLink(quiz),
+    });
+  };
+
+  const requestDeleteQuiz = (quiz: any) => {
+    setConfirmation({
+      title: getLocale() === 'id' ? 'Hapus kuis?' : 'Delete quiz?',
+      message: t('deleteQuizQ'),
+      confirmLabel: getLocale() === 'id' ? 'Hapus' : 'Delete',
+      danger: true,
+      action: async () => {
+        await deleteQuiz(quiz.id);
+        refreshQuizzes();
+      },
+    });
+  };
+
+  const runConfirmedAction = async () => {
+    if (!confirmation || isConfirming) return;
+    setIsConfirming(true);
+    try {
+      await confirmation.action();
+      setConfirmation(null);
+    } catch (error) {
+      notifyUser(error instanceof Error ? error.message : String(error), 'error');
+    } finally {
+      setIsConfirming(false);
     }
   };
 
   const handleUploadToCloud = async (quiz: any) => {
       try {
           await uploadQuizToCloud(quiz);
-          alert(t('uploadCloudOk'));
+          notifyUser(t('uploadCloudOk'), 'success');
           refreshQuizzes();
       } catch (err: any) {
-          alert(err.message || t('uploadCloudFail'));
+          notifyUser(err.message || t('uploadCloudFail'), 'error');
       }
   };
   const handleMoveFolder = async () => {
@@ -198,32 +251,47 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onS
     <div className="max-w-6xl mx-auto pt-8 pb-32 px-4 min-h-[90vh] text-theme-text flex flex-col font-sans">
       
       <PageHeader title={t('pageFilesTitle')} purpose={t('pageFilesPurpose')} />
-      {/* HEADER SECTION */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 gap-4">
-          <div>
-              <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600 flex items-center gap-3">
-                  <History size={32} className="text-indigo-500" /> {t('pageFilesTitle')}
-              </h1>
-              <p className="text-slate-500 mt-2 font-medium">Buka kembali kuis lama kamu dan tingkatkan skormu.</p>
-          </div>
-
+      <div className="flex justify-end mb-8">
           <div className="flex items-center gap-3">
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) onImportQuiz(file);
+                  event.target.value = '';
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                aria-label={t('importQuiz')}
+                title={t('importQuiz')}
+                className="p-3 bg-white border border-slate-200/60 shadow-sm rounded-2xl text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all active:scale-95"
+              >
+                <FileJson size={20} />
+              </button>
               <div className="flex bg-theme-glass backdrop-blur-md p-1.5 rounded-2xl border border-slate-200/60 shadow-sm w-full md:w-auto">
                   <button 
                       onClick={() => setViewMode('local')} 
+                      aria-pressed={viewMode === 'local'}
                       className={`flex-1 md:flex-none px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${viewMode === 'local' ? 'bg-white text-indigo-600 shadow-md transform scale-105' : 'text-slate-500 hover:bg-slate-50'}`}
                   >
-                      Lokal
+                      {t('historyLocal')}
                   </button>
                   <button 
                       onClick={() => setViewMode('cloud')} 
+                      aria-pressed={viewMode === 'cloud'}
                       className={`flex-1 md:flex-none px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${viewMode === 'cloud' ? 'bg-white text-emerald-600 shadow-md transform scale-105' : 'text-slate-500 hover:bg-slate-50'}`}
                   >
-                      Cloud 
+                      {t('historyCloud')}
                   </button>
               </div>
               <button 
                 onClick={refreshQuizzes} 
+                aria-label="Refresh sync"
                 className="p-3 bg-white border border-slate-200/60 shadow-sm rounded-2xl text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all active:scale-95" 
                 title="Refresh sync"
               >
@@ -300,7 +368,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onS
           </div>
       ) : filteredQuizzes.length === 0 ? (
           <div className="text-center py-20 bg-theme-glass border-2 border-dashed border-slate-200 rounded-[3rem]">
-              <History size={48} className="mx-auto text-slate-300 mb-4" />
+              <Book size={48} className="mx-auto text-slate-300 mb-4" />
               <p className="text-slate-500 font-medium text-lg">{t('emptyHistory')}</p>
               <p className="text-sm text-slate-500 mt-2">{t('emptyHistoryDesc')}</p>
           </div>
@@ -345,10 +413,10 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onS
                                       <button onClick={() => handleUploadToCloud(quiz)} className="p-2 bg-emerald-50 text-emerald-600 rounded-full hover:bg-emerald-100 transition-colors" title="Upload ke Cloud">
                                           <CloudLightning size={16} />
                                       </button>
-                                      <button onClick={() => handleShareLink(quiz)} className="p-2 bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100 transition-colors" title="Share via Link">
+                                      <button onClick={() => requestShareLink(quiz)} className="p-2 bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100 transition-colors" title="Share via Link">
                                           <Share2 size={16} />
                                       </button>
-                                      <button onClick={() => { if(confirm(t('deleteQuizQ'))) { deleteQuiz(quiz.id); refreshQuizzes(); } }} className="p-2 bg-rose-50 text-rose-600 rounded-full hover:bg-rose-100 transition-colors" title="Delete">
+                                      <button onClick={() => requestDeleteQuiz(quiz)} className="p-2 bg-rose-50 text-rose-600 rounded-full hover:bg-rose-100 transition-colors" title="Delete">
                                           <Trash2 size={16} />
                                       </button>
                                   </>
@@ -386,7 +454,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onS
                                   <button onClick={() => onLoadHistory(quiz)} className="flex-1 bg-slate-900 text-white font-bold py-2.5 rounded-xl shadow-lg shadow-slate-200 hover:bg-slate-800 hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2">
                                       <Play size={16} /> {isNew ? t('start') : t('retry')}
                                   </button>
-                                  <button onClick={() => onStartFlashcards(quiz.questions || [])} className="bg-indigo-50 text-indigo-600 font-bold py-2.5 px-4 rounded-xl hover:bg-indigo-100 transition-colors" title="Flashcards">
+                                  <button onClick={() => onStartFlashcards(quiz.questions || [], quiz.id)} className="bg-indigo-50 text-indigo-600 font-bold py-2.5 px-4 rounded-xl hover:bg-indigo-100 transition-colors" title="Flashcards">
                                       <Layout size={16} />
                                   </button>
                                   <button onClick={() => setOverviewModal({ isOpen: true, quiz })} className="bg-teal-50 text-teal-600 font-bold py-2.5 px-4 rounded-xl hover:bg-teal-100 transition-colors" title={t('conceptMapBtn')}>
@@ -575,6 +643,18 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onS
               </motion.div>
           </div>
       )}
+
+      <ConfirmDialog
+        open={confirmation !== null}
+        title={confirmation?.title || ''}
+        message={confirmation?.message || ''}
+        confirmLabel={confirmation?.confirmLabel || ''}
+        cancelLabel={t('cancel')}
+        danger={confirmation?.danger}
+        busy={isConfirming}
+        onCancel={() => setConfirmation(null)}
+        onConfirm={() => void runConfirmedAction()}
+      />
 
     </div>
   );

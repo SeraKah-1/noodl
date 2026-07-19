@@ -7,6 +7,7 @@ import { auth, supabase, isSupabaseConfigured } from "../supabase";
 import { get, set } from "idb-keyval";
 
 import { KEYS } from "./storageKeys";
+import { cloudSoftDeleteSrsRow, cloudUpsertSrsRow } from "./syncService";
 
 const SRS_IDB_KEY = KEYS.srsIdb;
 
@@ -76,11 +77,32 @@ export const NeuroSync = {
 
   async addItem(_config: any, keycardId: string, item: Partial<SRSItem>) {
     const items = await loadLocal();
-    if (items.some((i) => i.item_id === item.item_id)) return true;
+    const normalizedKeycardId = keycardId || "global";
+    const existing = items.find(
+      (i) => i.keycard_id === normalizedKeycardId && i.item_id === item.item_id
+    );
+    if (existing && !existing.deleted_at) return existing;
+    if (existing?.deleted_at) {
+      const restored: SRSItem = {
+        ...existing,
+        ...item,
+        deleted_at: null,
+        next_review: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        client_updated_at: new Date().toISOString(),
+      };
+      await saveLocal(items.map((entry) => entry.id === existing.id ? restored : entry));
+      try {
+        await cloudUpsertSrsRow(restored);
+      } catch (error) {
+        console.warn("[SRS restore queued]", error);
+      }
+      return restored;
+    }
 
     const id = item.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const newItem: SRSItem = {
-      keycard_id: keycardId || "global",
+      keycard_id: normalizedKeycardId,
       item_id: item.item_id!,
       item_type: item.item_type || "quiz_question",
       content: item.content,
@@ -90,6 +112,7 @@ export const NeuroSync = {
       next_review: new Date().toISOString(),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+      client_updated_at: new Date().toISOString(),
       ...item,
       id,
     };
@@ -97,23 +120,12 @@ export const NeuroSync = {
     items.push(newItem);
     await saveLocal(items);
 
-    if (cloudOn() && supabase && auth.currentUser) {
-      const { error } = await supabase.from("srs_items").upsert({
-        id: newItem.id,
-        user_id: auth.currentUser.uid,
-        keycard_id: newItem.keycard_id,
-        item_id: newItem.item_id,
-        item_type: newItem.item_type,
-        content: newItem.content,
-        easiness: newItem.easiness,
-        interval: newItem.interval,
-        repetition: newItem.repetition,
-        next_review: newItem.next_review,
-        updated_at: new Date().toISOString(),
-      });
-      if (error) console.warn("[SRS cloud add]", error.message);
+    try {
+      await cloudUpsertSrsRow(newItem);
+    } catch (error) {
+      console.warn("[SRS add queued]", error);
     }
-    return true;
+    return newItem;
   },
 
   async getDueItems(_config: any, keycardId: string): Promise<SRSItem[]> {
@@ -131,13 +143,31 @@ export const NeuroSync = {
         }
         const { data, error } = await q;
         if (!error && data) {
-          return data.map((row: any) => ({
+          const cloudItems = data.map((row: any) => ({
             ...row,
             next_review:
               typeof row.next_review === "string"
                 ? row.next_review
                 : new Date(row.next_review).toISOString(),
           }));
+          const localItems = await loadLocal();
+          const merged = new Map<string, SRSItem>();
+          for (const item of [...cloudItems, ...localItems]) {
+            const key = `${item.keycard_id || "global"}:${item.item_id}`;
+            const current = merged.get(key);
+            const itemTime = new Date(item.updated_at || item.created_at || 0).getTime();
+            const currentTime = new Date(current?.updated_at || current?.created_at || 0).getTime();
+            if (!current || itemTime >= currentTime) merged.set(key, item);
+          }
+          const allItems = Array.from(merged.values());
+          await saveLocal(allItems);
+          const now = Date.now();
+          return allItems
+            .filter((item) => {
+              if (keycardId && keycardId !== "global" && item.keycard_id !== keycardId) return false;
+              return !item.deleted_at && new Date(item.next_review).getTime() <= now;
+            })
+            .sort((a, b) => +new Date(a.next_review) - +new Date(b.next_review));
         }
       } catch (e) {
         console.warn("[SRS cloud due]", e);
@@ -149,17 +179,18 @@ export const NeuroSync = {
     return items
       .filter((i) => {
         if (keycardId && keycardId !== "global" && i.keycard_id !== keycardId) return false;
-        return new Date(i.next_review).getTime() <= now;
+        return !i.deleted_at && new Date(i.next_review).getTime() <= now;
       })
       .sort((a, b) => +new Date(a.next_review) - +new Date(b.next_review));
   },
 
   async getStats(_config: any, keycardId: string) {
     const items = await loadLocal();
+    const visible = items.filter((item) => !item.deleted_at);
     const filtered =
       keycardId && keycardId !== "global"
-        ? items.filter((i) => i.keycard_id === keycardId)
-        : items;
+        ? visible.filter((i) => i.keycard_id === keycardId)
+        : visible;
     const now = Date.now();
     const due = filtered.filter((i) => +new Date(i.next_review) <= now).length;
     const learned = filtered.filter((i) => (i.repetition || 0) >= 2).length;
@@ -168,46 +199,59 @@ export const NeuroSync = {
 
   async updateItem(item: SRSItem, rating: number) {
     const updated = this.calculateNextReview(item, rating);
+    updated.client_updated_at = updated.updated_at;
     const items = await loadLocal();
-    const idx = items.findIndex((i) => i.id === item.id || i.item_id === item.item_id);
+    const idx = items.findIndex(
+      (i) =>
+        i.id === item.id ||
+        (i.keycard_id === item.keycard_id && i.item_id === item.item_id)
+    );
     if (idx >= 0) items[idx] = { ...items[idx], ...updated };
     else items.push(updated);
     await saveLocal(items);
 
-    if (cloudOn() && supabase && auth.currentUser && updated.id) {
-      const { error } = await supabase
-        .from("srs_items")
-        .upsert({
-          id: updated.id,
-          user_id: auth.currentUser.uid,
-          keycard_id: updated.keycard_id || "global",
-          item_id: updated.item_id,
-          item_type: updated.item_type,
-          content: updated.content,
-          easiness: updated.easiness,
-          interval: updated.interval,
-          repetition: updated.repetition,
-          next_review: updated.next_review,
-          updated_at: new Date().toISOString(),
-        });
-      if (error) console.warn("[SRS cloud update]", error.message);
+    try {
+      await cloudUpsertSrsRow(updated);
+    } catch (error) {
+      console.warn("[SRS update queued]", error);
     }
     return updated;
   },
 
   async removeItem(id: string) {
-    const items = (await loadLocal()).filter((i) => i.id !== id && i.item_id !== id);
-    await saveLocal(items);
-    if (cloudOn() && supabase && auth.currentUser) {
-      await supabase.from("srs_items").delete().eq("id", id).eq("user_id", auth.currentUser.uid);
+    const deletedAt = new Date().toISOString();
+    const items = await loadLocal();
+    const target = items.find((i) => i.id === id || i.item_id === id);
+    if (!target?.id) return;
+    await saveLocal(items.map((item) =>
+      item.id === target.id
+        ? { ...item, deleted_at: deletedAt, updated_at: deletedAt, client_updated_at: deletedAt }
+        : item
+    ));
+    try {
+      await cloudSoftDeleteSrsRow(target.id);
+    } catch (error) {
+      console.warn("[SRS delete queued]", error);
     }
   },
 
   async clearSyncData() {
     try {
-      await saveLocal([]);
-      if (cloudOn() && supabase && auth.currentUser) {
-        await supabase.from("srs_items").delete().eq("user_id", auth.currentUser.uid);
+      const items = await loadLocal();
+      const deletedAt = new Date().toISOString();
+      await saveLocal(items.map((item) => ({
+        ...item,
+        deleted_at: deletedAt,
+        updated_at: deletedAt,
+        client_updated_at: deletedAt,
+      })));
+      for (const item of items) {
+        if (!item.id) continue;
+        try {
+          await cloudSoftDeleteSrsRow(item.id);
+        } catch {
+          // Each failed id is already preserved in the outbox.
+        }
       }
       return true;
     } catch (e) {

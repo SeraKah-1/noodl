@@ -3,6 +3,7 @@
  */
 import {
   ALLOWED_PROXY_HOSTS,
+  isAllowedProxyOrigin,
   isAllowedProxyTarget,
   normalizeProxyTarget,
 } from '../api/corsAllowlist.js';
@@ -36,6 +37,10 @@ assert(isAllowedProxyTarget('not a url') === false, 'garbage denied');
 const norm = normalizeProxyTarget('openrouter.ai/api/v1');
 assert(!!norm && norm.startsWith('https://openrouter.ai/'), 'normalize adds https for allowlisted host');
 assert(normalizeProxyTarget('https://evil.com') === null, 'normalize rejects non-allowlisted');
+assert(isAllowedProxyOrigin('https://noodl.example', 'noodl.example'), 'same origin accepted');
+assert(isAllowedProxyOrigin('http://localhost:5173', 'localhost:3000'), 'localhost dev origin accepted');
+assert(!isAllowedProxyOrigin('https://attacker.vercel.app', 'noodl.vercel.app'), 'different Vercel project denied');
+assert(!isAllowedProxyOrigin('', 'noodl.example'), 'missing origin denied');
 
 if (process.exitCode) {
   console.error('\nSome cors allowlist tests FAILED');

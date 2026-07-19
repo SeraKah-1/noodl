@@ -9,6 +9,7 @@ import type { VisualizationBlueprint, VisualizationResult } from '../types';
 import { HISTORY_IDB_KEY, uploadQuizToCloud } from '../services/storageService';
 import { get, set } from 'idb-keyval';
 import { auth } from '../supabase';
+import { notifyUser } from '../services/uiFeedbackService';
 
 // ─── VIZ TYPE STYLING ───
 const VIZ_TYPE_STYLE: Record<string, { icon: string; color: string; bg: string }> = {
@@ -99,9 +100,9 @@ export const VisualizationGallery: React.FC<VisualizationGalleryProps> = ({
         setIsCloudSynced(true);
       }
       
-      alert('Uploaded to cloud.');
+      notifyUser('Uploaded to cloud.', 'success');
     } catch (err: any) {
-      alert('Upload failed: ' + (err.message || String(err)));
+      notifyUser('Upload failed: ' + (err.message || String(err)), 'error');
     } finally {
       setIsUploading(false);
     }

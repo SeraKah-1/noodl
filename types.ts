@@ -49,7 +49,7 @@ export interface ConceptNode {
 }
 
 export interface Question {
-  id: number;
+  id: string | number;
   type?: QuestionType; // Defaults to MULTIPLE_CHOICE
   text: string;
   options: string[]; 
@@ -61,7 +61,7 @@ export interface Question {
   keyPoint: string; 
   difficulty: 'Easy' | 'Medium' | 'Hard';
   isReview?: boolean;
-  originalId?: number;
+  originalId?: string | number;
   // Phase 1: High-Yield Pipeline tracking
   conceptName?: string;
   conceptPriority?: ConceptPriority;
@@ -79,6 +79,8 @@ export interface SRSItem {
   next_review: string; // ISO string
   created_at?: string;
   updated_at?: string;
+  client_updated_at?: string;
+  deleted_at?: string | null;
 }
 
 export interface QuizResult {
@@ -86,7 +88,7 @@ export interface QuizResult {
   totalQuestions: number;
   score: number;
   mode: QuizMode;
-  answers: { questionId: number; selectedIndex: number; textAnswer?: string; isCorrect: boolean }[];
+  answers: { questionId: string | number; selectedIndex: number; textAnswer?: string; isCorrect: boolean }[];
 }
 
 
@@ -106,6 +108,9 @@ export interface LibraryItem {
   type: 'pdf' | 'text' | 'note' | 'image' | 'presentation';
   tags: string[];
   created_at: string;
+  updated_at?: string;
+  client_updated_at?: string;
+  deleted_at?: string | null;
 }
 
 export interface CloudNote {
@@ -191,25 +196,6 @@ export interface ModelOption {
   provider: AiProvider;
   isVision?: boolean; 
 }
-
-export const AVAILABLE_MODELS: ModelOption[] = [
-  // --- GEMINI 3.x FLAGSHIP & PREVIEW MODELS ---
-  { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash (Flagship Flash)", provider: 'gemini', isVision: true },
-  { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro (Preview) – Advanced Reasoning", provider: 'gemini', isVision: true },
-  { id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash-Lite (Preview) – Ultra Fast", provider: 'gemini', isVision: true },
-  { id: "gemini-3.1-flash-image-preview", label: "Gemini 3.1 Flash Image (Preview) – Multimodal", provider: 'gemini', isVision: true },
-  { id: "gemini-3-flash-preview", label: "Gemini 3 Flash (Preview) – Frontier Value", provider: 'gemini', isVision: true },
-  { id: "gemini-3-pro-image-preview", label: "Gemini 3 Pro Image (Preview) – Professional Assets", provider: 'gemini', isVision: true },
-];
-
-// Models available when connection mode is 'antigravity' (Gemini 3.x Flagships)
-export const ANTIGRAVITY_MODELS: ModelOption[] = [
-  { id: "gemini-3.5-flash", label: "✦ Gemini 3.5 Flash (Antigravity Flagship)", provider: 'gemini', isVision: true },
-  { id: "gemini-3.1-pro-preview", label: "✦ Gemini 3.1 Pro (Antigravity Reasoning)", provider: 'gemini', isVision: true },
-  { id: "gemini-3.1-flash-lite-preview", label: "✦ Gemini 3.1 Flash-Lite (Antigravity Ultra Fast)", provider: 'gemini', isVision: true },
-  { id: "gemini-3-flash-preview", label: "✦ Gemini 3 Flash (Antigravity Frontier)", provider: 'gemini', isVision: true },
-  { id: "gemini-3-pro-image-preview", label: "✦ Gemini 3 Pro Image (Antigravity Assets)", provider: 'gemini', isVision: true },
-];
 
 // ═══ VISUALIZATION SYSTEM ═══
 

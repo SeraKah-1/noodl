@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Check, X, ArrowRight, CornerDownLeft, Type, ToggleLeft, Lightbulb, Clock } from 'lucide-react';
 import { Question } from '../types';
 import { useGameSound } from '../hooks/useGameSound';
+import { isFillBlankCorrect } from '../services/answerEvaluation';
 
 interface UniversalCardProps {
   question: Question;
@@ -114,17 +115,27 @@ export const UniversalQuestionCard: React.FC<UniversalCardProps> = ({
         </div>
         <div className="flex gap-4 h-32">
             {[
-            { label: t('correct'), val: 0, color: "emerald", icon: Check, border: "border-emerald-500" },
-            { label: t('wrong'), val: 1, color: "rose", icon: X, border: "border-rose-500" }
+            {
+              label: t('correct'), val: 0, icon: Check,
+              idle: 'bg-white border-slate-200 text-slate-500 hover:border-emerald-200 hover:text-emerald-500',
+              correct: 'bg-emerald-50 border-emerald-500 text-emerald-700 shadow-none transform-none',
+              selected: 'bg-emerald-50 border-emerald-400 text-emerald-700 opacity-60 shadow-none transform-none',
+            },
+            {
+              label: t('wrong'), val: 1, icon: X,
+              idle: 'bg-white border-slate-200 text-slate-500 hover:border-rose-200 hover:text-rose-500',
+              correct: 'bg-rose-50 border-rose-500 text-rose-700 shadow-none transform-none',
+              selected: 'bg-rose-50 border-rose-400 text-rose-700 opacity-60 shadow-none transform-none',
+            }
             ].map((opt) => {
                 const isCorrect = question.correctIndex === opt.val;
                 const isSelected = userAnswer === opt.val;
                 
-                let activeClass = `bg-white border-slate-200 text-slate-500 hover:border-${opt.color}-200 hover:text-${opt.color}-500`;
+                let activeClass = opt.idle;
                 
                 if (isAnswered) {
-                    if (isCorrect) activeClass = `bg-${opt.color}-50 border-${opt.color}-500 text-${opt.color}-700 shadow-none transform-none`;
-                    else if (isSelected) activeClass = `bg-${opt.color}-50 border-${opt.color}-400 text-${opt.color}-700 opacity-60 shadow-none transform-none`;
+                    if (isCorrect) activeClass = opt.correct;
+                    else if (isSelected) activeClass = opt.selected;
                     else activeClass = "opacity-20 border-transparent bg-slate-100 shadow-none transform-none";
                 }
 
@@ -152,16 +163,18 @@ export const UniversalQuestionCard: React.FC<UniversalCardProps> = ({
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!textInput || !textInput.trim() || isAnswered) return;
-        const cleanInput = textInput.trim().toLowerCase();
-        const cleanAnswer = (question.correctAnswer || "").trim().toLowerCase();
-        const isCorrect = cleanInput === cleanAnswer || cleanAnswer.includes(cleanInput);
+        const isCorrect = isFillBlankCorrect(textInput, question.correctAnswer || "");
         onAnswer(textInput, isCorrect);
     };
 
     return (
         <form onSubmit={handleSubmit} className="w-full mt-4">
             <div className="relative">
-                <input 
+                <label htmlFor={`fill-answer-${question.id}`} className="sr-only">
+                  {t('typeAnswer')}
+                </label>
+                <input
+                    id={`fill-answer-${question.id}`}
                     type="text" 
                     value={textInput}
                     onChange={(e) => setTextInput(e.target.value)}

@@ -1,4 +1,5 @@
 import { getLocale } from './i18n';
+import { notifyUser } from './uiFeedbackService';
 /**
  * ==========================================
  * BROWSER NOTIFICATION & SCHEDULING SERVICE
@@ -9,7 +10,7 @@ const REMINDER_KEY = 'glassquiz_reminder_time';
 
 export const requestNotificationPermission = async (): Promise<boolean> => {
   if (!("Notification" in window)) {
-    alert(getLocale() === "id" ? "Browser tidak mendukung notifikasi." : "This browser does not support notifications.");
+    notifyUser(getLocale() === "id" ? "Browser tidak mendukung notifikasi." : "This browser does not support notifications.", 'error');
     return false;
   }
 
@@ -29,10 +30,10 @@ export const scheduleDailyReminder = (time: string) => { // format "HH:MM"
   localStorage.setItem(REMINDER_KEY, time);
   
   // Send immediate feedback
-  if (Notification.permission === "granted") {
+  if ("Notification" in window && Notification.permission === "granted") {
     new Notification(getLocale() === "id" ? "Pengingat aktif ⏰" : "Reminder on ⏰", {
       body: getLocale() === 'id' ? `Pengingat harian jam ${time}` : `Daily reminder at ${time}`,
-      icon: "https://cdn-icons-png.flaticon.com/512/3767/3767084.png" // Generic study icon
+      icon: "/icon-192.png"
     });
   }
 };
@@ -41,12 +42,11 @@ export const getReminderTime = (): string | null => {
   return localStorage.getItem(REMINDER_KEY);
 };
 
-import { getLocale } from './i18n';
 import { notifyStudyReminder } from './kaomojiNotificationService';
 
 export const checkAndTriggerNotification = () => {
   const savedTime = getReminderTime();
-  if (!savedTime || Notification.permission !== "granted") return;
+  if (!savedTime || !("Notification" in window) || Notification.permission !== "granted") return;
 
   const now = new Date();
   const [targetHours, targetMinutes] = savedTime.split(':').map(Number);

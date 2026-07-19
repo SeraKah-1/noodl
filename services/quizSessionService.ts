@@ -19,7 +19,7 @@ const SESSION_IDB_KEY = KEYS.sessionIdb;
 // dual-read: migrateLegacyKeys copies mikir_active_session → noodl_active_session
 
 export interface AnswerRecord {
-  questionId: number;
+  questionId: string | number;
   selectedIndex: number;
   textAnswer?: string;
   isCorrect: boolean;

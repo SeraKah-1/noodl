@@ -297,19 +297,19 @@ export const DashboardMascot: React.FC<{ onOpenScheduler: () => void }> = React.
   const ctx = timeContext();
 
   return (
-    <div className="relative w-full mb-8">
+    <div className="relative w-full mb-4 md:mb-8">
       <motion.div
         initial={{ y: 12, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        className="bg-white/40 backdrop-blur-xl border border-white/60 rounded-[2.5rem] p-6 flex flex-col md:flex-row items-center shadow-xl shadow-indigo-500/5 relative overflow-hidden"
+        className="bg-white/40 backdrop-blur-xl border border-white/60 rounded-[2.5rem] p-4 md:p-6 flex flex-row items-start md:items-center shadow-xl shadow-indigo-500/5 relative overflow-hidden"
       >
         <div className={`absolute top-0 right-0 w-48 h-48 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none opacity-40 ${currentStage.bg}`} />
 
-        <div className="flex flex-col items-center justify-center md:mr-8 mb-6 md:mb-0 shrink-0 z-10">
+        <div className="flex flex-col items-center justify-center mr-4 md:mr-8 shrink-0 z-10">
           <button
             type="button"
             onClick={handlePoke}
-            className={`relative text-4xl md:text-5xl font-black tracking-widest bg-white/60 w-24 h-24 flex items-center justify-center rounded-full shadow-inner border-2 border-white/80 cursor-pointer group hover:shadow-lg hover:border-white hover:scale-105 active:scale-95 transition-transform duration-200 ${isWiggling ? '' : 'animate-float'} ${currentStage.color}`}
+            className={`relative text-3xl md:text-5xl font-black tracking-widest bg-white/60 w-20 h-20 md:w-24 md:h-24 flex items-center justify-center rounded-full shadow-inner border-2 border-white/80 cursor-pointer group hover:shadow-lg hover:border-white hover:scale-105 active:scale-95 transition-transform duration-200 ${isWiggling ? '' : 'animate-float'} ${currentStage.color}`}
             title={locale === 'id' ? 'Ketuk untuk ganti kalimat' : 'Tap for a new line'}
           >
             <div className="whitespace-nowrap scale-110">{face}</div>
@@ -320,8 +320,8 @@ export const DashboardMascot: React.FC<{ onOpenScheduler: () => void }> = React.
         </div>
 
         <div className="flex-1 w-full z-10">
-          <div className="bg-white/70 rounded-2xl rounded-tl-sm p-5 shadow-sm border border-white/60 relative mb-4 min-h-[80px] flex items-center">
-            <p className="text-slate-700 font-medium leading-relaxed italic pr-6">"{message}"</p>
+          <div className="bg-white/70 rounded-2xl rounded-tl-sm p-3 md:p-5 shadow-sm border border-white/60 relative mb-4 min-h-[72px] md:min-h-[80px] flex items-center">
+            <p className="text-sm md:text-base text-slate-700 font-medium leading-relaxed italic pr-5">"{message}"</p>
             <div className="absolute top-2 right-2 opacity-20 w-4 h-4 flex items-center justify-center pointer-events-none">
               {ctx === 'morning' && <Coffee size={16} />}
               {ctx === 'afternoon' && <Sun size={16} />}

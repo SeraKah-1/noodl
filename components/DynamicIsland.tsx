@@ -1,26 +1,20 @@
 import { t } from '../services/i18n';
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Loader2, AlertTriangle, WifiOff, BrainCircuit } from 'lucide-react';
-import { useAppStore } from '../store/useAppStore';
-import { QuizState } from '../types';
+import { CheckCircle2, AlertTriangle, WifiOff } from 'lucide-react';
 
 export const DynamicIsland: React.FC = () => {
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'error' | 'offline'>('idle');
-  const { quizState, loadingStatus } = useAppStore();
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'online' | 'error' | 'offline'>('idle');
 
   useEffect(() => {
+    let onlineTimer: ReturnType<typeof setTimeout> | undefined;
     const handleOnline = () => {
-      setIsOnline(true);
-      // Brief “back online” pulse — no Firebase network toggle
-      setSyncStatus('syncing');
-      const t = setTimeout(() => setSyncStatus('idle'), 1200);
-      return () => clearTimeout(t);
+      setSyncStatus('online');
+      clearTimeout(onlineTimer);
+      onlineTimer = setTimeout(() => setSyncStatus('idle'), 1200);
     };
 
     const handleOffline = () => {
-      setIsOnline(false);
       setSyncStatus('offline');
     };
 
@@ -38,47 +32,30 @@ export const DynamicIsland: React.FC = () => {
     return () => {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', handleOffline);
+      clearTimeout(onlineTimer);
     };
   }, []);
 
-  const isProcessingQuiz = quizState === QuizState.PROCESSING;
-
   return (
-    <div className="fixed top-4 left-0 right-0 flex justify-center z-[100] pointer-events-none">
+    <div aria-live="polite" className="fixed top-4 left-0 right-0 flex justify-center z-40 pointer-events-none">
       <AnimatePresence mode="wait">
-        <motion.div
-          key={isProcessingQuiz ? 'processing' : syncStatus}
+        {syncStatus !== 'idle' && <motion.div
+          key={syncStatus}
           initial={{ y: -50, scale: 0.8, opacity: 0 }}
           animate={{ y: 0, scale: 1, opacity: 1 }}
           exit={{ y: -20, scale: 0.9, opacity: 0 }}
           transition={{ type: 'spring', stiffness: 400, damping: 25 }}
           className={`
             backdrop-blur-md border rounded-full shadow-2xl overflow-hidden flex items-center justify-center pointer-events-auto transition-all duration-300
-            ${isProcessingQuiz 
-              ? 'bg-indigo-950/90 border-indigo-500/40 text-indigo-200 ring-2 ring-indigo-500/20' 
-              : 'bg-black/80 border-white/10 text-white'}
+            bg-black/80 border-white/10 text-white
           `}
-          style={{ minWidth: isProcessingQuiz ? '220px' : '140px', minHeight: '40px' }}
+          style={{ minWidth: '140px', minHeight: '40px' }}
         >
-          {isProcessingQuiz ? (
-            <div className="flex items-center px-4 py-2 gap-2 text-xs font-bold text-indigo-300">
-              <BrainCircuit size={16} className="animate-pulse text-indigo-400" />
-              <span className="font-mono">{loadingStatus || t('loadingStatusDefault')}</span>
-              <Loader2 size={14} className="animate-spin text-indigo-400 ml-1" />
-            </div>
-          ) : (
             <>
-              {syncStatus === 'idle' && (
-                <div className="flex items-center px-4 py-2 gap-2">
-                  <span className="text-sm font-bold opacity-80">( •_• )</span>
-                  <span className="text-xs font-medium text-white/50 border-l border-white/20 pl-2">Noodl</span>
-                </div>
-              )}
-
-              {syncStatus === 'syncing' && (
+              {syncStatus === 'online' && (
                 <div className="flex items-center px-4 py-2 gap-2 text-indigo-300">
-                  <Loader2 size={16} className="animate-spin" />
-                  <span className="text-xs font-bold">Menyelaraskan...</span>
+                  <CheckCircle2 size={16} />
+                  <span className="text-xs font-bold">Back online</span>
                 </div>
               )}
 
@@ -96,8 +73,7 @@ export const DynamicIsland: React.FC = () => {
                 </div>
               )}
             </>
-          )}
-        </motion.div>
+        </motion.div>}
       </AnimatePresence>
     </div>
   );

@@ -44,6 +44,13 @@ export default defineConfig(({ mode }) => {
           },
           workbox: {
             globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,jpeg,json}'],
+            // Optional online/heavy features should not inflate the first offline cache.
+            globIgnores: [
+              '**/react-pdf.browser-*.js',
+              '**/pdfExportService-*.js',
+              '**/vision_*.js',
+              '**/geminiService-*.js',
+            ],
             maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
             navigateFallback: '/index.html'
           }

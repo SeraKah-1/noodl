@@ -13,6 +13,7 @@ import { GlassButton } from './GlassButton';
 import { useGameSound } from '../hooks/useGameSound';
 import { FlashcardScreen } from './FlashcardScreen';
 import { MaterialOverviewModal } from './MaterialOverviewModal';
+import { notifyUser } from '../services/uiFeedbackService';
 
 interface ResultScreenProps {
   result: QuizResult;
@@ -174,7 +175,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({ result, questions, o
 
   const handleAddMoreSubmit = () => {
     const val = parseInt(addCount);
-    if (isNaN(val) || val < 1 || val > 20) return alert(t('resultAddCount'));
+    if (isNaN(val) || val < 1 || val > 20) return notifyUser(t('resultAddCount'), 'error');
     
     if (lastConfig) {
       setLastConfig({
@@ -296,7 +297,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({ result, questions, o
                             const levelInfo = getBloomLevels().find(l => l.id === style);
                             const pct = bloomPct[style] || 0;
                             const dotColors = ['bg-blue-500', 'bg-indigo-500', 'bg-violet-500', 'bg-purple-500', 'bg-fuchsia-500'];
-                            const colorClass = dotColors[i % dotColors.length].replace('bg-', '');
+                            const accentColors = ['#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef'];
                             return (
                                 <div key={style} className="flex flex-col gap-1">
                                     <div className="flex justify-between items-center text-[10px] font-bold text-slate-600 px-1">
@@ -308,9 +309,10 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({ result, questions, o
                                         min="0" 
                                         max="100" 
                                         value={pct}
+                                        aria-label={`${levelInfo?.label || style} ${pct}%`}
                                         onChange={(e) => handlePctChange(style, parseInt(e.target.value))}
-                                        className={`w-full h-1.5 bg-indigo-100 rounded-full appearance-none accent-${colorClass}`}
-                                        style={{ accentColor: `var(--tw-colors-${colorClass.split('-')[0]}-${colorClass.split('-')[1]})` }}
+                                        className="w-full h-1.5 bg-indigo-100 rounded-full appearance-none"
+                                        style={{ accentColor: accentColors[i % accentColors.length] }}
                                     />
                                 </div>
                             );

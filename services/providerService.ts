@@ -1,5 +1,6 @@
 import { AiProvider, ModelOption } from '../types';
 import { KEYS } from './storageKeys';
+import { fetchWithTimeout } from './requestService';
 
 export interface ProviderSetting {
   id: AiProvider;
@@ -14,17 +15,15 @@ export interface ProviderSetting {
 export const PROVIDER_CATALOG: ProviderSetting[] = [
   {
     id: 'gemini',
-    name: 'Google Gemini / Vertex AI',
+    name: 'Google Gemini',
     defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-    description: 'Fast multimodal models. Optional Vertex / Express mode without a user key.',
+    description: 'Fast multimodal models through your own Gemini API key.',
     docsUrl: 'https://aistudio.google.com/',
-    requiresKey: false,
+    requiresKey: true,
     presetModels: [
       { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash (Flagship)', provider: 'gemini', isVision: true },
+      { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite (Fast & Efficient)', provider: 'gemini', isVision: true },
       { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro (Preview Reasoning)', provider: 'gemini', isVision: true },
-      { id: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash-Lite (Ultra Fast)', provider: 'gemini', isVision: true },
-      { id: 'gemini-3.1-flash-image-preview', label: 'Gemini 3.1 Flash Image (Multimodal)', provider: 'gemini', isVision: true },
-      { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash (Preview)', provider: 'gemini', isVision: true },
       { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Stable)', provider: 'gemini', isVision: true },
     ]
   },
@@ -250,10 +249,10 @@ export const autoFetchModels = async (
     if (provider === 'gemini') {
       const targetKey = apiKey || import.meta.env.VITE_GEMINI_API_KEY;
       if (!targetKey) {
-        return { models: getCachedModels('gemini'), error: 'Using built-in Gemini preset models (no key / Express mode).' };
+        return { models: getCachedModels('gemini'), error: 'Add a Gemini API key to verify currently available models.' };
       }
       const url = `${baseUrl}/models?key=${targetKey}`;
-      const res = await fetch(url);
+      const res = await fetchWithTimeout(url, {}, 20_000);
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       const data = await res.json();
       if (Array.isArray(data.models)) {
@@ -274,7 +273,7 @@ export const autoFetchModels = async (
       const headers: Record<string, string> = { 'Accept': 'application/json' };
       if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
-      const res = await fetch(url, { headers });
+      const res = await fetchWithTimeout(url, { headers }, 20_000);
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       const data = await res.json();
       const rawList = Array.isArray(data.data) ? data.data : (Array.isArray(data.models) ? data.models : []);
