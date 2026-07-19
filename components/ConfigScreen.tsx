@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { Upload, FileText, Layout, Zap, TrendingUp, Skull, BookOpen, Type, RefreshCw, CheckCircle2, X, PlayCircle, Layers, Settings2, Sparkles, Folder, Target, BrainCircuit, Shuffle, Cpu, ChevronDown, MessageSquarePlus, Check, Link as LinkIcon } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Upload, FileText, Layout, Zap, TrendingUp, Skull, BookOpen, Type, RefreshCw, CheckCircle2, X, PlayCircle, Layers, Settings2, Sparkles, Folder, Target, BrainCircuit, Shuffle, Cpu, ChevronDown, MessageSquarePlus, Check, Link as LinkIcon, type LucideIcon } from 'lucide-react';
+import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { ModelConfig, QuizMode, ExamStyle, AiProvider, Question, LibraryItem, ModelOption, SRSItem } from '../types';
 import {
   getCachedModels,
@@ -31,6 +31,36 @@ interface ConfigScreenProps {
   hasActiveSession: boolean;
 }
 
+type InputMethod = 'library' | 'upload' | 'topic' | 'url';
+
+const InputTab = React.memo(({ id, active, icon: Icon, label, onSelect }: {
+  id: InputMethod;
+  active: boolean;
+  icon: LucideIcon;
+  label: string;
+  onSelect: (id: InputMethod) => void;
+}) => (
+  <button
+    type="button"
+    onClick={() => onSelect(id)}
+    aria-label={label}
+    aria-pressed={active}
+    className={`relative z-10 flex shrink-0 items-center justify-center gap-2 rounded-xl px-4 py-2 transition-colors md:px-6 md:py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 ${active ? 'text-indigo-700 font-bold' : 'text-slate-500 font-medium hover:text-slate-700'}`}
+  >
+    {active && (
+      <motion.span
+        layoutId="config-input-active"
+        className="absolute inset-0 -z-10 rounded-xl border border-indigo-100 bg-white shadow-md"
+        initial={false}
+        transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+      />
+    )}
+    <Icon size={18} aria-hidden="true" />
+    <span className="hidden md:inline">{label}</span>
+  </button>
+));
+InputTab.displayName = 'InputTab';
+
 const getModeCards = () => [
   { id: QuizMode.STANDARD, icon: Layout, label: t('cfgModeStandard'), desc: t('cfgModeStandardDesc'), color: "bg-indigo-50 border-indigo-200 text-indigo-600" },
   { id: QuizMode.SURVIVAL, icon: Skull, label: t('cfgModeSurvival'), desc: t('cfgModeSurvivalDesc'), color: "bg-rose-50 border-rose-200 text-rose-600" },
@@ -46,7 +76,7 @@ const getBloomLevels = () => [
 ];
 
 export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue, onStartFlashcards, onOpenWorkspace, hasActiveSession }) => {
-  const [inputMethod, setInputMethod] = useState<'library' | 'upload' | 'topic' | 'url'>('library');
+  const [inputMethod, setInputMethod] = useState<InputMethod>('library');
   
   // Library State
   const [libraryItems, setLibraryItems] = useState<LibraryItem[]>([]);
@@ -391,26 +421,6 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                   (inputMethod === 'topic' && topic.trim().length > 3) ||
                   (inputMethod === 'url' && urlInput.trim().length > 5);
 
-  // --- SEGMENTED CONTROL COMPONENT ---
-  const InputTab = ({ id, icon: Icon, label }: { id: typeof inputMethod, icon: any, label: string }) => (
-    <button 
-        onClick={() => setInputMethod(id)}
-        aria-label={label}
-        aria-pressed={inputMethod === id}
-        className={`relative flex items-center justify-center space-x-2 px-4 py-2 md:px-6 md:py-3 rounded-xl transition-all z-10 ${inputMethod === id ? 'text-indigo-700 font-bold' : 'text-slate-500 font-medium hover:text-slate-700'}`}
-    >
-        {inputMethod === id && (
-            <motion.div 
-                layoutId="active-tab"
-                className="absolute inset-0 bg-white shadow-md border border-indigo-100 rounded-xl"
-                initial={false}
-                transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            />
-        )}
-        <span className="relative z-10 flex items-center gap-2 text-sm md:text-base"><Icon size={18} /> <span className="hidden md:inline">{label}</span></span>
-    </button>
-  );
-
   return (
     <div className="w-full max-w-4xl mx-auto space-y-5 md:space-y-8 pb-24 text-theme-text">
       
@@ -442,10 +452,12 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
         
         {/* SEGMENTED CONTROL FOR INPUT */}
         <div className="flex p-1.5 bg-slate-100/50 border border-slate-200/50 rounded-2xl mb-5 md:mb-8 w-fit mx-auto shadow-inner overflow-x-auto max-w-full no-scrollbar">
-          <InputTab id="library" icon={BookOpen} label={t('cfgLibrary')} />
-          <InputTab id="upload" icon={Upload} label={t('cfgUpload')} />
-          <InputTab id="topic" icon={Type} label={t('cfgManual')} />
-          <InputTab id="url" icon={LinkIcon} label={t('cfgUrl')} />
+          <LayoutGroup id="config-input-method">
+            <InputTab id="library" active={inputMethod === 'library'} icon={BookOpen} label={t('cfgLibrary')} onSelect={setInputMethod} />
+            <InputTab id="upload" active={inputMethod === 'upload'} icon={Upload} label={t('cfgUpload')} onSelect={setInputMethod} />
+            <InputTab id="topic" active={inputMethod === 'topic'} icon={Type} label={t('cfgManual')} onSelect={setInputMethod} />
+            <InputTab id="url" active={inputMethod === 'url'} icon={LinkIcon} label={t('cfgUrl')} onSelect={setInputMethod} />
+          </LayoutGroup>
         </div>
 
         {/* --- MAIN INPUT AREA --- */}

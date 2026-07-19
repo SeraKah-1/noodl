@@ -7,6 +7,7 @@ import { getApiKey, saveQuizAiOverview, saveQuizVisualizations, HISTORY_IDB_KEY 
 import { X } from 'lucide-react';
 import { t } from '../services/i18n';
 import { notifyUser } from '../services/uiFeedbackService';
+import { OverlayPortal } from './OverlayPortal';
 
 interface MaterialOverviewModalProps {
   questions: Question[];
@@ -86,13 +87,13 @@ export const MaterialOverviewModal: React.FC<MaterialOverviewModalProps> = ({ qu
   };
 
   return (
-    <div className="fixed inset-0 z-[60] bg-slate-900/90 flex items-center justify-center p-4 sm:p-6 backdrop-blur-sm">
-      <div className="bg-slate-50 dark:bg-slate-900 w-full max-w-5xl h-[95vh] sm:h-[90vh] rounded-3xl flex flex-col shadow-2xl relative overflow-hidden">
+    <OverlayPortal labelledBy="material-overview-title" className="fixed inset-0 z-[160] bg-slate-950/75 flex items-center justify-center p-2 sm:p-6 backdrop-blur-md">
+      <div className="bg-slate-50 dark:bg-slate-900 w-full max-w-6xl h-[calc(100dvh-1rem)] sm:h-[min(90dvh,56rem)] rounded-2xl sm:rounded-3xl flex flex-col shadow-2xl relative overflow-hidden border border-white/10">
          <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-950 sticky top-0 z-20 shadow-sm">
-            <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            <h2 id="material-overview-title" className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 min-w-0">
                <span className="text-indigo-600">( •_•)⌐■-■</span> {t('conceptMapTitle')}
             </h2>
-            <button onClick={onClose} className="p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition-colors">
+            <button type="button" aria-label="Close concept map" onClick={onClose} className="p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition-colors shrink-0">
                <X size={20} />
             </button>
          </div>
@@ -117,6 +118,6 @@ export const MaterialOverviewModal: React.FC<MaterialOverviewModalProps> = ({ qu
             />
          </div>
       </div>
-    </div>
+    </OverlayPortal>
   );
 };

@@ -1,11 +1,11 @@
-
-import React, { useState, useEffect, useCallback } from 'react';
-import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from 'framer-motion';
-import { X, BrainCircuit, RotateCcw, Check, HelpCircle, Zap, Star } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { AnimatePresence, motion, PanInfo, useMotionValue, useTransform } from 'framer-motion';
+import { BrainCircuit, Check, HelpCircle, Star, X, Zap } from 'lucide-react';
 import { Question, SRSItem } from '../types';
 import { processCardReview, addQuestionToSRS } from '../services/srsService';
 import { useGameSound } from '../hooks/useGameSound';
 import { t } from '../services/i18n';
+import { OverlayPortal } from './OverlayPortal';
 
 interface FlashcardScreenProps {
   questions: (Question | SRSItem)[];
@@ -13,19 +13,26 @@ interface FlashcardScreenProps {
   onClose: () => void;
 }
 
-// --- UTILS: Simple Formatter ---
-const CardText: React.FC<{ text: string }> = ({ text }) => {
+const CardText: React.FC<{ text?: string }> = ({ text = '' }) => {
   const parts = text.split(/(\*\*.*?\*\*)/g);
   return (
     <span>
-      {parts.map((part, i) => {
-        if (part.startsWith('**') && part.endsWith('**')) {
-          return <strong key={i} className="font-bold text-theme-primary">{part.slice(2, -2)}</strong>;
-        }
-        return <span key={i}>{part}</span>;
-      })}
+      {parts.map((part, index) =>
+        part.startsWith('**') && part.endsWith('**') ? (
+          <strong key={index} className="font-bold text-theme-primary">{part.slice(2, -2)}</strong>
+        ) : (
+          <span key={index}>{part}</span>
+        )
+      )}
     </span>
   );
+};
+
+const adaptiveTextClass = (text = '') => {
+  if (text.length > 320) return 'text-base sm:text-lg';
+  if (text.length > 180) return 'text-lg sm:text-xl';
+  if (text.length > 90) return 'text-xl sm:text-2xl';
+  return 'text-2xl sm:text-3xl lg:text-4xl';
 };
 
 export const FlashcardScreen: React.FC<FlashcardScreenProps> = ({ questions, keycardId = 'global', onClose }) => {
@@ -33,61 +40,39 @@ export const FlashcardScreen: React.FC<FlashcardScreenProps> = ({ questions, key
   const [isFlipped, setIsFlipped] = useState(false);
   const [exitDir, setExitDir] = useState<'left' | 'right' | 'down' | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-
   const { playClick, playCorrect, playIncorrect, triggerHaptic, playSwipe } = useGameSound();
 
-  // --- MOTION VALUES FOR SWIPE ---
   const x = useMotionValue(0);
-  const y = useMotionValue(0);
-  const rotate = useTransform(x, [-200, 200], [-15, 15]); // Tilt effect
-  const opacity = useTransform(x, [-200, -100, 0, 100, 200], [0, 1, 1, 1, 0]); // Fade out logic
-  
-  // Background Color Overlay (Red left, Green right)
+  const rotate = useTransform(x, [-200, 200], [-15, 15]);
+  const opacity = useTransform(x, [-200, -100, 0, 100, 200], [0, 1, 1, 1, 0]);
   const bgOverlayOpacity = useTransform(x, [-150, 0, 150], [0.3, 0, 0.3]);
   const bgOverlayColor = useTransform(x, [-150, 0, 150], [
-    "rgba(244, 63, 94, 1)", // Red (Lupa)
-    "rgba(0,0,0,0)", 
-    "rgba(16, 185, 129, 1)" // Green (Mudah)
+    'rgba(244, 63, 94, 1)',
+    'rgba(0,0,0,0)',
+    'rgba(16, 185, 129, 1)',
   ]);
-
-  // Stamp Opacities
-  const ingatOpacity = useTransform(x, [0, 100], [0, 1]);
-  const lupaOpacity = useTransform(x, [0, -100], [0, 1]);
-
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = previousOverflow; };
-  }, []);
-
-  // --- LOGIC ---
+  const rememberedOpacity = useTransform(x, [0, 100], [0, 1]);
+  const forgottenOpacity = useTransform(x, [0, -100], [0, 1]);
 
   const handleNextCard = useCallback(async (rating: 'lupa' | 'sulit' | 'bagus' | 'mudah') => {
     if (!isFlipped || isProcessing) return;
     const currentItem = questions[index];
     if (!currentItem) return;
-    setIsProcessing(true);
-    // 1. Set Animation Direction & Sound
-    if (rating === 'lupa') {
-        if (!exitDir) setExitDir('left');
-        playIncorrect();
-    } else if (rating === 'mudah' || rating === 'bagus') {
-        if (!exitDir) setExitDir('right');
-        playCorrect();
-    } else {
-        if (!exitDir) setExitDir('down'); // Sulit drops down
-        playClick();
-    }
 
+    setIsProcessing(true);
+    if (rating === 'lupa') {
+      setExitDir('left');
+      playIncorrect();
+    } else if (rating === 'mudah' || rating === 'bagus') {
+      setExitDir('right');
+      playCorrect();
+    } else {
+      setExitDir('down');
+      playClick();
+    }
     triggerHaptic();
 
-    // 2. Process SRS
-    let quality = 2; // Bagus (default)
-    if (rating === 'lupa') quality = 0; // Again
-    if (rating === 'sulit') quality = 1; // Hard
-    if (rating === 'mudah') quality = 3; // Easy
-    
-    // Only process review if it's already an SRSItem
+    const quality = rating === 'lupa' ? 0 : rating === 'sulit' ? 1 : rating === 'mudah' ? 3 : 2;
     if ('item_type' in currentItem) {
       await processCardReview(undefined, currentItem as SRSItem, quality);
     } else {
@@ -95,271 +80,139 @@ export const FlashcardScreen: React.FC<FlashcardScreenProps> = ({ questions, key
       if (added) await processCardReview(undefined, added, quality);
     }
 
-    // 3. Move Next
-    setTimeout(() => {
-        if (index < questions.length - 1) {
-            setIndex(prev => prev + 1);
-            setIsFlipped(false);
-            setExitDir(null);
-            setIsProcessing(false);
-            x.set(0); 
-            y.set(0);
-        } else {
-            onClose(); 
-        }
-    }, 200);
-  }, [exitDir, index, questions, onClose, playCorrect, playIncorrect, playClick, x, y, triggerHaptic, isFlipped, isProcessing, keycardId]);
+    window.setTimeout(() => {
+      if (index < questions.length - 1) {
+        setIndex((previous) => previous + 1);
+        setIsFlipped(false);
+        setExitDir(null);
+        setIsProcessing(false);
+        x.set(0);
+      } else {
+        onClose();
+      }
+    }, 180);
+  }, [index, isFlipped, isProcessing, keycardId, onClose, playClick, playCorrect, playIncorrect, questions, triggerHaptic, x]);
 
   const handleFlip = useCallback(() => {
-    // Only flip if not dragging hard
     if (Math.abs(x.get()) < 5) {
-        triggerHaptic(5);
-        setIsFlipped(prev => !prev);
+      triggerHaptic(5);
+      setIsFlipped((previous) => !previous);
     }
-  }, [x, triggerHaptic]);
+  }, [triggerHaptic, x]);
 
-  // Swipe Handler
-  const handleDragEnd = (_: any, info: PanInfo) => {
-    const threshold = 100;
-    const velocityThreshold = 500;
-
+  const handleDragEnd = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
     if (!isFlipped) {
       x.set(0);
-      y.set(0);
       return;
     }
-
-    if (info.offset.x > threshold || info.velocity.x > velocityThreshold) {
-       handleNextCard('mudah');
-    } else if (info.offset.x < -threshold || info.velocity.x < -velocityThreshold) {
-       handleNextCard('lupa');
-    } else if (info.offset.y > threshold && isFlipped) {
-       handleNextCard('sulit');
-    }
+    if (info.offset.x > 100 || info.velocity.x > 500) void handleNextCard('mudah');
+    else if (info.offset.x < -100 || info.velocity.x < -500) void handleNextCard('lupa');
   };
 
-  // Keyboard
   useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-      
-      // Navigation
-      if (e.key === ' ' || e.key === 'Enter') {
-         e.preventDefault();
-         setIsFlipped(prev => !prev);
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+      if (event.key === ' ' || event.key === 'Enter') {
+        event.preventDefault();
+        setIsFlipped((previous) => !previous);
       }
-      
-      // Rating (Only allow if user wants to speed run or is checking answer)
-      if (isFlipped && e.key === 'ArrowLeft') void handleNextCard('lupa');
-      if (isFlipped && e.key === 'ArrowRight') void handleNextCard('mudah');
-      if (isFlipped && e.key === 'ArrowDown') void handleNextCard('sulit');
-      if (isFlipped && e.key === 'ArrowUp') void handleNextCard('bagus');
+      if (isFlipped && event.key === 'ArrowLeft') void handleNextCard('lupa');
+      if (isFlipped && event.key === 'ArrowRight') void handleNextCard('mudah');
+      if (isFlipped && event.key === 'ArrowDown') void handleNextCard('sulit');
+      if (isFlipped && event.key === 'ArrowUp') void handleNextCard('bagus');
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [handleNextCard, isFlipped, onClose]);
 
-  if (!questions || questions.length === 0) return null;
-  const currentQRaw = questions[index];
-  if (!currentQRaw) return null;
-  const currentQ = ('item_type' in currentQRaw) ? (currentQRaw.content as Question) : (currentQRaw as Question);
+  if (!questions.length) return null;
+  const rawQuestion = questions[index];
+  if (!rawQuestion) return null;
+  const question = 'item_type' in rawQuestion ? rawQuestion.content as Question : rawQuestion as Question;
+  const answer = question.options?.[question.correctIndex] || '';
   const progress = ((index + 1) / questions.length) * 100;
 
+  const ratings = [
+    { id: 'lupa' as const, label: 'Lupa', icon: HelpCircle, shell: 'bg-rose-50 border-rose-100 text-rose-500' },
+    { id: 'sulit' as const, label: 'Sulit', icon: BrainCircuit, shell: 'bg-amber-50 border-amber-100 text-amber-500' },
+    { id: 'bagus' as const, label: 'Bagus', icon: Star, shell: 'bg-blue-50 border-blue-100 text-blue-500' },
+    { id: 'mudah' as const, label: 'Mudah', icon: Check, shell: 'bg-emerald-50 border-emerald-100 text-emerald-500' },
+  ];
+
   return (
-    <div className="fixed inset-0 z-[100] bg-theme-bg/95 backdrop-blur-3xl flex flex-col items-center justify-center font-sans text-theme-text overflow-hidden touch-none">
-      
-      {/* Dynamic Background Flash */}
-      <motion.div style={{ backgroundColor: bgOverlayColor, opacity: bgOverlayOpacity }} className="absolute inset-0 pointer-events-none z-0 transition-colors" />
+    <OverlayPortal
+      labelledBy="flashcard-title"
+      className="fixed inset-0 z-[180] h-[100dvh] overflow-hidden bg-theme-bg/95 font-sans text-theme-text backdrop-blur-3xl grid grid-rows-[auto_minmax(0,1fr)_auto]"
+    >
+      <motion.div style={{ backgroundColor: bgOverlayColor, opacity: bgOverlayOpacity }} className="absolute inset-0 pointer-events-none z-0" />
 
-      {/* --- HEADER --- */}
-      <div className="absolute top-0 left-0 w-full z-20 p-6 flex flex-col gap-4">
-        <div className="flex justify-between items-center w-full max-w-lg mx-auto">
-           <button onClick={onClose} aria-label="Close flashcards" className="p-2 rounded-full hover:bg-theme-text/10 text-theme-muted transition-colors">
-              <X size={24} />
-           </button>
-           <span className="text-sm font-bold uppercase tracking-widest text-theme-text opacity-80">Flashcard</span>
-           <div className="text-xs font-mono opacity-50">{index + 1}/{questions.length}</div>
+      <header className="relative z-20 px-3 pt-3 sm:px-6 sm:pt-5">
+        <div className="flex items-center justify-between w-full max-w-2xl mx-auto">
+          <button type="button" onClick={onClose} aria-label="Close flashcards" className="p-2 rounded-full hover:bg-theme-text/10 text-theme-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-theme-primary">
+            <X size={24} />
+          </button>
+          <h2 id="flashcard-title" className="text-sm font-bold uppercase tracking-widest opacity-80">Flashcard</h2>
+          <div className="text-xs font-mono opacity-50">{index + 1}/{questions.length}</div>
         </div>
-        
-        {/* Progress Bar */}
-        <div className="w-full max-w-lg mx-auto h-1.5 bg-slate-200/20 rounded-full overflow-hidden">
-           <motion.div 
-             className="h-full bg-theme-primary"
-             initial={{ width: 0 }}
-             animate={{ width: `${progress}%` }}
-             transition={{ duration: 0.3 }}
-           />
+        <div className="w-full max-w-2xl mx-auto mt-3 h-1.5 bg-slate-200/20 rounded-full overflow-hidden">
+          <motion.div className="h-full bg-theme-primary" initial={{ width: 0 }} animate={{ width: `${progress}%` }} transition={{ duration: 0.24, ease: 'easeOut' }} />
         </div>
-      </div>
+      </header>
 
-      {/* --- CARD CONTAINER --- */}
-      <div className="relative w-full max-w-sm aspect-[3/4] md:h-[60vh] md:w-auto md:aspect-[3/4] z-10 flex items-center justify-center perspective-1000">
-         
-         {/* Background Stack Decoration */}
-         {index < questions.length - 1 && (
-             <div className="absolute inset-0 scale-[0.95] translate-y-4 bg-theme-glass border border-theme-border rounded-[2rem] -z-10 opacity-50 blur-[1px]" />
-         )}
+      <main className="relative z-10 min-h-0 flex items-stretch justify-center px-3 py-3 sm:px-6 sm:py-4">
+        <div className="relative h-full min-h-0 w-full max-w-2xl perspective-1000">
+          {index < questions.length - 1 && <div className="absolute inset-x-3 inset-y-0 translate-y-2 bg-theme-glass border border-theme-border rounded-[1.75rem] -z-10 opacity-50 blur-[1px]" />}
+          <motion.div
+            key={index}
+            style={{ x, rotate, opacity, touchAction: 'pan-y' }}
+            drag={isFlipped ? 'x' : false}
+            dragConstraints={{ left: 0, right: 0 }}
+            dragElastic={0.65}
+            onDragStart={playSwipe}
+            onDragEnd={handleDragEnd}
+            animate={exitDir === 'left' ? { x: -500, opacity: 0, rotate: -30 } : exitDir === 'right' ? { x: 500, opacity: 0, rotate: 30 } : exitDir === 'down' ? { y: 500, opacity: 0 } : { x: 0, y: 0, rotate: 0, opacity: 1 }}
+            transition={{ type: 'spring', stiffness: 320, damping: 24 }}
+            className="w-full h-full relative cursor-grab active:cursor-grabbing preserve-3d"
+          >
+            <motion.div className="absolute top-5 left-5 z-50 border-4 border-emerald-500 text-emerald-500 font-black text-2xl sm:text-4xl px-3 py-1 rounded-xl uppercase tracking-widest -rotate-12 pointer-events-none" style={{ opacity: rememberedOpacity }}>INGAT</motion.div>
+            <motion.div className="absolute top-5 right-5 z-50 border-4 border-rose-500 text-rose-500 font-black text-2xl sm:text-4xl px-3 py-1 rounded-xl uppercase tracking-widest rotate-12 pointer-events-none" style={{ opacity: forgottenOpacity }}>LUPA</motion.div>
 
-         {/* ACTIVE CARD */}
-         <motion.div
-           key={index}
-           style={{ x, y, rotate, opacity }}
-           drag // Enable Swipe in all directions
-           dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
-           dragElastic={0.8}
-           onDragStart={playSwipe}
-           onDragEnd={handleDragEnd}
-           animate={
-              exitDir === 'left' ? { x: -500, opacity: 0, rotate: -30 } :
-              exitDir === 'right' ? { x: 500, opacity: 0, rotate: 30 } :
-              exitDir === 'down' ? { y: 500, opacity: 0 } :
-              { x: 0, y: 0, rotate: 0, opacity: 1 }
-           }
-           transition={{ duration: 0.3, type: "spring", stiffness: 300, damping: 20 }}
-           className="w-full h-full relative cursor-grab active:cursor-grabbing preserve-3d"
-         >
-            {/* STAMPS (Visible when dragging) */}
-            <motion.div 
-              className="absolute top-8 left-8 z-50 border-4 border-emerald-500 text-emerald-500 font-black text-4xl px-4 py-2 rounded-xl uppercase tracking-widest transform -rotate-12 pointer-events-none"
-              style={{ opacity: ingatOpacity }}
-            >
-              INGAT
-            </motion.div>
-            <motion.div 
-              className="absolute top-8 right-8 z-50 border-4 border-rose-500 text-rose-500 font-black text-4xl px-4 py-2 rounded-xl uppercase tracking-widest transform rotate-12 pointer-events-none"
-              style={{ opacity: lupaOpacity }}
-            >
-              LUPA
-            </motion.div>
-
-            {/* 
-                FLIP ANIMATION CONTAINER 
-                This div handles the 180deg rotation.
-                It must have `transformStyle: 'preserve-3d'`
-            */}
-            <motion.div
-                className="w-full h-full relative"
-                initial={false}
-                animate={{ rotateY: isFlipped ? 180 : 0 }}
-                transition={{ duration: 0.4, type: "spring", stiffness: 260, damping: 20 }}
-                style={{ transformStyle: 'preserve-3d' }}
-                onClick={handleFlip}
-            >
-                {/* --- FRONT FACE (QUESTION) --- 
-                    Visible at 0deg. Hidden at 180deg.
-                */}
-                <div 
-                    className="absolute inset-0 bg-theme-glass backdrop-blur-xl border border-theme-border rounded-[2rem] shadow-2xl flex flex-col items-center justify-center p-8 text-center backface-hidden"
-                    style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
-                >
-                    <div className="mb-6 p-4 bg-theme-primary/10 text-theme-primary rounded-2xl">
-                        <BrainCircuit size={40} />
-                    </div>
-                    
-                    <div className="flex-1 flex items-center justify-center w-full overflow-y-auto custom-scrollbar">
-                        <h3 className="text-xl md:text-2xl font-bold leading-relaxed text-theme-text select-none">
-                            <CardText text={currentQ.text} />
-                        </h3>
-                    </div>
-
-                    <p className="mt-6 text-[10px] uppercase tracking-[0.2em] text-theme-muted font-bold animate-pulse">
-                        {t('tapFlip')}
-                    </p>
+            <motion.div className="w-full h-full relative" initial={false} animate={{ rotateY: isFlipped ? 180 : 0 }} transition={{ type: 'spring', stiffness: 280, damping: 24 }} style={{ transformStyle: 'preserve-3d' }} onClick={handleFlip}>
+              <div className="absolute inset-0 bg-theme-glass backdrop-blur-xl border border-theme-border rounded-[1.75rem] shadow-2xl grid grid-rows-[auto_minmax(0,1fr)_auto] p-4 sm:p-8 text-center overflow-hidden" style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}>
+                <div className="mx-auto mb-3 sm:mb-5 p-3 bg-theme-primary/10 text-theme-primary rounded-2xl"><BrainCircuit size={32} /></div>
+                <div className={`min-h-0 w-full overflow-y-auto custom-scrollbar px-1 flex ${question.text.length > 180 ? 'items-start' : 'items-center'} justify-center`}>
+                  <h3 className={`${adaptiveTextClass(question.text)} font-bold leading-relaxed select-none py-2`}><CardText text={question.text} /></h3>
                 </div>
+                <p className="mt-3 sm:mt-5 text-[10px] uppercase tracking-[0.2em] text-theme-muted font-bold animate-pulse">{t('tapFlip')}</p>
+              </div>
 
-                {/* --- BACK FACE (ANSWER) --- 
-                    Visible at 180deg. Hidden at 0deg.
-                    Fix: We rotate this 180deg initially so it's "upside down" relative to the front.
-                    When the parent rotates 180deg, this becomes right-side up.
-                */}
-                <div 
-                    className="absolute inset-0 bg-theme-bg text-theme-text border border-theme-border rounded-[2rem] shadow-2xl flex flex-col p-8 overflow-hidden backface-hidden"
-                    style={{ 
-                        transform: 'rotateY(180deg)', 
-                        backfaceVisibility: 'hidden', 
-                        WebkitBackfaceVisibility: 'hidden' 
-                    }}
-                >
-                    <div className="flex items-center gap-2 mb-4 opacity-70 border-b border-theme-border pb-4">
-                        <Zap size={16} className="text-emerald-500" />
-                        <span className="text-xs font-bold uppercase tracking-widest text-theme-muted">Jawaban</span>
-                    </div>
-                    
-                    <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 flex flex-col justify-center select-none">
-                        <h3 className="text-xl font-bold text-emerald-600 mb-4 leading-snug">
-                            {currentQ.options[currentQ.correctIndex]}
-                        </h3>
-                        <div className="text-sm leading-relaxed text-theme-text/80">
-                            <CardText text={currentQ.explanation} />
-                        </div>
-                    </div>
-
-                    <div className="mt-4 pt-4 border-t border-theme-border flex justify-center text-theme-muted text-[10px] uppercase tracking-widest opacity-60">
-                       {t('pickRating')}
-                    </div>
+              <div className="absolute inset-0 bg-theme-bg border border-theme-border rounded-[1.75rem] shadow-2xl grid grid-rows-[auto_minmax(0,1fr)_auto] p-4 sm:p-8 overflow-hidden" style={{ transform: 'rotateY(180deg)', backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}>
+                <div className="flex items-center gap-2 mb-4 opacity-70 border-b border-theme-border pb-4"><Zap size={16} className="text-emerald-500" /><span className="text-xs font-bold uppercase tracking-widest text-theme-muted">Jawaban</span></div>
+                <div className="min-h-0 overflow-y-auto custom-scrollbar pr-2 select-none">
+                  <h3 className={`${adaptiveTextClass(answer)} font-bold text-emerald-600 mb-4 leading-snug`}>{answer}</h3>
+                  <div className={`${(question.explanation?.length || 0) > 500 ? 'text-sm' : 'text-sm sm:text-base'} leading-relaxed text-theme-text/80`}><CardText text={question.explanation} /></div>
                 </div>
+                <div className="mt-4 pt-4 border-t border-theme-border text-center text-theme-muted text-[10px] uppercase tracking-widest opacity-60">{t('pickRating')}</div>
+              </div>
             </motion.div>
-         </motion.div>
-      </div>
+          </motion.div>
+        </div>
+      </main>
 
-      {/* --- BOTTOM ACTIONS (3 Options: Lupa, Ragu, Paham) --- */}
-      <div className="absolute bottom-10 left-0 w-full px-6 flex justify-center items-end gap-6 z-50 h-24 pointer-events-none">
-          <AnimatePresence>
-            {isFlipped && (
-                <motion.div 
-                    initial={{ y: 20, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    exit={{ y: 10, opacity: 0 }}
-                    className="flex gap-4 pointer-events-auto"
-                >
-                    <button 
-                        onClick={() => void handleNextCard('lupa')}
-                        disabled={isProcessing}
-                        className="flex flex-col items-center gap-1 group disabled:opacity-50 disabled:pointer-events-none"
-                    >
-                        <div className="w-14 h-14 rounded-2xl bg-rose-50 border-2 border-rose-100 flex items-center justify-center text-rose-500 shadow-sm group-hover:scale-110 group-active:scale-95 transition-all">
-                            <HelpCircle size={24} />
-                        </div>
-                        <span className="text-[10px] font-bold text-rose-500 uppercase">Lupa</span>
-                    </button>
-
-                    <button 
-                        onClick={() => void handleNextCard('sulit')}
-                        disabled={isProcessing}
-                        className="flex flex-col items-center gap-1 group disabled:opacity-50 disabled:pointer-events-none"
-                    >
-                        <div className="w-14 h-14 rounded-2xl bg-amber-50 border-2 border-amber-100 flex items-center justify-center text-amber-500 shadow-sm group-hover:scale-110 group-active:scale-95 transition-all">
-                            <BrainCircuit size={24} />
-                        </div>
-                        <span className="text-[10px] font-bold text-amber-500 uppercase">Sulit</span>
-                    </button>
-
-                    <button 
-                        onClick={() => void handleNextCard('bagus')}
-                        disabled={isProcessing}
-                        className="flex flex-col items-center gap-1 group disabled:opacity-50 disabled:pointer-events-none"
-                    >
-                        <div className="w-14 h-14 rounded-2xl bg-blue-50 border-2 border-blue-100 flex items-center justify-center text-blue-500 shadow-sm group-hover:scale-110 group-active:scale-95 transition-all">
-                            <Star size={24} />
-                        </div>
-                        <span className="text-[10px] font-bold text-blue-500 uppercase">Bagus</span>
-                    </button>
-
-                    <button 
-                        onClick={() => void handleNextCard('mudah')}
-                        disabled={isProcessing}
-                        className="flex flex-col items-center gap-1 group disabled:opacity-50 disabled:pointer-events-none"
-                    >
-                        <div className="w-14 h-14 rounded-2xl bg-emerald-50 border-2 border-emerald-100 flex items-center justify-center text-emerald-500 shadow-sm group-hover:scale-110 group-active:scale-95 transition-all">
-                            <Check size={24} strokeWidth={3} />
-                        </div>
-                        <span className="text-[10px] font-bold text-emerald-500 uppercase">Mudah</span>
-                    </button>
-                </motion.div>
-            )}
-          </AnimatePresence>
-      </div>
-
-    </div>
+      <footer className="relative z-50 min-h-[5.25rem] px-3 pb-[max(.75rem,env(safe-area-inset-bottom))] sm:px-6">
+        <AnimatePresence>
+          {isFlipped && (
+            <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 10, opacity: 0 }} transition={{ duration: 0.2, ease: 'easeOut' }} className="grid grid-cols-4 gap-2 sm:gap-4 w-full max-w-md mx-auto">
+              {ratings.map(({ id, label, icon: Icon, shell }) => (
+                <button key={id} type="button" onClick={() => void handleNextCard(id)} disabled={isProcessing} className="flex flex-col items-center gap-1 group disabled:opacity-50 disabled:pointer-events-none">
+                  <div className={`w-11 h-11 sm:w-14 sm:h-14 rounded-2xl border-2 flex items-center justify-center shadow-sm group-hover:scale-105 group-active:scale-95 transition-transform ${shell}`}><Icon size={24} /></div>
+                  <span className={`text-[10px] font-bold uppercase ${shell.split(' ').at(-1)}`}>{label}</span>
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </footer>
+    </OverlayPortal>
   );
 };

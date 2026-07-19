@@ -62,6 +62,22 @@ ok(
   'ConfigScreen does not gate on Vertex env free-path flags'
 );
 
+const graphService = readFileSync(join(root, 'services/graphViewService.ts'), 'utf8');
+ok(!graphService.includes('callAI('), 'knowledge graph generation is deterministic and AI-free');
+ok(graphService.includes('reviewItems'), 'knowledge graph stores question explanations for quick review');
+ok(graphService.includes('Focus this branch'), 'knowledge graph exposes node isolation');
+ok(graphService.includes('nodes[cursor+index]'), 'dense radial layout assigns every node a position');
+
+const simulationRenderer = readFileSync(join(root, 'components/SimulationRenderer.tsx'), 'utf8');
+ok(
+  simulationRenderer.includes('noodl-viz-health-ping'),
+  'simulation frame uses repeatable health ping instead of trusting iframe load'
+);
+ok(
+  simulationRenderer.includes('Simulation loaded without visible content'),
+  'simulation blank state is recoverable and explicit'
+);
+
 if (failed) {
   console.error(`\n${failed} check(s) failed`);
   process.exit(1);

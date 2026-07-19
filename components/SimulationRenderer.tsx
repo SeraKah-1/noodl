@@ -34,16 +34,35 @@ export const SimulationRenderer: React.FC<SimulationRendererProps> = ({ visualiz
   const { blueprint, htmlCode, explanation, interactionGuide, status, error } = visualization;
   const typeMeta = VIZ_TYPE_META[blueprint.vizType] || VIZ_TYPE_META.SIMULATION;
 
-  // Inject strict CSP to prevent external network requests (CDNs, tracking)
+  const frameToken = `${visualization.id}:${iframeKey}`;
+
+  // Normalize the document, lock down external requests, and add a tiny health
+  // handshake. An iframe load event also fires when its script crashes, so it
+  // cannot distinguish a healthy simulation from a blank frame by itself.
   const secureHtmlCode = React.useMemo(() => {
     if (!htmlCode) return '';
-    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline';">`;
-    const headRegex = /<\s*head[^>]*>/i;
-    if (headRegex.test(htmlCode)) {
-      return htmlCode.replace(headRegex, (match) => `${match}\n${cspMeta}`);
+    let normalized = htmlCode.trim();
+    if (!/<html[\s>]/i.test(normalized)) {
+      normalized = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${normalized}</body></html>`;
     }
-    return `${cspMeta}\n${htmlCode}`;
-  }, [htmlCode]);
+    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:;">`;
+    const headRegex = /<\s*head[^>]*>/i;
+    if (headRegex.test(normalized)) {
+      normalized = normalized.replace(headRegex, (match) => `${match}\n${cspMeta}`);
+    } else {
+      normalized = normalized.replace(/<html[^>]*>/i, (match) => `${match}<head>${cspMeta}</head>`);
+    }
+    const probe = `<script>(()=>{const token=${JSON.stringify(frameToken)};const report=()=>{try{const body=document.body;const rect=body?.getBoundingClientRect();const style=body?getComputedStyle(body):null;const text=(body?.innerText||'').trim();const visual=body?.querySelector('canvas,svg,main,section,.stage,.simulation,.visualization');const ok=!!body&&!!rect&&rect.width>0&&rect.height>0&&style?.display!=='none'&&(text.length>8||!!visual);parent.postMessage({type:'noodl-viz-health',token,ok},'*')}catch(error){parent.postMessage({type:'noodl-viz-health',token,ok:false},'*')}};addEventListener('message',event=>{if(event.data?.type==='noodl-viz-health-ping'&&event.data?.token===token)report()});const ready=()=>requestAnimationFrame(()=>requestAnimationFrame(report));document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ready,{once:true}):ready()})();<\/script>`;
+    if (/<\/body\s*>/i.test(normalized)) return normalized.replace(/<\/body\s*>/i, `${probe}</body>`);
+    return `${normalized}${probe}`;
+  }, [htmlCode, frameToken]);
+
+  useEffect(() => {
+    if (!secureHtmlCode || status !== 'success') return;
+    setIsLoading(true);
+    setHasError(false);
+    setIsKilled(false);
+  }, [secureHtmlCode, status]);
 
   const handleReload = useCallback(() => {
     setIsLoading(true);
@@ -52,20 +71,40 @@ export const SimulationRenderer: React.FC<SimulationRendererProps> = ({ visualiz
     setIframeKey(prev => prev + 1);
   }, []);
 
-  const handleIframeLoad = useCallback(() => {
-    setIsLoading(false);
-  }, []);
+  const requestFrameHealth = useCallback(() => {
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: 'noodl-viz-health-ping', token: frameToken },
+      '*'
+    );
+  }, [frameToken]);
 
-  // Error timeout — if iframe doesn't load within 10s, show error
+  useEffect(() => {
+    const handleHealthMessage = (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      if (event.data?.type !== 'noodl-viz-health' || event.data?.token !== frameToken) return;
+      setIsLoading(false);
+      setHasError(event.data.ok !== true);
+    };
+    window.addEventListener('message', handleHealthMessage);
+    return () => window.removeEventListener('message', handleHealthMessage);
+  }, [frameToken]);
+
+  // A silent runtime failure must resolve to a recoverable UI, not a blank card.
   useEffect(() => {
     if (!isLoading || status === 'error') return;
+    requestFrameHealth();
+    const pingTimer = window.setInterval(requestFrameHealth, 800);
     const timer = setTimeout(() => {
       if (isLoading) {
         setIsLoading(false);
+        setHasError(true);
       }
-    }, 10000);
-    return () => clearTimeout(timer);
-  }, [isLoading, iframeKey, status]);
+    }, 6000);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(pingTimer);
+    };
+  }, [isLoading, iframeKey, status, requestFrameHealth]);
 
   // Native fullscreen toggle function
   const toggleFullscreen = () => {
@@ -168,13 +207,13 @@ export const SimulationRenderer: React.FC<SimulationRendererProps> = ({ visualiz
           : `rounded-[2rem] shadow-xl hover:shadow-2xl ${typeMeta.glow} hover:-translate-y-1 w-full`
       }`}
       style={{
-        background: isFullscreen ? '#0f172a' : 'linear-gradient(135deg, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0.4) 100%)',
+        background: 'linear-gradient(135deg, rgba(255,255,255,0.94) 0%, rgba(245,247,255,0.94) 100%)',
         backdropFilter: isFullscreen ? 'none' : 'blur(16px)',
         height: isFullscreen ? '100vh' : 'auto'
       }}
     >
       {/* ─── GRADIENT BACKGROUND ─── */}
-      <div className={`absolute inset-0 pointer-events-none ${isFullscreen ? 'bg-slate-950' : 'bg-white dark:bg-slate-900'}`} />
+      <div className={`absolute inset-0 pointer-events-none ${isFullscreen ? 'bg-slate-50 dark:bg-slate-950' : 'bg-white dark:bg-slate-900'}`} />
       <div className={`absolute inset-0 bg-gradient-to-br ${typeMeta.color} opacity-[0.05] pointer-events-none`} />
 
       {/* ─── CONTENT CONTAINER ─── */}
@@ -332,10 +371,10 @@ export const SimulationRenderer: React.FC<SimulationRendererProps> = ({ visualiz
         </AnimatePresence>
 
         {/* ─── IFRAME CONTAINER ─── */}
-        <div className={`relative bg-slate-900 ${isFullscreen ? 'flex-grow min-h-0' : ''}`} style={{ minHeight: isFullscreen ? '0' : '400px' }}>
+        <div className={`relative bg-slate-50 dark:bg-slate-900 ${isFullscreen ? 'flex-grow min-h-0' : ''}`} style={{ minHeight: isFullscreen ? '0' : '400px' }}>
           {/* Loading Skeleton */}
           {isLoading && !isKilled && (
-            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-900/80 backdrop-blur-md">
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-indigo-50/90 dark:bg-slate-900/90 backdrop-blur-md">
               <motion.div 
                 animate={{ rotate: 360 }}
                 transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
@@ -343,8 +382,28 @@ export const SimulationRenderer: React.FC<SimulationRendererProps> = ({ visualiz
               >
                 <Sparkles size={28} className="text-white" />
               </motion.div>
-              <p className="text-indigo-300 font-black tracking-wider text-sm">MEMBANGUN SIMULASI...</p>
-              <p className="text-slate-400 text-xs mt-1 font-medium">(ﾉ◕ヮ◕)ﾉ*:･ﾟ✧</p>
+              <p className="text-indigo-600 dark:text-indigo-300 font-black tracking-wider text-sm">MEMBANGUN SIMULASI...</p>
+              <p className="text-slate-500 dark:text-slate-400 text-xs mt-1 font-medium">(ﾉ◕ヮ◕)ﾉ*:･ﾟ✧</p>
+            </div>
+          )}
+
+          {hasError && !isLoading && !isKilled && (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-6 text-center">
+              <div className="w-14 h-14 rounded-2xl bg-amber-100 dark:bg-amber-950/50 flex items-center justify-center mb-4 border border-amber-200 dark:border-amber-800">
+                <AlertTriangle size={26} className="text-amber-600" />
+              </div>
+              <p className="text-slate-900 dark:text-slate-100 text-base font-black mb-1">Simulation loaded without visible content</p>
+              <p className="text-slate-500 dark:text-slate-400 text-xs max-w-sm mb-5">Reload the safe local frame. If an AI edit caused this, regenerate it from the working local version.</p>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <button onClick={handleReload} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-2">
+                  <RotateCcw size={14} /> Reload frame
+                </button>
+                {onRegenerate && (
+                  <button onClick={() => onRegenerate('Restore a complete, visible, responsive simulation using the current app theme.')} className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-colors flex items-center gap-2">
+                    <Sparkles size={14} /> Repair simulation
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -371,14 +430,14 @@ export const SimulationRenderer: React.FC<SimulationRendererProps> = ({ visualiz
               sandbox="allow-scripts"
               srcDoc={secureHtmlCode}
               title={`Visualisasi: ${blueprint.concept}`}
-              onLoad={handleIframeLoad}
+              onLoad={requestFrameHealth}
               onError={() => { setHasError(true); setIsLoading(false); }}
               style={{
                 border: 'none',
                 width: '100%',
                 height: isFullscreen ? '100%' : '400px',
                 display: 'block',
-                backgroundColor: '#0f172a',
+                backgroundColor: '#f8fafc',
               }}
             />
           )}

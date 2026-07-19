@@ -1,11 +1,12 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Network, Loader2, Download, RefreshCw, X, Maximize2, Minimize2, FileJson, FileCode } from 'lucide-react';
+import { Network, Loader2, RefreshCw, X, Maximize2, Minimize2, FileJson, FileCode } from 'lucide-react';
 import { generateKnowledgeGraph, buildGraphHtmlLocal, type GraphViewResult, type GraphData } from '../services/graphViewService';
 import { saveQuizKnowledgeGraph, loadQuizKnowledgeGraph } from '../services/storageService';
 import type { Question } from '../types';
-import { t, getLocale } from '../services/i18n';
+import { getLocale } from '../services/i18n';
+import { OverlayPortal } from './OverlayPortal';
 
 interface GraphViewPanelProps {
   questions: Question[];
@@ -28,12 +29,14 @@ export const GraphViewPanel: React.FC<GraphViewPanelProps> = ({
   onClose,
   onSaved,
 }) => {
+  const hasCurrentInitialData = initialData?.version === 2;
   const [state, setState] = useState<'idle' | 'loading' | 'ready' | 'error'>(
-    initialData || initialHtml ? 'ready' : 'idle'
+    hasCurrentInitialData ? 'ready' : 'idle'
   );
   const [result, setResult] = useState<GraphViewResult | null>(() => {
-    if (initialData) {
-      const html = initialHtml || buildGraphHtmlLocal(initialData, title);
+    if (hasCurrentInitialData && initialData) {
+      // Re-render from structured data so cached graphs inherit the latest UX.
+      const html = buildGraphHtmlLocal(initialData, title);
       return { data: initialData, htmlCode: html, status: 'success' };
     }
     return null;
@@ -77,10 +80,8 @@ export const GraphViewPanel: React.FC<GraphViewPanelProps> = ({
       // Load cache unless force regenerate
       if (!force && quizId) {
         const cached = await loadQuizKnowledgeGraph(quizId);
-        if (cached?.data?.nodes?.length) {
-          const html =
-            cached.htmlCode ||
-            buildGraphHtmlLocal(cached.data, title);
+        if (cached?.data?.version === 2 && cached.data.nodes?.length) {
+          const html = buildGraphHtmlLocal(cached.data, title);
           const cachedResult: GraphViewResult = {
             data: cached.data,
             htmlCode: html,
@@ -118,12 +119,12 @@ export const GraphViewPanel: React.FC<GraphViewPanelProps> = ({
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
-    if (initialData) {
+    if (hasCurrentInitialData) {
       // already ready
       return;
     }
     handleGenerate(false);
-  }, [handleGenerate, initialData]);
+  }, [handleGenerate, hasCurrentInitialData]);
 
   const handleExportHTML = () => {
     if (!result?.htmlCode) return;
@@ -150,28 +151,28 @@ export const GraphViewPanel: React.FC<GraphViewPanelProps> = ({
   const htmlSrc = result?.htmlCode || '';
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className={`fixed inset-0 z-50 flex items-center justify-center ${isFullscreen ? '' : 'p-4'} bg-slate-900/50 backdrop-blur-sm`}
+    <OverlayPortal
+      labelledBy="knowledge-graph-title"
+      className={`fixed inset-0 z-[170] flex items-center justify-center ${isFullscreen ? '' : 'p-2 sm:p-4'} bg-slate-900/50 backdrop-blur-sm`}
     >
       <motion.div
-        initial={{ scale: 0.96, opacity: 0 }}
+        initial={{ scale: 0.98, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.98, opacity: 0 }}
+        transition={{ duration: 0.24, ease: 'easeOut' }}
         className={`bg-white dark:bg-slate-950 shadow-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800 ${
-          isFullscreen ? 'w-full h-full rounded-none' : 'w-full max-w-5xl h-[90vh] rounded-3xl'
+          isFullscreen ? 'w-full h-full rounded-none' : 'w-full max-w-6xl h-[calc(100dvh-1rem)] sm:h-[min(90dvh,56rem)] rounded-2xl sm:rounded-3xl'
         }`}
       >
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-950/90">
           <div className="flex items-center gap-2 min-w-0">
             <Network className="text-indigo-500 shrink-0" size={20} />
             <div className="min-w-0">
-              <h2 className="font-bold text-slate-800 dark:text-slate-100 truncate">{title}</h2>
+              <h2 id="knowledge-graph-title" className="font-bold text-slate-800 dark:text-slate-100 truncate">{title}</h2>
               <p className="text-[11px] text-slate-500 truncate">
                 {getLocale() === 'id'
-                  ? 'Disimpan di kuis ini · buka lagi tanpa generate ulang'
-                  : 'Saved on this quiz · reopen without regenerating'}
+                  ? 'Review map lokal · tanpa AI · tersimpan di kuis'
+                  : 'Local review map · no AI · saved with this quiz'}
               </p>
             </div>
           </div>
@@ -198,24 +199,25 @@ export const GraphViewPanel: React.FC<GraphViewPanelProps> = ({
               type="button"
               onClick={() => setIsFullscreen((v) => !v)}
               className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500"
+              aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
             >
               {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
             </button>
-            <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-rose-50 text-slate-500 hover:text-rose-600">
+            <button type="button" onClick={onClose} aria-label="Close knowledge graph" className="p-2 rounded-lg hover:bg-rose-50 text-slate-500 hover:text-rose-600">
               <X size={18} />
             </button>
           </div>
         </div>
 
-        <div className="flex-1 min-h-0 relative bg-slate-900">
-          <AnimatePresence mode="wait">
+        <div className="flex-1 min-h-0 relative bg-slate-100 dark:bg-slate-900">
+          <AnimatePresence initial={false}>
             {state === 'loading' && (
               <motion.div
                 key="loading"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="absolute inset-0 flex flex-col items-center justify-center text-indigo-200 gap-3"
+                className="absolute inset-0 flex flex-col items-center justify-center text-indigo-600 dark:text-indigo-300 gap-3 bg-indigo-50/70 dark:bg-slate-900"
               >
                 <Loader2 className="animate-spin" size={36} />
                 <p className="text-sm font-medium px-6 text-center">{progress || (getLocale() === 'id' ? 'Memproses…' : 'Working…')}</p>
@@ -240,7 +242,7 @@ export const GraphViewPanel: React.FC<GraphViewPanelProps> = ({
             )}
             {state === 'ready' && htmlSrc && (
               <motion.iframe
-                key="frame"
+                key={result?.data.generatedAt || 'frame'}
                 ref={iframeRef as any}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -265,6 +267,6 @@ export const GraphViewPanel: React.FC<GraphViewPanelProps> = ({
           </AnimatePresence>
         </div>
       </motion.div>
-    </motion.div>
+    </OverlayPortal>
   );
 };

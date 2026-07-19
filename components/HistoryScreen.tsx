@@ -17,6 +17,7 @@ import { QuizMode, Question } from '../types';
 import { MaterialOverviewModal } from './MaterialOverviewModal';
 import { notifyUser } from '../services/uiFeedbackService';
 import { ConfirmDialog } from './ConfirmDialog';
+import { OverlayPortal } from './OverlayPortal';
 
 interface HistoryScreenProps {
   onLoadHistory: (quiz: any) => void;
@@ -404,34 +405,11 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onS
                           key={`${quiz.id}-${idx}`} 
                           className="group relative bg-white border border-slate-200/60 rounded-[2rem] p-6 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col"
                       >
-                          <div className="absolute top-4 right-4 flex gap-2">
-                              {viewMode === 'local' ? (
-                                  <>
-                                      <button onClick={() => { setFolderModal({ quizId: quiz.id, isOpen: true, currentFolder: folderName }); setNewFolderName(folderName === 'General' ? '' : folderName); }} className="p-2 bg-amber-50 text-amber-600 rounded-full hover:bg-amber-100 transition-colors" title="Pindah Folder">
-                                          <FolderInput size={16} />
-                                      </button>
-                                      <button onClick={() => handleUploadToCloud(quiz)} className="p-2 bg-emerald-50 text-emerald-600 rounded-full hover:bg-emerald-100 transition-colors" title="Upload ke Cloud">
-                                          <CloudLightning size={16} />
-                                      </button>
-                                      <button onClick={() => requestShareLink(quiz)} className="p-2 bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100 transition-colors" title="Share via Link">
-                                          <Share2 size={16} />
-                                      </button>
-                                      <button onClick={() => requestDeleteQuiz(quiz)} className="p-2 bg-rose-50 text-rose-600 rounded-full hover:bg-rose-100 transition-colors" title="Delete">
-                                          <Trash2 size={16} />
-                                      </button>
-                                  </>
-                              ) : (
-                                  <button onClick={() => handleDownloadQuiz(quiz)} className="p-2 bg-emerald-50 text-emerald-600 rounded-full hover:bg-emerald-100 transition-colors" title="Download">
-                                      <Download size={16} />
-                                  </button>
-                              )}
-                          </div>
-                          
                           <div className={`w-12 h-12 flex items-center justify-center rounded-2xl mb-4 ${isNew ? 'bg-slate-50 text-slate-400' : 'bg-indigo-50 text-indigo-500'}`}>
                               <Book size={24} />
                           </div>
 
-                          <h3 className="font-bold text-lg text-slate-800 line-clamp-2 leading-tight mb-2 pr-12">{quiz.fileName || quiz.topicSummary || t('untitledQuiz')}</h3>
+                          <h3 className="font-bold text-lg text-slate-800 line-clamp-2 leading-tight mb-2 break-words">{quiz.fileName || quiz.topicSummary || t('untitledQuiz')}</h3>
                           
                           <div className="flex flex-wrap gap-2 mb-6">
                               <span className={`text-xs px-2.5 py-1 rounded-lg font-bold border flex items-center gap-1.5 ${modeBadge.color}`}>
@@ -442,6 +420,19 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onS
                               </span>
                           </div>
 
+                          <div className="flex flex-wrap gap-2 mb-5" aria-label="Quiz management actions">
+                              {viewMode === 'local' ? (
+                                  <>
+                                      <button type="button" onClick={() => { setFolderModal({ quizId: quiz.id, isOpen: true, currentFolder: folderName }); setNewFolderName(folderName === 'General' ? '' : folderName); }} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 text-xs font-semibold transition-colors"><FolderInput size={14} /> Move</button>
+                                      <button type="button" onClick={() => handleUploadToCloud(quiz)} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 text-xs font-semibold transition-colors"><CloudLightning size={14} /> Cloud</button>
+                                      <button type="button" onClick={() => requestShareLink(quiz)} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 text-xs font-semibold transition-colors"><Share2 size={14} /> Share</button>
+                                      <button type="button" onClick={() => requestDeleteQuiz(quiz)} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-rose-50 text-rose-700 rounded-lg hover:bg-rose-100 text-xs font-semibold transition-colors"><Trash2 size={14} /> Delete</button>
+                                  </>
+                              ) : (
+                                  <button type="button" onClick={() => handleDownloadQuiz(quiz)} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 text-xs font-semibold transition-colors"><Download size={14} /> Download</button>
+                              )}
+                          </div>
+
                           <div className="mt-auto space-y-4">
                               <div className="flex items-center justify-between text-sm border-t border-slate-100 pt-4">
                                   <span className="text-slate-500 flex items-center gap-1.5"><Clock size={14}/> {new Date(quiz.date || Date.now()).toLocaleDateString('id-ID', {day: 'numeric', month: 'short'})}</span>
@@ -450,30 +441,29 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onS
                                   </div>
                               </div>
 
-                              <div className="flex gap-2">
-                                  <button onClick={() => onLoadHistory(quiz)} className="flex-1 bg-slate-900 text-white font-bold py-2.5 rounded-xl shadow-lg shadow-slate-200 hover:bg-slate-800 hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2">
+                              <div className="grid grid-cols-2 gap-2">
+                                  <button onClick={() => onLoadHistory(quiz)} className="col-span-2 bg-slate-900 text-white font-bold py-2.5 rounded-xl shadow-lg shadow-slate-200 hover:bg-slate-800 hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2">
                                       <Play size={16} /> {isNew ? t('start') : t('retry')}
                                   </button>
-                                  <button onClick={() => onStartFlashcards(quiz.questions || [], quiz.id)} className="bg-indigo-50 text-indigo-600 font-bold py-2.5 px-4 rounded-xl hover:bg-indigo-100 transition-colors" title="Flashcards">
-                                      <Layout size={16} />
+                                  <button onClick={() => onStartFlashcards(quiz.questions || [], quiz.id)} className="bg-indigo-50 text-indigo-700 font-bold py-2.5 px-3 rounded-xl hover:bg-indigo-100 transition-colors flex items-center justify-center gap-2 text-sm">
+                                      <Layout size={16} /> Flashcards
                                   </button>
-                                  <button onClick={() => setOverviewModal({ isOpen: true, quiz })} className="bg-teal-50 text-teal-600 font-bold py-2.5 px-4 rounded-xl hover:bg-teal-100 transition-colors" title={t('conceptMapBtn')}>
-                                      <FileText size={16} />
+                                  <button onClick={() => setOverviewModal({ isOpen: true, quiz })} className="bg-teal-50 text-teal-700 font-bold py-2.5 px-3 rounded-xl hover:bg-teal-100 transition-colors flex items-center justify-center gap-2 text-sm">
+                                      <FileText size={16} /> Concepts
                                   </button>
-                                  <button onClick={() => setVisualizationModal({ isOpen: true, quiz })} className="bg-purple-50 text-purple-600 font-bold py-2.5 px-4 rounded-xl hover:bg-purple-100 transition-colors" title={t('aiSimBtn')}>
-                                      <Sparkles size={16} />
+                                  <button onClick={() => setVisualizationModal({ isOpen: true, quiz })} className="bg-purple-50 text-purple-700 font-bold py-2.5 px-3 rounded-xl hover:bg-purple-100 transition-colors flex items-center justify-center gap-2 text-sm">
+                                      <Sparkles size={16} /> Simulation
                                   </button>
-                                  <button onClick={() => setGraphViewModal({ isOpen: true, quiz })} className="bg-gradient-to-r from-indigo-50 to-purple-50 text-indigo-600 font-bold py-2.5 px-4 rounded-xl hover:from-indigo-100 hover:to-purple-100 transition-colors" title="Knowledge Graph">
-                                      <Network size={16} />
+                                  <button onClick={() => setGraphViewModal({ isOpen: true, quiz })} className="bg-gradient-to-r from-indigo-50 to-purple-50 text-indigo-700 font-bold py-2.5 px-3 rounded-xl hover:from-indigo-100 hover:to-purple-100 transition-colors flex items-center justify-center gap-2 text-sm">
+                                      <Network size={16} /> Graph
                                   </button>
                                   {/* Export Button */}
                                   <div className="relative">
                                     <button 
                                       onClick={() => setExportMenuQuizId(exportMenuQuizId === quiz.id ? null : quiz.id)} 
-                                      className="bg-amber-50 text-amber-600 font-bold py-2.5 px-4 rounded-xl hover:bg-amber-100 transition-colors" 
-                                      title="Export questions"
+                                      className="w-full bg-amber-50 text-amber-700 font-bold py-2.5 px-3 rounded-xl hover:bg-amber-100 transition-colors flex items-center justify-center gap-2 text-sm"
                                     >
-                                      <Download size={16} />
+                                      <Download size={16} /> Export
                                     </button>
                                     <AnimatePresence>
                                       {exportMenuQuizId === quiz.id && (
@@ -528,12 +518,12 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onS
 
       {/* UPLOAD MODAL */}
       {uploadModal.isOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+          <OverlayPortal labelledBy="share-link-title" className="fixed inset-0 z-[170] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
               <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-[2rem] shadow-2xl p-6 w-full max-w-md border border-slate-100 relative">
                   <div className="w-16 h-16 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4">
                       <CheckCircle2 size={32} />
                   </div>
-                  <h3 className="text-xl font-bold text-center text-slate-800 mb-2">{t('linkCreated')}</h3>
+                  <h3 id="share-link-title" className="text-xl font-bold text-center text-slate-800 mb-2">{t('linkCreated')}</h3>
                   <p className="text-slate-500 text-center text-sm mb-6">Link kuis telah otomatis di-copy ke clipboard-mu.</p>
                   
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center gap-3 mb-6">
@@ -552,7 +542,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onS
                       {t('done')}
                   </button>
               </motion.div>
-          </div>
+          </OverlayPortal>
       )}
 
 
@@ -604,9 +594,9 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onS
 
       {/* MOVE TO FOLDER MODAL */}
       {folderModal.isOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+          <OverlayPortal labelledBy="move-quiz-title" className="fixed inset-0 z-[170] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
               <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
-                  <h3 className="text-xl font-bold text-slate-800 mb-4">Move quiz</h3>
+                  <h3 id="move-quiz-title" className="text-xl font-bold text-slate-800 mb-4">Move quiz</h3>
                   <label className="text-sm font-bold text-slate-500 mb-2 block">Nama Folder Baru/Lama</label>
                   <input 
                       type="text" 
@@ -620,14 +610,14 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onS
                       <button onClick={handleMoveFolder} className="flex-1 py-3 font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors">{t('save')}</button>
                   </div>
               </motion.div>
-          </div>
+          </OverlayPortal>
       )}
 
       {/* RENAME FOLDER MODAL */}
       {renameFolderModal.isOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+          <OverlayPortal labelledBy="rename-folder-title" className="fixed inset-0 z-[170] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
               <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
-                  <h3 className="text-xl font-bold text-slate-800 mb-4">Ganti Nama Folder</h3>
+                  <h3 id="rename-folder-title" className="text-xl font-bold text-slate-800 mb-4">Ganti Nama Folder</h3>
                   <label className="text-sm font-bold text-slate-500 mb-2 block">Nama Folder Baru</label>
                   <input 
                       type="text" 
@@ -641,7 +631,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onLoadHistory, onS
                       <button onClick={handleRenameFolder} className="flex-1 py-3 font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors">{t('save')}</button>
                   </div>
               </motion.div>
-          </div>
+          </OverlayPortal>
       )}
 
       <ConfirmDialog

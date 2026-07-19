@@ -7,9 +7,8 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import visionWasmLoaderUrl from '@mediapipe/tasks-vision/vision_wasm_module_internal.js?url';
-import visionWasmBinaryUrl from '@mediapipe/tasks-vision/vision_wasm_module_internal.wasm?url';
 import { useCamera } from '../contexts/CameraContext';
+import { getVisionFileset } from '../services/mediaPipeVisionService';
 import {
   classifyHandGesture,
   majorityVote,
@@ -91,11 +90,10 @@ export const useHandGesture = (
           }
         }, 20000);
 
-        const { GestureRecognizer } = await import('@mediapipe/tasks-vision');
-        const vision = {
-          wasmLoaderPath: visionWasmLoaderUrl,
-          wasmBinaryPath: visionWasmBinaryUrl,
-        };
+        const [{ GestureRecognizer }, vision] = await Promise.all([
+          import('@mediapipe/tasks-vision'),
+          getVisionFileset(),
+        ]);
         if (!active) return;
 
         const opts = {
