@@ -10,16 +10,34 @@ import { registerSW } from 'virtual:pwa-register';
 import { ToastHost } from './components/ToastHost';
 import { notifyUser } from './services/uiFeedbackService';
 
+// Auto-apply new deploys so hashed lazy chunks (e.g. HistoryScreen-XXXX.js)
+// cannot stay broken after a Vercel publish. Users with an old tab/SW get one
+// clean reload instead of "Failed to fetch dynamically imported module".
 const updateSW = registerSW({
+  immediate: true,
   onNeedRefresh() {
-    notifyUser('A new Noodl version is ready.', 'info', {
-      actionLabel: 'Reload',
-      onAction: () => updateSW(true),
-      durationMs: 15_000,
-    });
+    // Prefer seamless update; fall back to a toast if updateSW throws.
+    try {
+      void updateSW(true);
+    } catch {
+      notifyUser('A new Noodl version is ready.', 'info', {
+        actionLabel: 'Reload',
+        onAction: () => {
+          void updateSW(true);
+        },
+        durationMs: 15_000,
+      });
+    }
   },
   onOfflineReady() {
-    console.log("Noodl is ready offline.");
+    console.log('Noodl is ready offline.');
+  },
+  onRegisteredSW(_swUrl, registration) {
+    if (!registration) return;
+    // Poll for updates while the tab is open (deploy mid-session).
+    window.setInterval(() => {
+      void registration.update();
+    }, 60 * 60 * 1000);
   },
 });
 

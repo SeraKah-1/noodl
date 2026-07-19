@@ -43,6 +43,11 @@ export default defineConfig(({ mode }) => {
             ]
           },
           workbox: {
+            // Drop obsolete precaches after each deploy so old HistoryScreen-*.js
+            // hashes are not served forever.
+            cleanupOutdatedCaches: true,
+            clientsClaim: true,
+            skipWaiting: true,
             globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,jpeg,json}'],
             // Optional online/heavy features should not inflate the first offline cache.
             globIgnores: [
@@ -52,7 +57,30 @@ export default defineConfig(({ mode }) => {
               '**/geminiService-*.js',
             ],
             maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
-            navigateFallback: '/index.html'
+            navigateFallback: '/index.html',
+            // Never SPA-fallback hashed modules / API — 404 must surface so
+            // lazyWithRetry can hard-reload onto the new deploy.
+            navigateFallbackDenylist: [/^\/api\//, /\/assets\/.+\.js$/i],
+            runtimeCaching: [
+              {
+                // Prefer network for content-hashed JS so post-deploy tabs do not
+                // keep a missing chunk URL cached as success forever.
+                urlPattern: ({ request, url }) =>
+                  request.destination === 'script' || /\/assets\/.+\.js$/i.test(url.pathname),
+                handler: 'NetworkFirst',
+                options: {
+                  cacheName: 'noodl-js-assets',
+                  networkTimeoutSeconds: 4,
+                  expiration: {
+                    maxEntries: 48,
+                    maxAgeSeconds: 60 * 60 * 24,
+                  },
+                  cacheableResponse: {
+                    statuses: [0, 200],
+                  },
+                },
+              },
+            ],
           }
         })
       ],

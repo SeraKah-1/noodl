@@ -39,15 +39,40 @@ import { OnboardingModal } from './components/OnboardingModal';
 import { getLocale, isOnboardingDone, t, subscribeLocale } from './services/i18n';
 import { notifyUser } from './services/uiFeedbackService';
 import { validateQuizImport } from './services/quizImportValidation';
+import { lazyWithRetry } from './utils/lazyWithRetry';
 
-const SettingsScreen = React.lazy(() => import('./components/SettingsScreen').then((m) => ({ default: m.SettingsScreen })));
-const HistoryScreen = React.lazy(() => import('./components/HistoryScreen').then((m) => ({ default: m.HistoryScreen })));
-const NeuroSyncDashboard = React.lazy(() => import('./components/NeuroSyncDashboard').then((m) => ({ default: m.NeuroSyncDashboard })));
-const MixRoom = React.lazy(() => import('./components/MixRoom').then((m) => ({ default: m.MixRoom })));
-const ChatScreen = React.lazy(() => import('./components/ChatScreen').then((m) => ({ default: m.ChatScreen })));
-const VisualizationGallery = React.lazy(() => import('./components/VisualizationGallery').then((m) => ({ default: m.VisualizationGallery })));
-const MaterialOverview = React.lazy(() => import('./components/MaterialOverview').then((m) => ({ default: m.MaterialOverview })));
-const ResultScreen = React.lazy(() => import('./components/ResultScreen').then((m) => ({ default: m.ResultScreen })));
+const SettingsScreen = lazyWithRetry(
+  () => import('./components/SettingsScreen').then((m) => ({ default: m.SettingsScreen })),
+  'SettingsScreen'
+);
+const HistoryScreen = lazyWithRetry(
+  () => import('./components/HistoryScreen').then((m) => ({ default: m.HistoryScreen })),
+  'HistoryScreen'
+);
+const NeuroSyncDashboard = lazyWithRetry(
+  () => import('./components/NeuroSyncDashboard').then((m) => ({ default: m.NeuroSyncDashboard })),
+  'NeuroSyncDashboard'
+);
+const MixRoom = lazyWithRetry(
+  () => import('./components/MixRoom').then((m) => ({ default: m.MixRoom })),
+  'MixRoom'
+);
+const ChatScreen = lazyWithRetry(
+  () => import('./components/ChatScreen').then((m) => ({ default: m.ChatScreen })),
+  'ChatScreen'
+);
+const VisualizationGallery = lazyWithRetry(
+  () => import('./components/VisualizationGallery').then((m) => ({ default: m.VisualizationGallery })),
+  'VisualizationGallery'
+);
+const MaterialOverview = lazyWithRetry(
+  () => import('./components/MaterialOverview').then((m) => ({ default: m.MaterialOverview })),
+  'MaterialOverview'
+);
+const ResultScreen = lazyWithRetry(
+  () => import('./components/ResultScreen').then((m) => ({ default: m.ResultScreen })),
+  'ResultScreen'
+);
 
 /** Noodl is BYOK-only — no built-in Vertex/Firebase free path. */
 const App: React.FC = () => {
