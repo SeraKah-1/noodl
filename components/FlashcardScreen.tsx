@@ -9,6 +9,7 @@ import { t } from '../services/i18n';
 
 interface FlashcardScreenProps {
   questions: (Question | SRSItem)[];
+  keycardId?: string;
   onClose: () => void;
 }
 
@@ -27,10 +28,11 @@ const CardText: React.FC<{ text: string }> = ({ text }) => {
   );
 };
 
-export const FlashcardScreen: React.FC<FlashcardScreenProps> = ({ questions, onClose }) => {
+export const FlashcardScreen: React.FC<FlashcardScreenProps> = ({ questions, keycardId = 'global', onClose }) => {
   const [index, setIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [exitDir, setExitDir] = useState<'left' | 'right' | 'down' | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const { playClick, playCorrect, playIncorrect, triggerHaptic, playSwipe } = useGameSound();
 
@@ -52,21 +54,19 @@ export const FlashcardScreen: React.FC<FlashcardScreenProps> = ({ questions, onC
   const ingatOpacity = useTransform(x, [0, 100], [0, 1]);
   const lupaOpacity = useTransform(x, [0, -100], [0, 1]);
 
-  // Init SRS
   useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    // If passing pure Questions, add them to SRS automatically
-    questions.forEach(q => {
-      if (q && !('item_type' in q)) {
-        addQuestionToSRS(undefined, undefined, q);
-      }
-    });
-    return () => { document.body.style.overflow = 'unset'; };
-  }, [questions]);
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, []);
 
   // --- LOGIC ---
 
-  const handleNextCard = useCallback((rating: 'lupa' | 'sulit' | 'bagus' | 'mudah') => {
+  const handleNextCard = useCallback(async (rating: 'lupa' | 'sulit' | 'bagus' | 'mudah') => {
+    if (!isFlipped || isProcessing) return;
+    const currentItem = questions[index];
+    if (!currentItem) return;
+    setIsProcessing(true);
     // 1. Set Animation Direction & Sound
     if (rating === 'lupa') {
         if (!exitDir) setExitDir('left');
@@ -82,8 +82,6 @@ export const FlashcardScreen: React.FC<FlashcardScreenProps> = ({ questions, onC
     triggerHaptic();
 
     // 2. Process SRS
-    const currentItem = questions[index];
-    if (!currentItem) return;
     let quality = 2; // Bagus (default)
     if (rating === 'lupa') quality = 0; // Again
     if (rating === 'sulit') quality = 1; // Hard
@@ -91,10 +89,10 @@ export const FlashcardScreen: React.FC<FlashcardScreenProps> = ({ questions, onC
     
     // Only process review if it's already an SRSItem
     if ('item_type' in currentItem) {
-      processCardReview(undefined, currentItem as any, quality);
+      await processCardReview(undefined, currentItem as SRSItem, quality);
     } else {
-      // First time: add to SRS then process rating implicitly by the engine, or since addQuestion returns early, we let next review logic happen
-      addQuestionToSRS(undefined, "global", currentItem);
+      const added = await addQuestionToSRS(undefined, keycardId, currentItem);
+      if (added) await processCardReview(undefined, added, quality);
     }
 
     // 3. Move Next
@@ -103,13 +101,14 @@ export const FlashcardScreen: React.FC<FlashcardScreenProps> = ({ questions, onC
             setIndex(prev => prev + 1);
             setIsFlipped(false);
             setExitDir(null);
+            setIsProcessing(false);
             x.set(0); 
             y.set(0);
         } else {
             onClose(); 
         }
     }, 200);
-  }, [exitDir, index, questions, onClose, playCorrect, playIncorrect, playClick, x, y, triggerHaptic]);
+  }, [exitDir, index, questions, onClose, playCorrect, playIncorrect, playClick, x, y, triggerHaptic, isFlipped, isProcessing, keycardId]);
 
   const handleFlip = useCallback(() => {
     // Only flip if not dragging hard
@@ -123,6 +122,12 @@ export const FlashcardScreen: React.FC<FlashcardScreenProps> = ({ questions, onC
   const handleDragEnd = (_: any, info: PanInfo) => {
     const threshold = 100;
     const velocityThreshold = 500;
+
+    if (!isFlipped) {
+      x.set(0);
+      y.set(0);
+      return;
+    }
 
     if (info.offset.x > threshold || info.velocity.x > velocityThreshold) {
        handleNextCard('mudah');
@@ -139,20 +144,20 @@ export const FlashcardScreen: React.FC<FlashcardScreenProps> = ({ questions, onC
       if (e.key === 'Escape') onClose();
       
       // Navigation
-      if (e.key === ' ' || e.key === 'Enter' || e.key === 'ArrowUp') {
+      if (e.key === ' ' || e.key === 'Enter') {
          e.preventDefault();
          setIsFlipped(prev => !prev);
       }
       
       // Rating (Only allow if user wants to speed run or is checking answer)
-      if (e.key === 'ArrowLeft') handleNextCard('lupa');
-      if (e.key === 'ArrowRight') handleNextCard('mudah');
-      if (e.key === 'ArrowDown') handleNextCard('sulit');
-      if (e.key === 'ArrowUp') handleNextCard('bagus');
+      if (isFlipped && e.key === 'ArrowLeft') void handleNextCard('lupa');
+      if (isFlipped && e.key === 'ArrowRight') void handleNextCard('mudah');
+      if (isFlipped && e.key === 'ArrowDown') void handleNextCard('sulit');
+      if (isFlipped && e.key === 'ArrowUp') void handleNextCard('bagus');
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [handleNextCard, onClose]);
+  }, [handleNextCard, isFlipped, onClose]);
 
   if (!questions || questions.length === 0) return null;
   const currentQRaw = questions[index];
@@ -169,7 +174,7 @@ export const FlashcardScreen: React.FC<FlashcardScreenProps> = ({ questions, onC
       {/* --- HEADER --- */}
       <div className="absolute top-0 left-0 w-full z-20 p-6 flex flex-col gap-4">
         <div className="flex justify-between items-center w-full max-w-lg mx-auto">
-           <button onClick={onClose} className="p-2 rounded-full hover:bg-theme-text/10 text-theme-muted transition-colors">
+           <button onClick={onClose} aria-label="Close flashcards" className="p-2 rounded-full hover:bg-theme-text/10 text-theme-muted transition-colors">
               <X size={24} />
            </button>
            <span className="text-sm font-bold uppercase tracking-widest text-theme-text opacity-80">Flashcard</span>
@@ -308,8 +313,9 @@ export const FlashcardScreen: React.FC<FlashcardScreenProps> = ({ questions, onC
                     className="flex gap-4 pointer-events-auto"
                 >
                     <button 
-                        onClick={() => handleNextCard('lupa')}
-                        className="flex flex-col items-center gap-1 group"
+                        onClick={() => void handleNextCard('lupa')}
+                        disabled={isProcessing}
+                        className="flex flex-col items-center gap-1 group disabled:opacity-50 disabled:pointer-events-none"
                     >
                         <div className="w-14 h-14 rounded-2xl bg-rose-50 border-2 border-rose-100 flex items-center justify-center text-rose-500 shadow-sm group-hover:scale-110 group-active:scale-95 transition-all">
                             <HelpCircle size={24} />
@@ -318,8 +324,9 @@ export const FlashcardScreen: React.FC<FlashcardScreenProps> = ({ questions, onC
                     </button>
 
                     <button 
-                        onClick={() => handleNextCard('sulit')}
-                        className="flex flex-col items-center gap-1 group"
+                        onClick={() => void handleNextCard('sulit')}
+                        disabled={isProcessing}
+                        className="flex flex-col items-center gap-1 group disabled:opacity-50 disabled:pointer-events-none"
                     >
                         <div className="w-14 h-14 rounded-2xl bg-amber-50 border-2 border-amber-100 flex items-center justify-center text-amber-500 shadow-sm group-hover:scale-110 group-active:scale-95 transition-all">
                             <BrainCircuit size={24} />
@@ -328,8 +335,9 @@ export const FlashcardScreen: React.FC<FlashcardScreenProps> = ({ questions, onC
                     </button>
 
                     <button 
-                        onClick={() => handleNextCard('bagus')}
-                        className="flex flex-col items-center gap-1 group"
+                        onClick={() => void handleNextCard('bagus')}
+                        disabled={isProcessing}
+                        className="flex flex-col items-center gap-1 group disabled:opacity-50 disabled:pointer-events-none"
                     >
                         <div className="w-14 h-14 rounded-2xl bg-blue-50 border-2 border-blue-100 flex items-center justify-center text-blue-500 shadow-sm group-hover:scale-110 group-active:scale-95 transition-all">
                             <Star size={24} />
@@ -338,8 +346,9 @@ export const FlashcardScreen: React.FC<FlashcardScreenProps> = ({ questions, onC
                     </button>
 
                     <button 
-                        onClick={() => handleNextCard('mudah')}
-                        className="flex flex-col items-center gap-1 group"
+                        onClick={() => void handleNextCard('mudah')}
+                        disabled={isProcessing}
+                        className="flex flex-col items-center gap-1 group disabled:opacity-50 disabled:pointer-events-none"
                     >
                         <div className="w-14 h-14 rounded-2xl bg-emerald-50 border-2 border-emerald-100 flex items-center justify-center text-emerald-500 shadow-sm group-hover:scale-110 group-active:scale-95 transition-all">
                             <Check size={24} strokeWidth={3} />

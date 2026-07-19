@@ -41,6 +41,9 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   /** Monotonic generation — increment to invalidate in-flight starts */
   const startGenRef = useRef(0);
   const startingRef = useRef(false);
+  // Read through a function so TypeScript does not incorrectly keep a stale
+  // narrowing of a mutable ref across async camera operations.
+  const isModeOff = () => modeRef.current === 'OFF';
 
   const detachVideo = useCallback(() => {
     const video = videoRef.current;
@@ -106,7 +109,7 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
 
       // Aborted / mode flipped OFF / newer start while we waited
-      if (myGen !== startGenRef.current || modeRef.current === 'OFF') {
+      if (myGen !== startGenRef.current || isModeOff()) {
         stopTracks(newStream);
         startingRef.current = false;
         return;
@@ -144,7 +147,7 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         });
 
         // Mode may have flipped OFF during metadata wait
-        if (myGen !== startGenRef.current || modeRef.current === 'OFF') {
+        if (myGen !== startGenRef.current || isModeOff()) {
           stopTracks(newStream);
           if (streamRef.current === newStream) streamRef.current = null;
           setStream(null);
@@ -161,7 +164,7 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
       }
 
-      if (myGen !== startGenRef.current || modeRef.current === 'OFF') {
+      if (myGen !== startGenRef.current || isModeOff()) {
         stopTracks(newStream);
         if (streamRef.current === newStream) streamRef.current = null;
         setStream(null);

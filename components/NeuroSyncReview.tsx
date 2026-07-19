@@ -1,6 +1,6 @@
 import { t } from '../services/i18n';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, Brain, CheckCircle2, XCircle, HelpCircle, ArrowRight, Zap, RefreshCw } from 'lucide-react';
 import { SRSItem, Question } from '../types';
@@ -26,7 +26,7 @@ export const NeuroSyncReview: React.FC<NeuroSyncReviewProps> = ({ items, keycard
     if (isProcessing) return;
     setIsProcessing(true);
 
-    await NeuroSync.processReview(undefined, currentItem, rating);
+    await NeuroSync.updateItem(currentItem, rating);
 
     setSessionResults([...sessionResults, { id: currentItem.id!, rating }]);
 

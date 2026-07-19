@@ -7,7 +7,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { Question, QuizResult, DeepInsightData } from '../types';
 import { Sparkles, Download, Loader2, ChevronRight, ChevronLeft, CheckCircle, XCircle, Info, Hash } from 'lucide-react';
-import { exportDeepInsightToPDF, exportOverviewToPDF } from '../services/pdfExportService';
+import { notifyUser } from '../services/uiFeedbackService';
 
 interface MaterialOverviewProps {
   questions: Question[];
@@ -95,6 +95,7 @@ export const MaterialOverview: React.FC<MaterialOverviewProps> = ({
   const handleExportPDF = async () => {
     setIsExporting(true);
     try {
+      const { exportDeepInsightToPDF, exportOverviewToPDF } = await import('../services/pdfExportService');
       if (aiOverviewData) {
         await exportDeepInsightToPDF(aiOverviewData, title);
       } else if (groupedData) {
@@ -102,7 +103,7 @@ export const MaterialOverview: React.FC<MaterialOverviewProps> = ({
       }
     } catch (err) {
       console.error('PDF Export Error:', err);
-      alert('PDF export failed. Try again.');
+      notifyUser('PDF export failed. Try again.', 'error');
     } finally {
       setIsExporting(false);
     }

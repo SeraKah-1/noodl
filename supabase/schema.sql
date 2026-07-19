@@ -78,8 +78,24 @@ create table if not exists public.srs_items (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   deleted_at timestamptz,
-  unique (user_id, item_id)
+  unique (user_id, keycard_id, item_id)
 );
+
+-- Upgrade older installs where question ids were globally unique by mistake.
+alter table public.srs_items
+  drop constraint if exists srs_items_user_id_item_id_key;
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.srs_items'::regclass
+      and conname = 'srs_items_user_id_keycard_id_item_id_key'
+  ) then
+    alter table public.srs_items
+      add constraint srs_items_user_id_keycard_id_item_id_key
+      unique (user_id, keycard_id, item_id);
+  end if;
+end $$;
 
 create index if not exists srs_user_due_idx
   on public.srs_items (user_id, next_review)
@@ -140,11 +156,16 @@ create trigger profiles_set_updated_at
   for each row execute function public.set_updated_at();
 
 -- ── auto profile on signup ─────────────────────────────────
-create or replace function public.handle_new_user()
+create schema if not exists private;
+
+drop trigger if exists on_auth_user_created on auth.users;
+drop function if exists public.handle_new_user();
+
+create or replace function private.handle_new_user()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 begin
   insert into public.user_profiles (user_id, display_name, avatar_url)
@@ -158,10 +179,11 @@ begin
 end;
 $$;
 
-drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
-  for each row execute function public.handle_new_user();
+  for each row execute function private.handle_new_user();
+
+revoke all on function private.handle_new_user() from public, anon, authenticated;
 
 -- ── RLS ────────────────────────────────────────────────────
 alter table public.user_profiles enable row level security;
@@ -185,35 +207,48 @@ begin
 end $$;
 
 -- profiles
-create policy profiles_select on public.user_profiles for select using (auth.uid() = user_id);
-create policy profiles_insert on public.user_profiles for insert with check (auth.uid() = user_id);
-create policy profiles_update on public.user_profiles for update using (auth.uid() = user_id);
-create policy profiles_delete on public.user_profiles for delete using (auth.uid() = user_id);
+create policy profiles_select on public.user_profiles for select to authenticated using ((select auth.uid()) = user_id);
+create policy profiles_insert on public.user_profiles for insert to authenticated with check ((select auth.uid()) = user_id);
+create policy profiles_update on public.user_profiles for update to authenticated
+  using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+create policy profiles_delete on public.user_profiles for delete to authenticated using ((select auth.uid()) = user_id);
 
 -- quizzes: owner full access; public rows readable by anyone authenticated
 create policy quizzes_select on public.quizzes for select
-  using (auth.uid() = user_id or (visibility = 'public' and deleted_at is null));
-create policy quizzes_insert on public.quizzes for insert with check (auth.uid() = user_id);
-create policy quizzes_update on public.quizzes for update using (auth.uid() = user_id);
-create policy quizzes_delete on public.quizzes for delete using (auth.uid() = user_id);
+  to anon, authenticated
+  using ((select auth.uid()) = user_id or (visibility = 'public' and deleted_at is null));
+create policy quizzes_insert on public.quizzes for insert to authenticated with check ((select auth.uid()) = user_id);
+create policy quizzes_update on public.quizzes for update to authenticated
+  using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+create policy quizzes_delete on public.quizzes for delete to authenticated using ((select auth.uid()) = user_id);
 
 -- library
-create policy library_select on public.library_items for select using (auth.uid() = user_id);
-create policy library_insert on public.library_items for insert with check (auth.uid() = user_id);
-create policy library_update on public.library_items for update using (auth.uid() = user_id);
-create policy library_delete on public.library_items for delete using (auth.uid() = user_id);
+create policy library_select on public.library_items for select to authenticated using ((select auth.uid()) = user_id);
+create policy library_insert on public.library_items for insert to authenticated with check ((select auth.uid()) = user_id);
+create policy library_update on public.library_items for update to authenticated
+  using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+create policy library_delete on public.library_items for delete to authenticated using ((select auth.uid()) = user_id);
 
 -- srs
-create policy srs_select on public.srs_items for select using (auth.uid() = user_id);
-create policy srs_insert on public.srs_items for insert with check (auth.uid() = user_id);
-create policy srs_update on public.srs_items for update using (auth.uid() = user_id);
-create policy srs_delete on public.srs_items for delete using (auth.uid() = user_id);
+create policy srs_select on public.srs_items for select to authenticated using ((select auth.uid()) = user_id);
+create policy srs_insert on public.srs_items for insert to authenticated with check ((select auth.uid()) = user_id);
+create policy srs_update on public.srs_items for update to authenticated
+  using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+create policy srs_delete on public.srs_items for delete to authenticated using ((select auth.uid()) = user_id);
 
 -- devices / sync_state
 create policy devices_all on public.devices for all
-  using (auth.uid() = user_id) with check (auth.uid() = user_id);
+  to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
 create policy sync_state_all on public.sync_state for all
-  using (auth.uid() = user_id) with check (auth.uid() = user_id);
+  to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+
+-- Data API access is opt-in: grants and RLS are both required.
+revoke all on table public.user_profiles, public.quizzes, public.library_items,
+  public.srs_items, public.devices, public.sync_state from anon, authenticated;
+grant select on table public.quizzes to anon;
+grant select, insert, update, delete on table public.user_profiles, public.quizzes,
+  public.library_items, public.srs_items, public.devices, public.sync_state to authenticated;
+revoke execute on function public.set_updated_at() from public, anon, authenticated;
 
 -- ── Realtime (cross-device live updates) ───────────────────
 -- Dashboard → Database → Replication → enable for these tables,
@@ -235,8 +270,12 @@ begin
 end $$;
 
 -- ── helpful view: due SRS count ────────────────────────────
-create or replace view public.srs_due_counts as
+create or replace view public.srs_due_counts
+with (security_invoker = true) as
 select user_id, count(*)::int as due_count
 from public.srs_items
 where deleted_at is null and next_review <= now()
 group by user_id;
+
+revoke all on table public.srs_due_counts from anon, authenticated;
+grant select on table public.srs_due_counts to authenticated;

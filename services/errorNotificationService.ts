@@ -1,4 +1,5 @@
 import { getLocale } from './i18n';
+import { notifyUser } from './uiFeedbackService';
 
 type ErrorNotificationInput = {
   title: string;
@@ -144,7 +145,7 @@ export const showErrorNotification = (input: ErrorNotificationInput): string => 
   const message = buildErrorNotificationMessage(input);
   console.error("[Error Notification]", message, input.error);
   if (typeof window !== "undefined") {
-    alert(message);
+    notifyUser(message, 'error');
   }
   return message;
 };

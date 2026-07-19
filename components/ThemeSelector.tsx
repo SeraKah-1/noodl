@@ -3,6 +3,20 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { Check, Palette } from 'lucide-react';
 import { ThemeName, applyTheme, getThemeList } from '../services/themeService';
+import { getLocale } from '../services/i18n';
+
+const ENGLISH_THEME_DESCRIPTIONS: Record<ThemeName, string> = {
+  default: 'Balanced & calm',
+  lilac: 'Soft & dreamy',
+  blush: 'Warm & elegant',
+  sky: 'Bright & calm',
+  vanilla: 'Warm & cozy',
+  matcha: 'Fresh & relaxed',
+  sunset: 'Energetic & focused',
+  midnight: 'Night mode',
+  oled: 'High contrast',
+  paper: 'Low glare',
+};
 
 interface ThemeSelectorProps {
   currentTheme: ThemeName;
@@ -23,6 +37,7 @@ export const ThemeSelector: React.FC<ThemeSelectorProps> = ({ currentTheme, onTh
         <button
           key={t.id}
           onClick={() => handleSelect(t.id)}
+          aria-pressed={currentTheme === t.id}
           className={`
             relative p-4 rounded-2xl border flex items-center space-x-4 transition-all duration-200 text-left group
             ${currentTheme === t.id 
@@ -47,7 +62,7 @@ export const ThemeSelector: React.FC<ThemeSelectorProps> = ({ currentTheme, onTh
               {t.name}
             </h4>
             <p className="text-[10px] text-theme-muted uppercase tracking-wider font-medium">
-              {t.desc}
+              {getLocale() === 'en' ? ENGLISH_THEME_DESCRIPTIONS[t.id] : t.desc}
             </p>
           </div>
         </button>

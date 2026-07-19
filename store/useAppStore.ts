@@ -1,12 +1,11 @@
 import { create } from 'zustand';
 import { AppView, QuizState, Question, QuizResult, ModelConfig, QuizMode } from '../types';
+import type { QuizSession } from '../services/quizSessionService';
 
 interface AppState {
   // App Navigation
   currentView: AppView;
   setCurrentView: (view: AppView) => void;
-  showAnalysis: boolean;
-  setShowAnalysis: (show: boolean) => void;
 
   // Quiz State
   quizState: QuizState;
@@ -27,6 +26,8 @@ interface AppState {
   setLoadingStatus: (status: string) => void;
   activeMode: QuizMode;
   setActiveMode: (mode: QuizMode) => void;
+  resumeSession: QuizSession | null;
+  setResumeSession: (session: QuizSession | null) => void;
 
   // Actions
   resetApp: () => void;
@@ -35,7 +36,6 @@ interface AppState {
 export const useAppStore = create<AppState>((set) => ({
   // Initial State
   currentView: AppView.GENERATOR,
-  showAnalysis: false,
 
   quizState: QuizState.CONFIG,
   questions: [],
@@ -46,10 +46,10 @@ export const useAppStore = create<AppState>((set) => ({
   errorMsg: null,
   loadingStatus: "Ready",
   activeMode: QuizMode.STANDARD,
+  resumeSession: null,
 
   // Setters
   setCurrentView: (view) => set({ currentView: view }),
-  setShowAnalysis: (show) => set({ showAnalysis: show }),
 
   setQuizState: (state) => set({ quizState: state }),
   setQuestions: (questions) => set({ questions }),
@@ -60,6 +60,7 @@ export const useAppStore = create<AppState>((set) => ({
   setErrorMsg: (msg) => set({ errorMsg: msg }),
   setLoadingStatus: (status) => set({ loadingStatus: status }),
   setActiveMode: (mode) => set({ activeMode: mode }),
+  setResumeSession: (resumeSession) => set({ resumeSession }),
 
   resetApp: () => set({
     questions: [],
@@ -68,6 +69,7 @@ export const useAppStore = create<AppState>((set) => ({
     errorMsg: null,
     activeQuizId: null,
     lastConfig: null,
+    resumeSession: null,
     quizState: QuizState.CONFIG,
   }),
 }));

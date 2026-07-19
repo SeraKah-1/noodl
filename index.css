@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-Regular.ttf') format('truetype');
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
+:root {
+  --app-bg: #f8fafc;
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.8);
+  --text-main: #1e293b;
+  --text-muted: #64748b;
+  --primary: #4f46e5;
+  --mesh-c1: hsla(250, 95%, 90%, 0.6);
+  --mesh-c2: hsla(330, 95%, 90%, 0.6);
+  --mesh-c3: hsla(190, 95%, 90%, 0.6);
+}
+
+body {
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  background-color: var(--app-bg);
+  color: var(--text-main);
+  overflow-x: hidden;
+  transition: background-color 0.5s ease, color 0.5s ease;
+  overscroll-behavior-y: none;
+}
+
+.noise-bg {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='1'/%3E%3C/svg%3E");
+}
+
+.mesh-bg {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  z-index: -2;
+  background-color: var(--app-bg);
+  background-image:
+    radial-gradient(at 10% 10%, var(--mesh-c1) 0, transparent 50%),
+    radial-gradient(at 90% 10%, var(--mesh-c2) 0, transparent 50%),
+    radial-gradient(at 50% 90%, var(--mesh-c3) 0, transparent 50%);
+  transition: background-image 0.5s ease;
+}
+
+.btn-tactile {
+  position: relative;
+  border-bottom-width: 4px;
+  transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateY(0);
+}
+
+.btn-tactile:active:not(:disabled) {
+  border-bottom-width: 0;
+  transform: translateY(4px);
+  margin-bottom: 4px;
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.1); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.2); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

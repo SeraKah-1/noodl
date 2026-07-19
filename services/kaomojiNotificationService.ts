@@ -50,7 +50,7 @@ const sendKaomojiNotify = (title: string, body: string, tag?: string) => {
                 navigator.serviceWorker.ready.then(registration => {
                     registration.showNotification(title, {
                         body: body,
-                        icon: "https://cdn-icons-png.flaticon.com/512/3767/3767084.png",
+                        icon: "/icon-192.png",
                         tag: tag,
                         vibrate: [200, 100, 200]
                     } as any);
@@ -68,7 +68,7 @@ const fallbackNotify = (title: string, body: string, tag?: string) => {
     try {
         new Notification(title, {
             body: body,
-            icon: "https://cdn-icons-png.flaticon.com/512/3767/3767084.png", 
+            icon: "/icon-192.png",
             tag: tag
         });
     } catch (e) {
@@ -144,23 +144,36 @@ export const notifyStudyReminder = () => {
 };
 
 // Start an idle reminder that sends a notification if the app is put in background
-export const setupIdleReminders = () => {
-    if (typeof window === 'undefined') return;
-    
-    let idleTimer: any;
-    
-    const resetTimer = () => {
-        clearTimeout(idleTimer);
-        // Set reminder for 4 hours of inactivity
-        idleTimer = setTimeout(() => {
-            notifyStudyReminder();
-            resetTimer();
-        }, 1000 * 60 * 60 * 4);
+export const setupIdleReminders = (): (() => void) => {
+    if (typeof window === 'undefined' || !("Notification" in window) || Notification.permission !== 'granted') {
+      return () => {};
+    }
+
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    let lastResetAt = 0;
+    const schedule = () => {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        notifyStudyReminder();
+        schedule();
+      }, 1000 * 60 * 60 * 4);
+    };
+    const onActivity = () => {
+      const now = Date.now();
+      if (now - lastResetAt < 30_000) return;
+      lastResetAt = now;
+      schedule();
     };
 
-    window.addEventListener('mousemove', resetTimer);
-    window.addEventListener('keypress', resetTimer);
-    window.addEventListener('touchstart', resetTimer);
-    
-    resetTimer(); // Init
+    window.addEventListener('pointerdown', onActivity, { passive: true });
+    window.addEventListener('keydown', onActivity);
+    document.addEventListener('visibilitychange', onActivity);
+    schedule();
+
+    return () => {
+      clearTimeout(idleTimer);
+      window.removeEventListener('pointerdown', onActivity);
+      window.removeEventListener('keydown', onActivity);
+      document.removeEventListener('visibilitychange', onActivity);
+    };
 };

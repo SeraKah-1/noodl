@@ -5,7 +5,9 @@ import { Heart, X, ChevronLeft, Hand, Eye, Settings, Power, Trophy, ChevronDown,
 import { QuizResult, QuizMode } from '../types';
 import { useGameSound } from '../hooks/useGameSound';
 import { GestureControl } from './GestureControl';
-import { addToGraveyard } from '../services/storageService';
+import { addToGraveyard, getSRSEnabled, getWakeLockEnabled } from '../services/storageService';
+import { addQuestionToSRS } from '../services/srsService';
+import { setWakelockRunning } from '../services/wakelockService';
 import { UniversalQuestionCard } from './UniversalQuestionCard'; 
 import { NoseTrackingManager } from './NoseTrackingManager';
 import confetti from 'canvas-confetti';
@@ -39,18 +41,25 @@ const getKao = () => ({
 });
 
 export const QuizInterface: React.FC<QuizInterfaceProps> = ({ onComplete, onExit, onAnswerSubmit }) => {
-  const { questions, activeMode: mode, activeQuizId } = useAppStore();
+  const { questions, activeMode: mode, activeQuizId, resumeSession, setResumeSession } = useAppStore();
   const KAO = getKao();
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const initialSessionRef = useRef(resumeSession);
+  const [currentIndex, setCurrentIndex] = useState(() =>
+    Math.min(Math.max(initialSessionRef.current?.currentIndex || 0, 0), Math.max(questions.length - 1, 0))
+  );
   const [userAnswer, setUserAnswer] = useState<any>(null); 
   const [isAnswered, setIsAnswered] = useState(false);
-  const [answers, setAnswers] = useState<any[]>([]);
+  const [answers, setAnswers] = useState<any[]>(() => initialSessionRef.current?.answers || []);
   
-  const [streak, setStreak] = useState(0);
-  const [lives, setLives] = useState(3);
+  const [streak, setStreak] = useState(() => initialSessionRef.current?.streak || 0);
+  const [lives, setLives] = useState(() => initialSessionRef.current?.lives ?? 3);
   
   // ── FITUR 5: Session ID for persistence ──
-  const sessionIdRef = useRef(generateSessionId());
+  const sessionIdRef = useRef(initialSessionRef.current?.id || generateSessionId());
+
+  useEffect(() => {
+    if (initialSessionRef.current) setResumeSession(null);
+  }, [setResumeSession]);
   
   const [kaomojiState, setKaomojiState] = useState(KAO.IDLE);
   const [flashType, setFlashType] = useState<'none' | 'success' | 'error'>('none');
@@ -72,7 +81,9 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ onComplete, onExit
 
   // Leaving the quiz must always release the camera (no stuck LED / open stream)
   useEffect(() => {
+    setWakelockRunning(getWakeLockEnabled());
     return () => {
+      setWakelockRunning(false);
       forceStop();
     };
   }, [forceStop]);
@@ -131,7 +142,9 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ onComplete, onExit
       if (nextStreak >= 3) {
          playStreak(nextStreak);
          setKaomojiState(KAO.STREAK);
-         confetti({ particleCount: 20 + nextStreak * 5, spread: 40, origin: { y: 0.8 }, colors: ['#fbbf24', '#f59e0b'] });
+         if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+           confetti({ particleCount: 20 + nextStreak * 5, spread: 40, origin: { y: 0.8 }, colors: ['#fbbf24', '#f59e0b'] });
+         }
       } else {
          setKaomojiState(KAO.CORRECT[Math.floor(Math.random() * KAO.CORRECT.length)]);
       }
@@ -142,6 +155,9 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ onComplete, onExit
       setKaomojiState(KAO.WRONG[Math.floor(Math.random() * KAO.WRONG.length)]);
       
       addToGraveyard(currentQuestion);
+      if (getSRSEnabled()) {
+        void addQuestionToSRS(undefined, String(activeQuizId || 'global'), currentQuestion);
+      }
       if (mode === QuizMode.SURVIVAL) setLives(l => Math.max(0, l - 1));
     }
 
@@ -165,7 +181,7 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ onComplete, onExit
         }
         return [...prev, newEntry];
     });
-  }, [currentQuestion, streak, mode, playCorrect, playIncorrect, isAnswered, onAnswerSubmit, currentIndex, timeLeftRef]);
+  }, [currentQuestion, streak, mode, playCorrect, playIncorrect, isAnswered, onAnswerSubmit, currentIndex, timeLeftRef, activeQuizId]);
 
   useEffect(() => {
     handleAnswerRef.current = handleAnswer;
@@ -286,8 +302,9 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ onComplete, onExit
             {currentIndex > 0 && (
               <button
                 type="button"
-                onClick={handlePrev}
-                title="Previous"
+              onClick={handlePrev}
+              title="Previous"
+              aria-label="Previous question"
                 className="p-2.5 bg-white border border-slate-200 shadow-sm text-slate-500 hover:text-indigo-600 rounded-xl hover:bg-indigo-50 transition-all active:scale-95"
               >
                 <ChevronLeft size={18} strokeWidth={2.5} />
@@ -346,6 +363,8 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ onComplete, onExit
             <button
               type="button"
               onClick={() => setShowSettings(!showSettings)}
+              aria-label="Quiz accessibility settings"
+              aria-expanded={showSettings}
               className={`p-2 rounded-xl border shadow-sm transition-all active:scale-95 ${
                 showSettings
                   ? 'bg-slate-800 text-white border-slate-900'
@@ -422,7 +441,10 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ onComplete, onExit
                     </div>
                     <button
                       type="button"
-                      onClick={toggleExperimental}
+                  onClick={toggleExperimental}
+                  role="switch"
+                  aria-checked={isExperimentalEnabled}
+                  aria-label="Hands-free controls"
                       className={`w-10 h-6 rounded-full transition-colors relative ${
                         isExperimentalEnabled ? 'bg-indigo-500' : 'bg-slate-200'
                       }`}
@@ -480,7 +502,7 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ onComplete, onExit
         }}
       >
         {/* Feedback chip in-flow (never covers question stem) */}
-        <div className="flex justify-center pt-3 pb-1 pointer-events-none">
+        <div aria-live="polite" className="flex justify-center pt-3 pb-1 pointer-events-none">
           <AnimatePresence mode="wait">
             <motion.div
               key={kaomojiState.face + String(isAnswered) + streak}

@@ -5,6 +5,7 @@ import { X, Save, Plus, Trash2, CheckCircle2 } from 'lucide-react';
 import { Question } from '../types';
 import { GlassButton } from './GlassButton';
 import { t, getLocale } from '../services/i18n';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface EditQuizModalProps {
   quizTitle: string;
@@ -16,6 +17,7 @@ interface EditQuizModalProps {
 export const EditQuizModal: React.FC<EditQuizModalProps> = ({ quizTitle, initialQuestions, onSave, onClose }) => {
   const [questions, setQuestions] = useState<Question[]>(initialQuestions);
   const [isSaving, setIsSaving] = useState(false);
+  const [deleteIndex, setDeleteIndex] = useState<number | null>(null);
 
   // Handle Input Changes
   const handleTextChange = (idx: number, field: keyof Question, value: any) => {
@@ -33,10 +35,7 @@ export const EditQuizModal: React.FC<EditQuizModalProps> = ({ quizTitle, initial
   };
 
   const handleDeleteQuestion = (idx: number) => {
-    if (confirm(t('deleteQuestionQ'))) {
-      const updated = questions.filter((_, i) => i !== idx);
-      setQuestions(updated);
-    }
+    setDeleteIndex(idx);
   };
 
   const handleAddQuestion = () => {
@@ -146,6 +145,19 @@ export const EditQuizModal: React.FC<EditQuizModalProps> = ({ quizTitle, initial
            </GlassButton>
         </div>
       </motion.div>
+      <ConfirmDialog
+        open={deleteIndex !== null}
+        title={getLocale() === 'id' ? 'Hapus pertanyaan?' : 'Delete question?'}
+        message={t('deleteQuestionQ')}
+        confirmLabel={getLocale() === 'id' ? 'Hapus' : 'Delete'}
+        cancelLabel={t('cancel')}
+        danger
+        onCancel={() => setDeleteIndex(null)}
+        onConfirm={() => {
+          if (deleteIndex !== null) setQuestions((current) => current.filter((_, index) => index !== deleteIndex));
+          setDeleteIndex(null);
+        }}
+      />
     </div>
   );
 };

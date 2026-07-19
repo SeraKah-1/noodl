@@ -12,7 +12,7 @@ import { PageHeader } from './PageHeader';
 
 interface MixRoomProps {
   onStartMix: (questions: Question[]) => void;
-  onStartFlashcards: (questions: Question[]) => void;
+  onStartFlashcards: (questions: Question[], sourceId?: string | number) => void;
 }
 
 export const MixRoom: React.FC<MixRoomProps> = ({ onStartMix, onStartFlashcards }) => {

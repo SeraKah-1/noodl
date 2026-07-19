@@ -18,7 +18,11 @@ export const HISTORY_IDB_KEY = KEYS.historyIdb;
 export const PENDING_UPLOADS_KEY = KEYS.pendingUploads;
 export const PENDING_DELETIONS_KEY = KEYS.pendingDeletions;
 const LIBRARY_IDB_KEY = KEYS.libraryIdb;
+const PENDING_LIBRARY_UPLOADS_KEY = KEYS.pendingLibraryUploads;
+const PENDING_LIBRARY_DELETIONS_KEY = KEYS.pendingLibraryDeletions;
 const SRS_IDB_KEY = KEYS.srsIdb;
+const PENDING_SRS_UPLOADS_KEY = KEYS.pendingSrsUploads;
+const PENDING_SRS_DELETIONS_KEY = KEYS.pendingSrsDeletions;
 const DEVICE_KEY = 'noodl_device_id';
 
 const REQ_MS = 15_000;
@@ -39,6 +43,7 @@ export type SyncReport = {
 export type SyncProgress = { phase: string; detail?: string };
 
 type QuizRow = any;
+type LibraryRow = any;
 
 let _pullPromise: Promise<SyncReport> | null = null;
 let _manualPromise: Promise<SyncReport> | null = null;
@@ -54,7 +59,9 @@ export function isSyncInProgress(): boolean {
 
 export function onSyncProgress(fn: (p: SyncProgress) => void): () => void {
   _progressListeners.add(fn);
-  return () => _progressListeners.delete(fn);
+  return () => {
+    _progressListeners.delete(fn);
+  };
 }
 
 function emitProgress(p: SyncProgress) {
@@ -91,14 +98,16 @@ function ts(v: any): number {
 }
 
 function clientUpdated(row: any): string {
-  return (
-    row?.client_updated_at ||
-    row?.updatedAt ||
-    row?.updated_at ||
-    row?.date ||
-    row?.created_at ||
-    new Date(0).toISOString()
-  );
+  const candidates = [
+    row?.client_updated_at,
+    row?.updatedAt,
+    row?.updated_at,
+    row?.deleted_at,
+    row?.date,
+    row?.created_at,
+  ].filter(Boolean);
+  if (!candidates.length) return new Date(0).toISOString();
+  return candidates.reduce((latest, value) => (ts(value) > ts(latest) ? value : latest));
 }
 
 /** Normalize any thenable (Supabase builder) + hard timeout. */
@@ -117,9 +126,10 @@ async function sb<T = any>(query: any, label: string, ms = REQ_MS): Promise<T> {
 
 async function emitHistory() {
   const history = ((await get(HISTORY_IDB_KEY)) as any[]) || [];
+  const visible = history.filter((quiz) => !quiz.deleted_at);
   _historyListeners.forEach((cb) => {
     try {
-      cb(history);
+      cb(visible);
     } catch {
       /* ignore */
     }
@@ -130,7 +140,7 @@ async function emitHistory() {
 export function subscribeLocalHistory(callback: (quizzes: any[]) => void): () => void {
   _historyListeners.add(callback);
   get(HISTORY_IDB_KEY)
-    .then((h: any) => callback(h || []))
+    .then((h: any) => callback((h || []).filter((quiz: any) => !quiz.deleted_at)))
     .catch(() => callback([]));
   return () => {
     _historyListeners.delete(callback);
@@ -175,9 +185,8 @@ function buildQuizPayload(q: QuizRow, uid: string) {
       results: [],
     };
   }
-  if (typeof q.libraryContext === 'string') {
-    meta.libraryContext = q.libraryContext.slice(0, 50_000);
-  }
+  // Source material stays in the private library table. Never embed it in a
+  // quiz row because public quizzes are readable through the Data API.
 
   return {
     id: String(q.id),
@@ -216,7 +225,65 @@ function mapQuizRow(row: any): QuizRow {
     date: row.created_at || meta.date,
     updatedAt: row.client_updated_at || row.updated_at,
     client_updated_at: row.client_updated_at || row.updated_at,
+    deleted_at: row.deleted_at || null,
   };
+}
+
+export async function notifyLocalHistoryChanged(): Promise<void> {
+  await emitHistory();
+}
+
+function mapLibraryRow(row: any): LibraryRow {
+  return {
+    id: row.id,
+    title: row.title,
+    content: row.content,
+    processedContent: row.processed_content,
+    type: row.type,
+    tags: row.tags || [],
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    client_updated_at: row.client_updated_at || row.updated_at,
+    deleted_at: row.deleted_at || null,
+  };
+}
+
+const QUIZ_SELECT =
+  'id, title, topic, questions, meta, folder, tags, last_score, visibility, access_code, client_updated_at, updated_at, created_at, deleted_at, user_id';
+
+export async function listCloudQuizzes(filter: 'public' | 'mine'): Promise<QuizRow[]> {
+  if (!isSupabaseConfigured || !supabase) return [];
+  let query = supabase
+    .from('quizzes')
+    .select(QUIZ_SELECT)
+    .is('deleted_at', null)
+    .order('updated_at', { ascending: false })
+    .limit(100);
+  if (filter === 'mine') {
+    if (!auth.currentUser) return [];
+    query = query.eq('user_id', auth.currentUser.uid);
+  } else {
+    query = query.eq('visibility', 'public');
+  }
+  const { data, error } = await sb(query, `list ${filter} quizzes`);
+  if (error) throw new Error(error.message);
+  return (data || []).map(mapQuizRow);
+}
+
+export async function findPublicQuiz(id: string): Promise<QuizRow | null> {
+  if (!isSupabaseConfigured || !supabase || !id.trim()) return null;
+  const { data, error } = await sb(
+    supabase
+      .from('quizzes')
+      .select(QUIZ_SELECT)
+      .eq('id', id.trim())
+      .eq('visibility', 'public')
+      .is('deleted_at', null)
+      .maybeSingle(),
+    `find public quiz ${id}`
+  );
+  if (error) throw new Error(error.message);
+  return data ? mapQuizRow(data) : null;
 }
 
 function mergeQuiz(local: QuizRow | undefined, remote: QuizRow): QuizRow {
@@ -275,19 +342,28 @@ export async function cloudUpsertQuizRow(quiz: QuizRow): Promise<void> {
 }
 
 export async function cloudSoftDeleteQuiz(id: string): Promise<void> {
-  if (!cloudReady() || !supabase || !auth.currentUser) {
+  const queueDeletion = async () => {
     await update(PENDING_DELETIONS_KEY, (val) => [...new Set([...(val || []), String(id)])]);
+  };
+  if (!cloudReady() || !supabase || !auth.currentUser) {
+    await queueDeletion();
     return;
   }
-  const { error } = await sb(
-    supabase
-      .from('quizzes')
-      .update({ deleted_at: new Date().toISOString() })
-      .eq('id', String(id))
-      .eq('user_id', auth.currentUser.uid),
-    `delete quiz ${id}`
-  );
-  if (error) throw new Error(error.message);
+  const deletedAt = new Date().toISOString();
+  try {
+    const { error } = await sb(
+      supabase
+        .from('quizzes')
+        .update({ deleted_at: deletedAt, client_updated_at: deletedAt })
+        .eq('id', String(id))
+        .eq('user_id', auth.currentUser.uid),
+      `delete quiz ${id}`
+    );
+    if (error) throw new Error(error.message);
+  } catch (error) {
+    await queueDeletion();
+    throw error;
+  }
 }
 
 async function queueQuiz(quiz: QuizRow) {
@@ -297,22 +373,142 @@ async function queueQuiz(quiz: QuizRow) {
   });
 }
 
+async function queueLibrary(item: LibraryRow) {
+  await update(PENDING_LIBRARY_UPLOADS_KEY, (val) => {
+    const pending = (val || []).filter((entry: LibraryRow) => String(entry.id) !== String(item.id));
+    return [...pending, item];
+  });
+}
+
+async function queueSrs(item: any) {
+  await update(PENDING_SRS_UPLOADS_KEY, (val) => {
+    const pending = (val || []).filter((entry: any) => String(entry.id) !== String(item.id));
+    return [...pending, item];
+  });
+}
+
+export async function cloudUpsertSrsRow(item: any): Promise<void> {
+  if (!cloudReady() || !supabase || !auth.currentUser) {
+    await queueSrs(item);
+    return;
+  }
+  const payload = {
+    id: String(item.id),
+    user_id: auth.currentUser.uid,
+    keycard_id: item.keycard_id || 'global',
+    item_id: String(item.item_id),
+    item_type: item.item_type || 'quiz_question',
+    content: item.content,
+    easiness: item.easiness,
+    interval: item.interval,
+    repetition: item.repetition,
+    next_review: item.next_review,
+    client_updated_at: clientUpdated(item),
+    deleted_at: item.deleted_at || null,
+  };
+  try {
+    const { error } = await sb(supabase.from('srs_items').upsert(payload), `upsert srs ${payload.id}`);
+    if (error) throw new Error(error.message);
+  } catch (error) {
+    await queueSrs(item);
+    throw error;
+  }
+}
+
+export async function cloudSoftDeleteSrsRow(id: string): Promise<void> {
+  const queueDeletion = async () => {
+    await update(PENDING_SRS_DELETIONS_KEY, (val) => [...new Set([...(val || []), id])]);
+  };
+  if (!cloudReady() || !supabase || !auth.currentUser) {
+    await queueDeletion();
+    return;
+  }
+  const deletedAt = new Date().toISOString();
+  try {
+    const { error } = await sb(
+      supabase
+        .from('srs_items')
+        .update({ deleted_at: deletedAt, client_updated_at: deletedAt })
+        .eq('id', id)
+        .eq('user_id', auth.currentUser.uid),
+      `delete srs ${id}`
+    );
+    if (error) throw new Error(error.message);
+  } catch (error) {
+    await queueDeletion();
+    throw error;
+  }
+}
+
+export async function cloudUpsertLibraryRow(item: LibraryRow): Promise<void> {
+  if (!cloudReady() || !supabase || !auth.currentUser) {
+    await queueLibrary(item);
+    return;
+  }
+  const payload = {
+    id: String(item.id),
+    user_id: auth.currentUser.uid,
+    title: item.title || 'Untitled material',
+    content: item.content || '',
+    processed_content: item.processedContent || null,
+    type: item.type || 'text',
+    tags: Array.isArray(item.tags) ? item.tags : [],
+    client_updated_at: clientUpdated(item),
+    deleted_at: item.deleted_at || null,
+  };
+  try {
+    const { error } = await sb(
+      supabase.from('library_items').upsert(payload),
+      `upsert library ${payload.id}`
+    );
+    if (error) throw new Error(error.message);
+  } catch (error) {
+    await queueLibrary(item);
+    throw error;
+  }
+}
+
+export async function cloudSoftDeleteLibraryRow(id: string): Promise<void> {
+  const queueDeletion = async () => {
+    await update(PENDING_LIBRARY_DELETIONS_KEY, (val) => [...new Set([...(val || []), id])]);
+  };
+  if (!cloudReady() || !supabase || !auth.currentUser) {
+    await queueDeletion();
+    return;
+  }
+  const deletedAt = new Date().toISOString();
+  try {
+    const { error } = await sb(
+      supabase
+        .from('library_items')
+        .update({ deleted_at: deletedAt, client_updated_at: deletedAt })
+        .eq('id', id)
+        .eq('user_id', auth.currentUser.uid),
+      `delete library ${id}`
+    );
+    if (error) throw new Error(error.message);
+  } catch (error) {
+    await queueDeletion();
+    throw error;
+  }
+}
+
 // ── pull path ──
 
-async function pullQuizIndex(uid: string): Promise<{ id: string; t: number }[]> {
+async function pullQuizIndex(uid: string): Promise<{ id: string; t: number; deletedAt: string | null }[]> {
   if (!supabase) return [];
   const { data, error } = await sb(
     supabase
       .from('quizzes')
-      .select('id, client_updated_at, updated_at')
-      .eq('user_id', uid)
-      .is('deleted_at', null),
+      .select('id, client_updated_at, updated_at, deleted_at')
+      .eq('user_id', uid),
     'quiz index'
   );
   if (error) throw new Error(error.message);
   return (data || []).map((r: any) => ({
     id: String(r.id),
-    t: ts(r.client_updated_at || r.updated_at),
+    t: ts(clientUpdated(r)),
+    deletedAt: r.deleted_at || null,
   }));
 }
 
@@ -321,9 +517,7 @@ async function pullQuizzesByIds(uid: string, ids: string[]): Promise<QuizRow[]> 
   const { data, error } = await sb(
     supabase
       .from('quizzes')
-      .select(
-        'id, title, topic, questions, meta, folder, tags, last_score, visibility, access_code, client_updated_at, updated_at, created_at, user_id'
-      )
+      .select(QUIZ_SELECT)
       .eq('user_id', uid)
       .in('id', ids),
     `quiz rows x${ids.length}`
@@ -449,6 +643,58 @@ export async function drainOutbox(): Promise<{ pushed: number; errors: string[] 
   }
   await set(PENDING_DELETIONS_KEY, stillDel);
 
+  const pendingLibrary = ((await get(PENDING_LIBRARY_UPLOADS_KEY)) as LibraryRow[]) || [];
+  const stillLibrary: LibraryRow[] = [];
+  for (const item of pendingLibrary) {
+    try {
+      await cloudUpsertLibraryRow(item);
+      pushed++;
+    } catch (e: any) {
+      errors.push(e?.message || String(e));
+      stillLibrary.push(item);
+    }
+  }
+  await set(PENDING_LIBRARY_UPLOADS_KEY, stillLibrary);
+
+  const libraryDeletes = ((await get(PENDING_LIBRARY_DELETIONS_KEY)) as string[]) || [];
+  const stillLibraryDeletes: string[] = [];
+  for (const id of libraryDeletes) {
+    try {
+      await cloudSoftDeleteLibraryRow(id);
+      pushed++;
+    } catch (e: any) {
+      errors.push(e?.message || String(e));
+      stillLibraryDeletes.push(id);
+    }
+  }
+  await set(PENDING_LIBRARY_DELETIONS_KEY, stillLibraryDeletes);
+
+  const pendingSrs = ((await get(PENDING_SRS_UPLOADS_KEY)) as any[]) || [];
+  const stillSrs: any[] = [];
+  for (const item of pendingSrs) {
+    try {
+      await cloudUpsertSrsRow(item);
+      pushed++;
+    } catch (e: any) {
+      errors.push(e?.message || String(e));
+      stillSrs.push(item);
+    }
+  }
+  await set(PENDING_SRS_UPLOADS_KEY, stillSrs);
+
+  const srsDeletes = ((await get(PENDING_SRS_DELETIONS_KEY)) as string[]) || [];
+  const stillSrsDeletes: string[] = [];
+  for (const id of srsDeletes) {
+    try {
+      await cloudSoftDeleteSrsRow(id);
+      pushed++;
+    } catch (e: any) {
+      errors.push(e?.message || String(e));
+      stillSrsDeletes.push(id);
+    }
+  }
+  await set(PENDING_SRS_DELETIONS_KEY, stillSrsDeletes);
+
   if (pushed) console.log(`[Noodl sync] outbox drained pushed=${pushed}`);
   return { pushed, errors };
 }
@@ -538,69 +784,80 @@ async function pullLibraryLight() {
   if (!cloudReady() || !supabase || !auth.currentUser) return;
   const uid = auth.currentUser.uid;
   const local = ((await get(LIBRARY_IDB_KEY)) as any[]) || [];
-  const localIds = new Set(local.map((x) => String(x.id)));
   const { data, error } = await sb(
     supabase
       .from('library_items')
-      .select('id, client_updated_at, updated_at')
-      .eq('user_id', uid)
-      .is('deleted_at', null),
+      .select('*')
+      .eq('user_id', uid),
     'library index',
-    10000
-  );
-  if (error) throw new Error(error.message);
-  const need = (data || [])
-    .filter((r: any) => !localIds.has(String(r.id)))
-    .map((r: any) => String(r.id))
-    .slice(0, 20);
-  if (!need.length) return;
-  const full = await sb(
-    supabase.from('library_items').select('*').eq('user_id', uid).in('id', need),
-    'library rows',
     15000
   );
-  if (full.error) throw new Error(full.error.message);
-  const rows = (full.data || []).map((row: any) => ({
-    id: row.id,
-    title: row.title,
-    content: row.content,
-    processedContent: row.processed_content,
-    type: row.type,
-    tags: row.tags || [],
-    created_at: row.created_at,
-    client_updated_at: row.client_updated_at || row.updated_at,
-  }));
-  await set(LIBRARY_IDB_KEY, [...rows, ...local]);
+  if (error) throw new Error(error.message);
+  const remote = (data || []).map(mapLibraryRow);
+  const remoteIds = new Set(remote.map((item: LibraryRow) => String(item.id)));
+
+  // Legacy local items may predate the outbox. Upload only truly missing ids;
+  // remote tombstones are included in remoteIds and cannot be resurrected.
+  for (const item of local.filter((entry) => !entry.deleted_at && !remoteIds.has(String(entry.id)))) {
+    try {
+      await cloudUpsertLibraryRow(item);
+    } catch {
+      // cloudUpsertLibraryRow preserves failures in its outbox.
+    }
+  }
+
+  const merged = new Map<string, LibraryRow>();
+  for (const item of [...remote, ...local]) {
+    const id = String(item.id);
+    const current = merged.get(id);
+    if (!current || ts(clientUpdated(item)) >= ts(clientUpdated(current))) merged.set(id, item);
+  }
+  await set(
+    LIBRARY_IDB_KEY,
+    Array.from(merged.values()).sort((a, b) => ts(b.created_at) - ts(a.created_at))
+  );
 }
 
 async function pullSrsLight() {
   if (!cloudReady() || !supabase || !auth.currentUser) return;
   const uid = auth.currentUser.uid;
   const local = ((await get(SRS_IDB_KEY)) as any[]) || [];
-  if (local.length > 0) return; // already have SRS locally — skip bulk
   const { data, error } = await sb(
-    supabase.from('srs_items').select('*').eq('user_id', uid).is('deleted_at', null).limit(200),
+    supabase.from('srs_items').select('*').eq('user_id', uid).limit(1000),
     'srs pull',
     12000
   );
   if (error) throw new Error(error.message);
-  if (data?.length) {
-    await set(
-      SRS_IDB_KEY,
-      data.map((row: any) => ({
-        id: row.id,
-        keycard_id: row.keycard_id,
-        item_id: row.item_id,
-        item_type: row.item_type,
-        content: row.content,
-        easiness: row.easiness,
-        interval: row.interval,
-        repetition: row.repetition,
-        next_review: row.next_review,
-        client_updated_at: row.client_updated_at || row.updated_at,
-      }))
-    );
+  const remote = (data || []).map((row: any) => ({
+    id: row.id,
+    keycard_id: row.keycard_id,
+    item_id: row.item_id,
+    item_type: row.item_type,
+    content: row.content,
+    easiness: row.easiness,
+    interval: row.interval,
+    repetition: row.repetition,
+    next_review: row.next_review,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    client_updated_at: row.client_updated_at || row.updated_at,
+    deleted_at: row.deleted_at || null,
+  }));
+  const remoteIds = new Set(remote.map((item: any) => String(item.id)));
+  for (const item of local.filter((entry) => !entry.deleted_at && !remoteIds.has(String(entry.id)))) {
+    try {
+      await cloudUpsertSrsRow(item);
+    } catch {
+      // cloudUpsertSrsRow preserves failures in its outbox.
+    }
   }
+  const merged = new Map<string, any>();
+  for (const item of [...remote, ...local]) {
+    const id = String(item.id);
+    const current = merged.get(id);
+    if (!current || ts(clientUpdated(item)) >= ts(clientUpdated(current))) merged.set(id, item);
+  }
+  await set(SRS_IDB_KEY, Array.from(merged.values()));
 }
 
 /**
@@ -638,6 +895,13 @@ export async function runFullSync(_opts?: { force?: boolean }): Promise<SyncRepo
         report.pulled = pull.pulled;
         report.skipped = pull.skipped;
         report.errors.push(...pull.errors);
+      }
+
+      if (Date.now() < budget) {
+        const secondary = await Promise.allSettled([pullLibraryLight(), pullSrsLight()]);
+        for (const result of secondary) {
+          if (result.status === 'rejected') report.errors.push(String(result.reason));
+        }
       }
 
       // Optional: push local quizzes that were never on server (missing from index)
@@ -772,6 +1036,8 @@ export function registerNetworkSyncListener() {
     setTimeout(() => {
       drainOutbox().catch(() => {});
       pullQuizDeltas().catch(() => {});
+      pullLibraryLight().catch(() => {});
+      pullSrsLight().catch(() => {});
     }, 500);
   });
 }

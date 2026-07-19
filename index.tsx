@@ -1,16 +1,22 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import './index.css';
+import 'katex/dist/katex.min.css';
 import App from './App';
 import { ExperimentalSettingsProvider } from './contexts/ExperimentalSettingsContext';
 import { CameraProvider } from './contexts/CameraContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { registerSW } from 'virtual:pwa-register';
+import { ToastHost } from './components/ToastHost';
+import { notifyUser } from './services/uiFeedbackService';
 
 const updateSW = registerSW({
   onNeedRefresh() {
-    if (confirm("A new Noodl version is ready. Reload now?")) {
-      updateSW(true);
-    }
+    notifyUser('A new Noodl version is ready.', 'info', {
+      actionLabel: 'Reload',
+      onAction: () => updateSW(true),
+      durationMs: 15_000,
+    });
   },
   onOfflineReady() {
     console.log("Noodl is ready offline.");
@@ -35,7 +41,10 @@ root.render(
     <ExperimentalSettingsProvider>
       <CameraProvider>
         <ErrorBoundary>
-          <App />
+          <React.Suspense fallback={<div className="min-h-screen grid place-items-center text-slate-500">Loading Noodl…</div>}>
+            <App />
+          </React.Suspense>
+          <ToastHost />
         </ErrorBoundary>
       </CameraProvider>
     </ExperimentalSettingsProvider>

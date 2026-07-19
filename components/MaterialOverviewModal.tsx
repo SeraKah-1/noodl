@@ -6,6 +6,7 @@ import { generateDeepInsight } from '../services/geminiService';
 import { getApiKey, saveQuizAiOverview, saveQuizVisualizations, HISTORY_IDB_KEY } from '../services/storageService';
 import { X } from 'lucide-react';
 import { t } from '../services/i18n';
+import { notifyUser } from '../services/uiFeedbackService';
 
 interface MaterialOverviewModalProps {
   questions: Question[];
@@ -78,7 +79,7 @@ export const MaterialOverviewModal: React.FC<MaterialOverviewModalProps> = ({ qu
           await saveQuizAiOverview(quizId, data).catch(e => console.error("Failed to save AI overview cache", e));
        }
     } catch (err: any) {
-       alert(err.message);
+       notifyUser(err.message, 'error');
     } finally {
        setIsGeneratingAI(false);
     }

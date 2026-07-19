@@ -17,6 +17,7 @@ import {
 } from "./providerService";
 import { AiProvider } from "../types";
 import { outputLanguageRule, outputLanguageOneLiner } from "./languagePolicy";
+import { fetchWithTimeout } from "./requestService";
 
 export function getActiveProvider(): AiProvider {
   return fetchActiveProvider();
@@ -205,21 +206,21 @@ export async function callAI(action: string, payload: any): Promise<any> {
 
     let response: Response;
     try {
-      response = await fetch(endpoint, {
+      response = await fetchWithTimeout(endpoint, {
         method: 'POST',
         headers,
         body: JSON.stringify(reqBody)
-      });
+      }, 90_000);
     } catch (fetchErr: any) {
       console.error(`[AIService] ✖ NETWORK fail action=${action} provider=${provider}:`, fetchErr?.message || fetchErr);
       if (typeof window !== 'undefined' && window.location && !endpoint.includes('localhost')) {
         console.warn(`[AIService] Direct fetch failed for ${provider} (${fetchErr.message}). Retrying via CORS proxy...`);
         const proxyUrl = `${window.location.origin}/api/cors-proxy?url=${encodeURIComponent(endpoint)}`;
-        response = await fetch(proxyUrl, {
+        response = await fetchWithTimeout(proxyUrl, {
           method: 'POST',
           headers,
           body: JSON.stringify(reqBody)
-        });
+        }, 90_000);
       } else {
         throw fetchErr;
       }
@@ -298,11 +299,11 @@ export async function callAI(action: string, payload: any): Promise<any> {
       messages: [{ role: 'user', content: userPromptText }]
     };
 
-    const response = await fetch(endpoint, {
+    const response = await fetchWithTimeout(endpoint, {
       method: 'POST',
       headers,
       body: JSON.stringify(reqBody)
-    });
+    }, 90_000);
 
     if (!response.ok) {
       const errText = await response.text();
@@ -366,7 +367,7 @@ export async function callAI(action: string, payload: any): Promise<any> {
 const INGESTION_MODELS = [
   'gemini-3.5-flash',
   'gemini-3.1-pro-preview',
-  'gemini-3.1-flash-lite-preview',
+  'gemini-3.1-flash-lite',
   'gemini-2.5-flash',
   'gemini-2.5-pro'
 ];
@@ -381,13 +382,7 @@ const fileToGenerativePart = async (file: File): Promise<{ inlineData: { data: s
     const lowerName = file.name.toLowerCase();
     const inferredMimeType =
       file.type ||
-      (lowerName.endsWith('.pptx')
-        ? 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-        : lowerName.endsWith('.ppt')
-          ? 'application/vnd.ms-powerpoint'
-          : lowerName.endsWith('.pdf')
-            ? 'application/pdf'
-            : 'application/octet-stream');
+      (lowerName.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream');
 
     // Simple text files
     if (file.type === "text/markdown" || file.type === "text/plain" || lowerName.endsWith('.md') || lowerName.endsWith('.txt')) {

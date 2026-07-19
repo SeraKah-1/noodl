@@ -3,9 +3,8 @@
  * No Firebase/Firestore.
  */
 import { Question, ModelConfig, AiProvider, StorageProvider, LibraryItem, DeepInsightData } from "../types";
-import { summarizeMaterial } from "./geminiService";
 import { get, set, update } from "idb-keyval";
-import { auth, isSupabaseConfigured } from "../supabase";
+import { auth, isSupabaseConfigured, supabase } from "../supabase";
 import {
   cloudUpsertQuizRow,
   cloudSoftDeleteQuiz,
@@ -18,6 +17,11 @@ import {
   onSignedOut,
   pullQuizDeltas,
   drainOutbox,
+  cloudUpsertLibraryRow,
+  cloudSoftDeleteLibraryRow,
+  listCloudQuizzes,
+  findPublicQuiz,
+  notifyLocalHistoryChanged,
 } from "./syncService";
 import { KEYS, migrateLegacyKeys, lsGet } from "./storageKeys";
 import { getProviderApiKey, setProviderApiKey } from "./providerService";
@@ -40,29 +44,29 @@ const SRS_ENABLED_KEY = KEYS.srsEnabled;
 const cloudOn = () => Boolean(isSupabaseConfigured && auth.currentUser);
 
 async function cloudUpsertQuiz(quiz: any) {
-  try {
-    await cloudUpsertQuizRow({
-      ...quiz,
-      client_updated_at: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-  } catch (e: any) {
-    console.warn("[cloud quiz]", e?.message || e);
-  }
+  await cloudUpsertQuizRow({
+    ...quiz,
+    client_updated_at: quiz.client_updated_at || new Date().toISOString(),
+    updatedAt: quiz.updatedAt || new Date().toISOString(),
+  });
 }
 
 async function cloudDeleteQuiz(id: string) {
+  await cloudSoftDeleteQuiz(id);
+}
+
+async function pushQuizSafely(quiz: any) {
   try {
-    await cloudSoftDeleteQuiz(id);
-  } catch (e: any) {
-    console.warn("[cloud delete]", e?.message || e);
+    await cloudUpsertQuiz(quiz);
+  } catch (error) {
+    // cloudUpsertQuizRow already stored the latest value in the outbox.
+    console.warn("[quiz update queued]", error);
   }
 }
 
 async function cloudMergeProfile(config: Record<string, unknown>) {
   if (!cloudOn()) return;
   try {
-    const { supabase } = await import("../supabase");
     if (!supabase || !auth.currentUser) return;
     const { error } = await supabase.from("user_profiles").upsert({
       user_id: auth.currentUser.uid,
@@ -182,6 +186,20 @@ export const saveSRSEnabled = async (enabled: boolean) => {
 
 export const getSRSEnabled = (): boolean => lsGet(SRS_ENABLED_KEY, "neuro_srs_enabled") !== "false";
 
+export const saveWakeLockEnabled = (enabled: boolean) => {
+  localStorage.setItem(KEYS.wakeLockEnabled, String(enabled));
+};
+
+const touchQuiz = <T extends Record<string, any>>(quiz: T): T & {
+  updatedAt: string;
+  client_updated_at: string;
+} => {
+  const now = new Date().toISOString();
+  return { ...quiz, updatedAt: now, client_updated_at: now };
+};
+
+export const getWakeLockEnabled = (): boolean => lsGet(KEYS.wakeLockEnabled) !== "false";
+
 export const saveEyeTrackingEnabled = saveNoseTrackingEnabled;
 export const getEyeTrackingEnabled = getNoseTrackingEnabled;
 export const saveGestureEnabled = saveHandTrackingEnabled;
@@ -264,6 +282,7 @@ export const processAndSaveToLibrary = async (
     getProviderApiKey("groq");
   if (anyKey) {
     try {
+      const { summarizeMaterial } = await import("./geminiService");
       if (typeof rawContent !== "string" || rawContent.length > 500) {
         processed = await summarizeMaterial(anyKey, rawContent);
       } else processed = rawContent;
@@ -281,6 +300,7 @@ export const reprocessLibraryItem = async (item: LibraryItem): Promise<boolean> 
   const key = getProviderApiKey("gemini") || getProviderApiKey("openrouter");
   if (!key) return false;
   try {
+    const { summarizeMaterial } = await import("./geminiService");
     const processed = await summarizeMaterial(key, item.content);
     await updateLibraryItem(item.id, { processedContent: processed });
     return true;
@@ -290,13 +310,23 @@ export const reprocessLibraryItem = async (item: LibraryItem): Promise<boolean> 
 };
 
 export const updateLibraryItem = async (id: string | number, updates: Partial<LibraryItem>) => {
+  let updated: LibraryItem | null = null;
   await update(LIBRARY_IDB_KEY, (val) => {
     const library = val || [];
-    return library.map((item: LibraryItem) =>
-      String(item.id) === String(id) ? { ...item, ...updates } : item
-    );
+    return library.map((item: LibraryItem) => {
+      if (String(item.id) !== String(id)) return item;
+      const now = new Date().toISOString();
+      updated = { ...item, ...updates, updated_at: now, client_updated_at: now };
+      return updated;
+    });
   });
-  // Local-only for now — do not kick full quiz sync on library edits
+  if (updated) {
+    try {
+      await cloudUpsertLibraryRow(updated);
+    } catch (error) {
+      console.warn("[library update queued]", error);
+    }
+  }
 };
 
 export const saveToLibrary = async (
@@ -314,12 +344,14 @@ export const saveToLibrary = async (
     type,
     tags,
     created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    client_updated_at: new Date().toISOString(),
   };
+  await update(LIBRARY_IDB_KEY, (val) => [newItem, ...(val || [])]);
   try {
-    await update(LIBRARY_IDB_KEY, (val) => [newItem, ...(val || [])]);
+    await cloudUpsertLibraryRow(newItem);
   } catch (err) {
-    console.error(err);
-    alert("Could not save material. Check browser storage.");
+    console.warn("[library save queued]", err);
   }
 };
 
@@ -331,15 +363,28 @@ export const getLibraryItems = async (): Promise<LibraryItem[]> => {
     localItems = [];
   }
   // Never block library UI on cloud — return local immediately
-  return (localItems || []).sort(
+  return (localItems || []).filter((item) => !item.deleted_at).sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
 };
 
 export const deleteLibraryItem = async (id: string | number) => {
+  const deletedAt = new Date().toISOString();
   await update(LIBRARY_IDB_KEY, (val) =>
+    (val || []).map((item: LibraryItem) =>
+      String(item.id) === String(id)
+        ? { ...item, deleted_at: deletedAt, updated_at: deletedAt, client_updated_at: deletedAt }
+        : item
+    )
+  );
+  await update(KEYS.pendingLibraryUploads, (val) =>
     (val || []).filter((item: LibraryItem) => String(item.id) !== String(id))
   );
+  try {
+    await cloudSoftDeleteLibraryRow(String(id));
+  } catch (error) {
+    console.warn("[library delete queued]", error);
+  }
 };
 
 // ── Quizzes ───────────────────────────────────────────────
@@ -382,6 +427,7 @@ export const saveGeneratedQuiz = async (
 
   try {
     await update(HISTORY_IDB_KEY, (val) => [newEntry, ...(val || [])]);
+    await notifyLocalHistoryChanged();
     if (auth.currentUser) {
       try {
         newEntry.authorId = auth.currentUser.uid;
@@ -399,38 +445,13 @@ export const saveGeneratedQuiz = async (
 };
 
 export const flushPendingUploads = async () => {
-  if (!auth.currentUser) return;
-  const pending = (await get(PENDING_UPLOADS_KEY)) || [];
-  const remaining = [];
-  for (const entry of pending) {
-    try {
-      await cloudUpsertQuiz({
-        ...entry,
-        authorId: auth.currentUser.uid,
-        userId: auth.currentUser.uid,
-        client_updated_at: new Date().toISOString(),
-      });
-    } catch {
-      remaining.push(entry);
-    }
-  }
-  await set(PENDING_UPLOADS_KEY, remaining);
-
-  const pendingDel = (await get(PENDING_DELETIONS_KEY)) || [];
-  const remainingDel = [];
-  for (const id of pendingDel) {
-    try {
-      await cloudDeleteQuiz(String(id));
-    } catch {
-      remainingDel.push(id);
-    }
-  }
-  await set(PENDING_DELETIONS_KEY, remainingDel);
+  await drainOutbox();
 };
 
 export const getSavedQuizzes = async (): Promise<any[]> => {
   // Local-only. Cloud pull is owned by onSignedIn / manual sync — never await here.
-  return ((await get(HISTORY_IDB_KEY)) as any[]) || [];
+  const history = ((await get(HISTORY_IDB_KEY)) as any[]) || [];
+  return history.filter((quiz) => !quiz.deleted_at);
 };
 
 /**
@@ -454,15 +475,22 @@ export const ensureCloudSession = async () => {
 export { onSignedIn, onSignedOut, pullQuizDeltas, drainOutbox };
 
 export const deleteQuiz = async (id: number | string) => {
+  const deletedAt = new Date().toISOString();
   await update(HISTORY_IDB_KEY, (val) =>
+    (val || []).map((item: any) =>
+      String(item.id) === String(id)
+        ? { ...item, deleted_at: deletedAt, client_updated_at: deletedAt, updatedAt: deletedAt }
+        : item
+    )
+  );
+  await update(PENDING_UPLOADS_KEY, (val) =>
     (val || []).filter((item: any) => String(item.id) !== String(id))
   );
-  if (auth.currentUser) {
-    try {
-      await cloudDeleteQuiz(String(id));
-    } catch {
-      await update(PENDING_DELETIONS_KEY, (val) => [...(val || []), String(id)]);
-    }
+  await notifyLocalHistoryChanged();
+  try {
+    await cloudDeleteQuiz(String(id));
+  } catch (error) {
+    console.warn("[cloud delete queued]", error);
   }
 };
 
@@ -482,7 +510,8 @@ export const renameQuiz = async (id: number | string, newName: string) => {
       return updated;
     })
   );
-  if (updated && auth.currentUser) await cloudUpsertQuiz(updated);
+  await notifyLocalHistoryChanged();
+  if (updated) await pushQuizSafely(updated);
 };
 
 export const moveQuizToFolder = async (id: number | string, newFolder: string) => {
@@ -490,11 +519,12 @@ export const moveQuizToFolder = async (id: number | string, newFolder: string) =
   await update(HISTORY_IDB_KEY, (val) =>
     (val || []).map((item: any) => {
       if (String(item.id) !== String(id)) return item;
-      updated = { ...item, folder: newFolder, updatedAt: new Date().toISOString() };
+      updated = touchQuiz({ ...item, folder: newFolder });
       return updated;
     })
   );
-  if (updated && auth.currentUser) await cloudUpsertQuiz(updated);
+  await notifyLocalHistoryChanged();
+  if (updated) await pushQuizSafely(updated);
 };
 
 export const renameFolder = async (oldFolderName: string, newFolderName: string) => {
@@ -502,14 +532,15 @@ export const renameFolder = async (oldFolderName: string, newFolderName: string)
   await update(HISTORY_IDB_KEY, (val) =>
     (val || []).map((item: any) => {
       if ((item.folder || "").trim() !== oldFolderName.trim()) return item;
-      const u = { ...item, folder: newFolderName, updatedAt: new Date().toISOString() };
+      const u = touchQuiz({ ...item, folder: newFolderName });
       touched.push(u);
       return u;
     })
   );
   for (const u of touched) {
-    if (auth.currentUser) await cloudUpsertQuiz(u);
+    await pushQuizSafely(u);
   }
+  await notifyLocalHistoryChanged();
 };
 
 export const updateLocalQuizQuestions = async (id: number | string, newQuestions: Question[]) => {
@@ -517,16 +548,16 @@ export const updateLocalQuizQuestions = async (id: number | string, newQuestions
   await update(HISTORY_IDB_KEY, (val) =>
     (val || []).map((item: any) => {
       if (String(item.id) !== String(id)) return item;
-      updated = {
+      updated = touchQuiz({
         ...item,
         questions: newQuestions,
         questionCount: newQuestions.length,
-        updatedAt: new Date().toISOString(),
-      };
+      });
       return updated;
     })
   );
-  if (updated && auth.currentUser) await cloudUpsertQuiz(updated);
+  await notifyLocalHistoryChanged();
+  if (updated) await pushQuizSafely(updated);
 };
 
 export const uploadQuizToCloud = async (quiz: any) => {
@@ -537,35 +568,48 @@ export const uploadQuizToCloud = async (quiz: any) => {
     userId: auth.currentUser.uid,
     client_updated_at: new Date().toISOString(),
   };
+  await update(HISTORY_IDB_KEY, (val) =>
+    (val || []).map((item: any) =>
+      String(item.id) === String(patched.id) ? { ...item, ...patched } : item
+    )
+  );
+  await notifyLocalHistoryChanged();
   await cloudUpsertQuiz(patched);
   return patched;
 };
 
 export const downloadQuizFromCloud = async (quiz: any) => {
+  const isOwnedByCurrentUser = Boolean(
+    auth.currentUser && (quiz.userId === auth.currentUser.uid || quiz.authorId === auth.currentUser.uid)
+  );
+  const downloaded = isOwnedByCurrentUser
+    ? quiz
+    : {
+        ...quiz,
+        id: generateId(),
+        authorId: auth.currentUser?.uid || 'local',
+        userId: auth.currentUser?.uid || 'local',
+        visibility: 'private',
+        isPublic: false,
+        accessCode: '',
+        date: new Date().toISOString(),
+        client_updated_at: new Date().toISOString(),
+      };
   await update(HISTORY_IDB_KEY, (val) => {
     const history = val || [];
-    if (history.some((h: any) => String(h.id) === String(quiz.id))) return history;
-    return [{ ...quiz, date: quiz.date || new Date().toISOString() }, ...history];
+    if (history.some((h: any) => String(h.id) === String(downloaded.id))) return history;
+    return [{ ...downloaded, date: downloaded.date || new Date().toISOString() }, ...history];
   });
-  return quiz;
+  await notifyLocalHistoryChanged();
+  return downloaded;
 };
 
 export const getCloudQuizzes = async (filter: "public" | "mine" = "public"): Promise<any[]> => {
-  if (!auth.currentUser) return [];
-  const all = (await get(HISTORY_IDB_KEY)) || [];
-  // Background pull only — never block list rendering
-  pullQuizDeltas().catch(() => {});
-  if (filter === "mine") {
-    return all.filter(
-      (q: any) => q.userId === auth.currentUser?.uid || q.authorId === auth.currentUser?.uid
-    );
-  }
-  return all;
+  return listCloudQuizzes(filter);
 };
 
 export const searchCloudQuiz = async (code: string) => {
-  const all = (await get(HISTORY_IDB_KEY)) || [];
-  const hit = all.find((q: any) => String(q.id) === String(code) || q.accessCode === code);
+  const hit = await findPublicQuiz(code);
   if (!hit) throw new Error("Quiz not found");
   return hit;
 };
@@ -582,7 +626,7 @@ export const updateHistoryStats = async (id: number | string, score: number) => 
   await update(HISTORY_IDB_KEY, (val) =>
     (val || []).map((item: any) =>
       String(item.id) === String(id)
-        ? { ...item, lastScore: score, lastPlayed: new Date().toISOString() }
+        ? touchQuiz({ ...item, lastScore: score, lastPlayed: new Date().toISOString() })
         : item
     )
   );
@@ -592,7 +636,7 @@ export const updateHistoryStats = async (id: number | string, score: number) => 
 export const saveQuizAiOverview = async (id: number | string, aiOverviewData: DeepInsightData) => {
   await update(HISTORY_IDB_KEY, (val) =>
     (val || []).map((item: any) =>
-      String(item.id) === String(id) ? { ...item, aiOverviewData } : item
+      String(item.id) === String(id) ? touchQuiz({ ...item, aiOverviewData }) : item
     )
   );
   await pushQuizById(id);
@@ -604,7 +648,7 @@ export const saveQuizVisualizations = async (
 ) => {
   await update(HISTORY_IDB_KEY, (val) =>
     (val || []).map((item: any) =>
-      String(item.id) === String(id) ? { ...item, visualizationsData } : item
+      String(item.id) === String(id) ? touchQuiz({ ...item, visualizationsData }) : item
     )
   );
   await pushQuizById(id);
@@ -618,13 +662,13 @@ export const saveQuizKnowledgeGraph = async (
   await update(HISTORY_IDB_KEY, (val) =>
     (val || []).map((item: any) =>
       String(item.id) === String(id)
-        ? {
+        ? touchQuiz({
             ...item,
             knowledgeGraphData: {
               ...knowledgeGraphData,
               generatedAt: knowledgeGraphData.generatedAt || new Date().toISOString(),
             },
-          }
+          })
         : item
     )
   );

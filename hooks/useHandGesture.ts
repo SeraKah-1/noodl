@@ -7,6 +7,8 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import visionWasmLoaderUrl from '@mediapipe/tasks-vision/vision_wasm_module_internal.js?url';
+import visionWasmBinaryUrl from '@mediapipe/tasks-vision/vision_wasm_module_internal.wasm?url';
 import { useCamera } from '../contexts/CameraContext';
 import {
   classifyHandGesture,
@@ -32,7 +34,6 @@ const VOTE_MIN = 4;
 
 const MODEL_URL =
   'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task';
-const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.17/wasm';
 
 export { classifyHandGesture } from './handGestureMath';
 
@@ -90,12 +91,11 @@ export const useHandGesture = (
           }
         }, 20000);
 
-        // @ts-ignore
-        const { FilesetResolver, GestureRecognizer } = await import(
-          'https://esm.sh/@mediapipe/tasks-vision@0.10.17'
-        );
-
-        const vision = await FilesetResolver.forVisionTasks(WASM_URL);
+        const { GestureRecognizer } = await import('@mediapipe/tasks-vision');
+        const vision = {
+          wasmLoaderPath: visionWasmLoaderUrl,
+          wasmBinaryPath: visionWasmBinaryUrl,
+        };
         if (!active) return;
 
         const opts = {

@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { Upload, FileText, Layout, Zap, TrendingUp, Skull, BookOpen, Type, Cloud, RefreshCw, CheckCircle2, X, PlayCircle, Layers, Settings2, Sparkles, Folder, Target, BrainCircuit, Shuffle, Cpu, ChevronDown, MessageSquarePlus, Check, Link as LinkIcon } from 'lucide-react';
+import { Upload, FileText, Layout, Zap, TrendingUp, Skull, BookOpen, Type, RefreshCw, CheckCircle2, X, PlayCircle, Layers, Settings2, Sparkles, Folder, Target, BrainCircuit, Shuffle, Cpu, ChevronDown, MessageSquarePlus, Check, Link as LinkIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AVAILABLE_MODELS, ModelConfig, QuizMode, ExamStyle, AiProvider, CloudNote, Question, LibraryItem, ModelOption } from '../types';
+import { ModelConfig, QuizMode, ExamStyle, AiProvider, Question, LibraryItem, ModelOption, SRSItem } from '../types';
 import {
   getCachedModels,
   getActiveProvider,
@@ -21,15 +21,13 @@ import { getDueItems } from '../services/srsService';
 import { notifyReviewDue } from '../services/kaomojiNotificationService';
 import { showErrorNotification } from '../services/errorNotificationService';
 import { FlashcardScreen } from './FlashcardScreen';
-import { loginToExternalNotes, logoutFromExternalNotes, getMyNotes, ExternalNote, externalAuth, isExternalConfigured } from '../services/externalNotesService';
-import { auth } from '../supabase';
 import { t, subscribeLocale } from '../services/i18n';
-type User = any;
 
 interface ConfigScreenProps {
-  onStart: (files: File[], config: ModelConfig) => void;
+  onStart: (files: File[], config: ModelConfig) => void | Promise<void>;
   onContinue: () => void;
-  onStartFlashcards: (questions: Question[]) => void;
+  onStartFlashcards: (questions: Question[], sourceId?: string | number) => void;
+  onOpenWorkspace: () => void;
   hasActiveSession: boolean;
 }
 
@@ -47,8 +45,8 @@ const getBloomLevels = () => [
   { id: ExamStyle.C5_EVALUATION, label: t('cfgBloom5'), desc: t('cfgBloom5d') },
 ];
 
-export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue, onStartFlashcards, hasActiveSession }) => {
-  const [inputMethod, setInputMethod] = useState<'library' | 'upload' | 'topic' | 'url' | 'external'>('library');
+export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue, onStartFlashcards, onOpenWorkspace, hasActiveSession }) => {
+  const [inputMethod, setInputMethod] = useState<'library' | 'upload' | 'topic' | 'url'>('library');
   
   // Library State
   const [libraryItems, setLibraryItems] = useState<LibraryItem[]>([]);
@@ -62,12 +60,6 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
   
   // URL State
   const [urlInput, setUrlInput] = useState('');
-
-  // External Notes State
-  const [externalUser, setExternalUser] = useState<User | null>(null);
-  const [externalNotes, setExternalNotes] = useState<ExternalNote[]>([]);
-  const [selectedExternalNoteId, setSelectedExternalNoteId] = useState<string | null>(null);
-  const [isLoadingExternal, setIsLoadingExternal] = useState(false);
 
   // Config State
   const [provider, setProvider] = useState<AiProvider>(getActiveProvider());
@@ -87,11 +79,12 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
   
   // UI State
   const [dragActive, setDragActive] = useState(false);
-  const [dueCards, setDueCards] = useState<Question[]>([]);
+  const [dueCards, setDueCards] = useState<SRSItem[]>([]);
   const [isReviewing, setIsReviewing] = useState(false);
   const [isSchedulerOpen, setIsSchedulerOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [, setLocaleTick] = useState(0);
   useEffect(() => subscribeLocale(() => setLocaleTick(n => n + 1)), []);
 
@@ -111,60 +104,13 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
     getLibraryItems().then(setLibraryItems);
     getDueItems().then(items => {
       if (items && items.length > 0) {
-        // Map SRSItem to Question (content)
-        setDueCards(items.map(item => item.content as Question));
+        // Preserve SRS metadata so a review updates the existing schedule.
+        setDueCards(items);
         notifyReviewDue(items.length);
       }
     });
 
-    // Listen to external auth state
-    let unsubscribe = () => {};
-    if (externalAuth) {
-      unsubscribe = auth.onAuthStateChanged((user) => {
-        setExternalUser(user);
-        if (user) {
-          loadExternalNotes();
-        } else {
-          setExternalNotes([]);
-        }
-      });
-    }
-
-    return () => unsubscribe();
   }, []);
-
-  const loadExternalNotes = async () => {
-    setIsLoadingExternal(true);
-    try {
-      const notes = await getMyNotes();
-      setExternalNotes(notes);
-    } catch (error) {
-      console.error("Gagal memuat catatan eksternal:", error);
-    } finally {
-      setIsLoadingExternal(false);
-    }
-  };
-
-  const handleExternalLogin = async () => {
-    try {
-      await loginToExternalNotes();
-    } catch (error) {
-      showErrorNotification({
-        title: t('loginNotesFail'),
-        action: "handleExternalLogin",
-        whatHappened: t('loginNotesWhat'),
-        error,
-        possibleCauses: [
-          "App domain not allowlisted for the notes project.",
-          "Login popup blocked or auth provider issue."
-        ]
-      });
-    }
-  };
-
-  const handleExternalLogout = async () => {
-    await logoutFromExternalNotes();
-  };
 
   // --- DYNAMIC MODEL FETCHING (global Settings model) ---
   useEffect(() => {
@@ -194,19 +140,23 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
       const lowerName = f.name.toLowerCase();
       const isSupportedDoc =
         lowerName.endsWith('.pdf') ||
-        lowerName.endsWith('.ppt') ||
-        lowerName.endsWith('.pptx') ||
         lowerName.endsWith('.txt') ||
         lowerName.endsWith('.md');
       const isSupportedImage = f.type.startsWith('image/');
       if (!(isSupportedDoc || isSupportedImage)) {
+        showErrorNotification({
+          title: t('fileRejected'),
+          action: 'handleFilesUpload.unsupportedType',
+          whatHappened: `${f.name}: ${t('fileUnsupported')}`,
+          error: f.type || 'unknown file type',
+        });
         return false;
       }
       if (f.size > 15 * 1024 * 1024) {
         showErrorNotification({
-          title: "File Ditolak",
+          title: t('fileRejected'),
           action: "handleFilesUpload",
-          whatHappened: `File ${f.name} melewati batas ukuran per file 15MB.`,
+          whatHappened: `${f.name}: ${t('filePerLimit')}`,
           error: `File size ${(f.size / 1024 / 1024).toFixed(2)} MB`
         });
         return false;
@@ -297,106 +247,93 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
     setBloomPercentages(nextPct);
   };
 
+  const getInputValidationError = (): string | null =>
+      inputMethod === 'library' && selectedLibraryIds.length === 0 ? t('cfgAlertLib') :
+      inputMethod === 'upload' && files.length === 0 ? t('cfgAlertUpload') :
+      inputMethod === 'topic' && !topic.trim() ? t('cfgAlertTopic') :
+      inputMethod === 'url' && !urlInput.trim() ? t('cfgAlertUrl') :
+      !topic && inputMethod === 'library' ? t('cfgAlertFocus') :
+      !modelId ? t('cfgAlertModel') : null;
+
+  const resolveInputContext = async (): Promise<{ finalTopic: string; finalLibraryContext: string }> => {
+    let finalTopic = topic;
+    let finalLibraryContext = '';
+    if (inputMethod === 'library') {
+      const selectedItems = libraryItems.filter((item) => selectedLibraryIds.includes(String(item.id)));
+      finalLibraryContext = selectedItems
+        .map((item) => `[SOURCE: ${item.title}]\n${item.processedContent || item.content}`)
+        .join('\n\n');
+    } else if (inputMethod === 'url') {
+      const urlContent = await fetchUrlContent(urlInput);
+      finalLibraryContext = `[SOURCE: ${urlInput}]\n${urlContent}`;
+      if (!finalTopic) finalTopic = t('cfgUrl');
+    }
+    return { finalTopic, finalLibraryContext };
+  };
+
   const handleStart = async () => {
-    if (inputMethod === 'library' && selectedLibraryIds.length === 0) return alert(t('cfgAlertLib'));
-    if (inputMethod === 'upload' && files.length === 0) return alert("Upload file dulu!");
-    if (inputMethod === 'topic' && !topic.trim()) return alert("Isi topik dulu!");
-    if (inputMethod === 'url' && !urlInput.trim()) return alert("Isi URL dulu!");
-    if (inputMethod === 'external' && !selectedExternalNoteId) return alert(t('cfgAlertNotes'));
-    if (!topic && (inputMethod === 'library' || inputMethod === 'external')) return alert(t('cfgAlertFocus'));
-    if (!modelId) return alert(t('cfgAlertModel'));
+    const validationError = getInputValidationError();
+    if (validationError) {
+      setFormError(validationError);
+      return;
+    }
+    setFormError(null);
 
     setIsGenerating(true);
-    
-    let finalTopic = topic;
-    let finalLibraryContext = "";
 
-    if (inputMethod === 'library') {
-       const selectedItems = libraryItems.filter(item => selectedLibraryIds.includes(String(item.id)));
-       finalLibraryContext = selectedItems.map(item => `[SOURCE: ${item.title}]\n${item.processedContent || item.content}`).join("\n\n");
-    } else if (inputMethod === 'url') {
-       try {
-         const urlContent = await fetchUrlContent(urlInput);
-         finalLibraryContext = `[SOURCE: ${urlInput}]\n${urlContent}`;
-         if (!finalTopic) finalTopic = t('cfgUrl');
-       } catch (error: any) {
-         showErrorNotification({
-           title: t('urlFetchFail'),
-           action: "handleStart.fetchUrlContent",
-           whatHappened: t('urlFetchWhat'),
-           error
-         });
-          setIsGenerating(false);
-          return;
-        }
-    } else if (inputMethod === 'external') {
-       const selectedNote = externalNotes.find(n => n.id === selectedExternalNoteId);
-       if (selectedNote) {
-          // We try to find content in common fields: content, text, note, body
-          const content = selectedNote.content || selectedNote.text || selectedNote.note || selectedNote.body || "";
-          finalLibraryContext = `[SOURCE: External Note - ${selectedNote.title || 'Untitled'}]\n${content}`;
-          if (!finalTopic) finalTopic = selectedNote.title || 'External note';
-       }
+    let inputContext: Awaited<ReturnType<typeof resolveInputContext>>;
+    try {
+      inputContext = await resolveInputContext();
+    } catch (error) {
+      showErrorNotification({
+        title: t('urlFetchFail'),
+        action: 'handleStart.fetchUrlContent',
+        whatHappened: t('urlFetchWhat'),
+        error,
+      });
+      setIsGenerating(false);
+      return;
     }
 
-    setTimeout(() => {
-        onStart(inputMethod === 'upload' ? files : [], {
-            provider,
-            modelId,
-            questionCount,
-            mode,
-            examStyle: examStyles,
-            bloomPercentages,
-            topic: finalTopic,
-            customPrompt,
-          libraryContext: finalLibraryContext,
-          enableRetention,
-          enableMixedTypes,
-          folder: folder || undefined
-        });
-        setTimeout(() => setIsGenerating(false), 2000); 
-    }, 100);
+    await onStart(inputMethod === 'upload' ? files : [], {
+      provider,
+      modelId,
+      questionCount,
+      mode,
+      examStyle: examStyles,
+      bloomPercentages,
+      topic: inputContext.finalTopic,
+      customPrompt,
+      libraryContext: inputContext.finalLibraryContext,
+      enableRetention,
+      enableMixedTypes,
+      folder: folder || undefined,
+    });
+    setIsGenerating(false);
   };
 
   const handleFlashcardStart = async () => {
-    if (inputMethod === 'library' && selectedLibraryIds.length === 0) return alert(t('cfgAlertLib'));
-    if (inputMethod === 'upload' && files.length === 0) return alert("Upload file dulu!");
-    if (inputMethod === 'topic' && !topic.trim()) return alert("Isi topik dulu!");
-    if (inputMethod === 'url' && !urlInput.trim()) return alert("Isi URL dulu!");
-    if (inputMethod === 'external' && !selectedExternalNoteId) return alert(t('cfgAlertNotes'));
-    if (!topic && (inputMethod === 'library' || inputMethod === 'external')) return alert(t('cfgAlertFocus'));
-    if (!modelId) return alert(t('cfgAlertModel'));
+    const validationError = getInputValidationError();
+    if (validationError) {
+      setFormError(validationError);
+      return;
+    }
+    setFormError(null);
 
     setIsGenerating(true);
     
-    let finalTopic = topic;
-    let finalLibraryContext = "";
-
-    if (inputMethod === 'library') {
-       const selectedItems = libraryItems.filter(item => selectedLibraryIds.includes(String(item.id)));
-       finalLibraryContext = selectedItems.map(item => `[SOURCE: ${item.title}]\n${item.processedContent || item.content}`).join("\n\n");
-    } else if (inputMethod === 'url') {
-       try {
-         const urlContent = await fetchUrlContent(urlInput);
-         finalLibraryContext = `[SOURCE: ${urlInput}]\n${urlContent}`;
-         if (!finalTopic) finalTopic = t('cfgUrl');
-       } catch (error: any) {
-         showErrorNotification({
-           title: t('urlFetchFail'),
-           action: "handleFlashcardStart.fetchUrlContent",
-           whatHappened: t('urlFetchFlashWhat'),
-           error
-         });
-          setIsGenerating(false);
-          return;
-        }
-    } else if (inputMethod === 'external') {
-       const selectedNote = externalNotes.find(n => n.id === selectedExternalNoteId);
-       if (selectedNote) {
-          const content = selectedNote.content || selectedNote.text || selectedNote.note || selectedNote.body || "";
-          finalLibraryContext = `[SOURCE: External Note - ${selectedNote.title || 'Untitled'}]\n${content}`;
-          if (!finalTopic) finalTopic = selectedNote.title || 'External note';
-       }
+    let inputContext: Awaited<ReturnType<typeof resolveInputContext>>;
+    try {
+      inputContext = await resolveInputContext();
+    } catch (error) {
+      showErrorNotification({
+        title: t('urlFetchFail'),
+        action: 'handleFlashcardStart.fetchUrlContent',
+        whatHappened: t('urlFetchFlashWhat'),
+        error,
+      });
+      setIsGenerating(false);
+      return;
     }
 
     const apiKey = getApiKey(provider);
@@ -416,7 +353,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
       const res = await generateQuiz(
         apiKey,
         inputMethod === 'upload' ? files : [],
-        finalTopic,
+        inputContext.finalTopic,
         modelId,
         questionCount,
         mode,
@@ -424,7 +361,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
         () => {},
         [],
         customPrompt,
-        finalLibraryContext
+        inputContext.finalLibraryContext
       );
       
       if (res.questions && res.questions.length > 0) {
@@ -452,13 +389,14 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
   const isReady = (inputMethod === 'library' && selectedLibraryIds.length > 0 && topic.length > 2) || 
                   (inputMethod === 'upload' && files.length > 0) || 
                   (inputMethod === 'topic' && topic.trim().length > 3) ||
-                  (inputMethod === 'url' && urlInput.trim().length > 5) ||
-                  (inputMethod === 'external' && selectedExternalNoteId && topic.length > 2);
+                  (inputMethod === 'url' && urlInput.trim().length > 5);
 
   // --- SEGMENTED CONTROL COMPONENT ---
   const InputTab = ({ id, icon: Icon, label }: { id: typeof inputMethod, icon: any, label: string }) => (
     <button 
-        onClick={() => setInputMethod(id)} 
+        onClick={() => setInputMethod(id)}
+        aria-label={label}
+        aria-pressed={inputMethod === id}
         className={`relative flex items-center justify-center space-x-2 px-4 py-2 md:px-6 md:py-3 rounded-xl transition-all z-10 ${inputMethod === id ? 'text-indigo-700 font-bold' : 'text-slate-500 font-medium hover:text-slate-700'}`}
     >
         {inputMethod === id && (
@@ -474,7 +412,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
   );
 
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-8 pb-24 text-theme-text">
+    <div className="w-full max-w-4xl mx-auto space-y-5 md:space-y-8 pb-24 text-theme-text">
       
       {/* HERO HEADER */}
       <div className="text-center space-y-2 pt-4">
@@ -500,12 +438,11 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
         )}
       </AnimatePresence>
 
-      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white/60 backdrop-blur-xl border border-white/80 rounded-[2.5rem] p-6 md:p-8 shadow-xl shadow-indigo-500/5 relative overflow-hidden">
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white/60 backdrop-blur-xl border border-white/80 rounded-[2.5rem] p-4 md:p-8 shadow-xl shadow-indigo-500/5 relative overflow-hidden">
         
         {/* SEGMENTED CONTROL FOR INPUT */}
-        <div className="flex p-1.5 bg-slate-100/50 border border-slate-200/50 rounded-2xl mb-8 w-fit mx-auto shadow-inner overflow-x-auto max-w-full no-scrollbar">
+        <div className="flex p-1.5 bg-slate-100/50 border border-slate-200/50 rounded-2xl mb-5 md:mb-8 w-fit mx-auto shadow-inner overflow-x-auto max-w-full no-scrollbar">
           <InputTab id="library" icon={BookOpen} label={t('cfgLibrary')} />
-          <InputTab id="external" icon={Cloud} label={t('cfgNotes')} />
           <InputTab id="upload" icon={Upload} label={t('cfgUpload')} />
           <InputTab id="topic" icon={Type} label={t('cfgManual')} />
           <InputTab id="url" icon={LinkIcon} label={t('cfgUrl')} />
@@ -524,7 +461,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                 >
                     <div className="max-h-60 overflow-y-auto custom-scrollbar border border-white rounded-3xl bg-slate-50/50 p-3 shadow-inner">
                     {libraryItems.length === 0 ? (
-                        <p className="text-center py-12 text-slate-500 text-sm font-medium">{t('cfgLibEmpty')}</p>
+                        <p className="text-center py-6 md:py-12 text-slate-500 text-sm font-medium">{t('cfgLibEmpty')}</p>
                     ) : (
                         libraryItems.map((item, idx) => (
                             <div key={`${item.id}-${idx}`} onClick={() => toggleLibrarySelection(item.id)} className={`group flex items-center justify-between p-3 mb-2 rounded-2xl cursor-pointer transition-all border ${selectedLibraryIds.includes(String(item.id)) ? 'bg-white border-indigo-200 shadow-md translate-x-1' : 'bg-transparent border-transparent hover:bg-white/60 hover:shadow-sm'}`}>
@@ -544,101 +481,8 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                     </div>
                     <div className="flex items-center justify-between text-xs text-slate-500 px-2 font-medium">
                         <span>{t('cfgSelected')}: {selectedLibraryIds.length}</span>
-                        <button onClick={() => window.location.hash = '#workspace'} className="text-indigo-600 hover:underline">{t('cfgManageLib')} →</button>
+                        <button onClick={onOpenWorkspace} className="text-indigo-600 hover:underline">{t('cfgManageLib')} →</button>
                     </div>
-                </motion.div>
-            )}
-
-            {inputMethod === 'external' && (
-                <motion.div 
-                    key="external"
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    className="space-y-4"
-                >
-                    {!isExternalConfigured ? (
-                        <div className="w-full h-52 bg-white border border-slate-200 rounded-[2rem] p-6 flex flex-col items-center justify-center text-center space-y-4 shadow-inner">
-                            <div className="w-16 h-16 bg-rose-50 rounded-full flex items-center justify-center text-rose-500">
-                                <Settings2 size={32} />
-                            </div>
-                            <div>
-                                <h3 className="font-bold text-slate-700">Setup needed</h3>
-                                <p className="text-xs text-slate-500 px-4">External Notes is optional and not required for core Noodl. Prefer Library or Text upload.</p>
-                            </div>
-                            <div className="text-[10px] text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                                Variabel: <code>VITE_EXTERNAL_FIREBASE_API_KEY</code>
-                            </div>
-                        </div>
-                    ) : !externalUser ? (
-                        <div className="w-full h-52 bg-white border border-slate-200 rounded-[2rem] p-6 flex flex-col items-center justify-center text-center space-y-4 shadow-inner">
-                            <div className="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-500">
-                                <Cloud size={32} />
-                            </div>
-                            <div>
-                                <h3 className="font-bold text-slate-700">Connect external notes</h3>
-                                <p className="text-xs text-slate-500">Optional integration — not required for quizzes.</p>
-                            </div>
-                            <button 
-                                onClick={handleExternalLogin}
-                                className="px-6 py-2 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all"
-                            >
-                                {t('loginWithGoogle')}
-                            </button>
-                        </div>
-                    ) : (
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between px-2">
-                                <div className="flex items-center gap-2">
-                                    <img src={externalUser.photoURL || ""} alt="" className="w-6 h-6 rounded-full border border-indigo-100" referrerPolicy="no-referrer" />
-                                    <span className="text-xs font-bold text-slate-600 truncate max-w-[120px]">{externalUser.displayName}</span>
-                                </div>
-                                <button onClick={handleExternalLogout} className="text-[10px] text-rose-500 font-bold hover:underline">Logout</button>
-                            </div>
-
-                            <div className="max-h-40 overflow-y-auto custom-scrollbar border border-white rounded-3xl bg-slate-50/50 p-3 shadow-inner">
-                                {isLoadingExternal ? (
-                                    <div className="flex flex-col items-center justify-center py-8 space-y-2">
-                                        <RefreshCw className="animate-spin text-indigo-600" size={20} />
-                                        <p className="text-[10px] text-slate-500 font-bold">Loading notes…</p>
-                                    </div>
-                                ) : externalNotes.length === 0 ? (
-                                    <p className="text-center py-8 text-slate-500 text-xs font-medium">No notes found.</p>
-                                ) : (
-                                    externalNotes.map((note) => (
-                                        <div 
-                                            key={note.id} 
-                                            onClick={() => {
-                                                setSelectedExternalNoteId(note.id);
-                                                if (!topic) setTopic(note.title || "");
-                                            }} 
-                                            className={`group flex items-center justify-between p-3 mb-2 rounded-2xl cursor-pointer transition-all border ${selectedExternalNoteId === note.id ? 'bg-white border-indigo-200 shadow-md translate-x-1' : 'bg-transparent border-transparent hover:bg-white/60 hover:shadow-sm'}`}
-                                        >
-                                            <div className="flex items-center gap-3 overflow-hidden">
-                                                <div className={`p-2.5 rounded-xl transition-colors ${selectedExternalNoteId === note.id ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-200/50 text-slate-500 group-hover:bg-white'}`}>
-                                                    <FileText size={18} />
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <span className={`block text-sm font-bold truncate ${selectedExternalNoteId === note.id ? 'text-indigo-900' : 'text-slate-600'}`}>
-                                                        {note.title || t('untitledQuiz')}
-                                                    </span>
-                                                    <span className="text-[9px] text-slate-500 truncate block">
-                                                        {(note.content || note.text || "").substring(0, 40)}...
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${selectedExternalNoteId === note.id ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-300 text-transparent'}`}>
-                                                <CheckCircle2 size={12} />
-                                            </div>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                            <button onClick={loadExternalNotes} className="w-full py-2 text-[10px] font-bold text-indigo-500 hover:bg-indigo-50 rounded-xl transition-colors flex items-center justify-center gap-1">
-                                <RefreshCw size={10} /> {t('refreshNotes')}
-                            </button>
-                        </div>
-                    )}
                 </motion.div>
             )}
 
@@ -648,14 +492,23 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.95 }}
-                    className={`relative group h-52 border-2 border-dashed rounded-[2rem] transition-all flex flex-col items-center justify-center text-center overflow-hidden p-8 ${dragActive ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300 hover:border-indigo-400 hover:bg-slate-50'} cursor-pointer`} 
+                    className={`relative group h-40 md:h-52 border-2 border-dashed rounded-[2rem] transition-all flex flex-col items-center justify-center text-center overflow-hidden p-5 md:p-8 ${dragActive ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300 hover:border-indigo-400 hover:bg-slate-50'} cursor-pointer`}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={t('cfgDropTitle')}
                     onDragEnter={(e)=>{e.preventDefault();setDragActive(true)}} 
                     onDragLeave={(e)=>{e.preventDefault();setDragActive(false)}} 
                     onDragOver={(e)=>{e.preventDefault();setDragActive(true)}} 
                     onDrop={e => {e.preventDefault(); handleFilesUpload(e.dataTransfer.files);}} 
                     onClick={() => document.getElementById('file-upload')?.click()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        document.getElementById('file-upload')?.click();
+                      }
+                    }}
                 >
-                    <input id="file-upload" type="file" multiple className="hidden" accept=".pdf,.ppt,.pptx,.md,.txt,image/*" onChange={(e) => handleFilesUpload(e.target.files)} />
+                    <input id="file-upload" type="file" multiple className="hidden" accept=".pdf,.md,.txt,image/*" onChange={(e) => handleFilesUpload(e.target.files)} />
                     {files.length > 0 ? (
                         <div className="w-full space-y-2">
                             {files.map((f,i) => (
@@ -676,13 +529,13 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
 
             {inputMethod === 'topic' && (
                 <motion.div key="topic" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                    <textarea value={topic} onChange={(e) => setTopic(e.target.value)} placeholder={t('cfgTopicPh')} className="w-full h-52 bg-white border border-slate-200 rounded-[2rem] p-6 text-slate-700 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent shadow-inner resize-none transition-shadow" />
+                    <textarea value={topic} onChange={(e) => setTopic(e.target.value)} placeholder={t('cfgTopicPh')} className="w-full h-40 md:h-52 bg-white border border-slate-200 rounded-[2rem] p-5 md:p-6 text-slate-700 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent shadow-inner resize-none transition-shadow" />
                 </motion.div>
             )}
 
             {inputMethod === 'url' && (
                 <motion.div key="url" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                    <div className="w-full h-52 bg-white border border-slate-200 rounded-[2rem] p-6 flex flex-col justify-center shadow-inner">
+                    <div className="w-full min-h-40 md:h-52 bg-white border border-slate-200 rounded-[2rem] p-5 md:p-6 flex flex-col justify-center shadow-inner">
                         <label className="text-sm font-bold text-slate-500 mb-2 flex items-center">
                             <LinkIcon size={16} className="mr-2" /> {t('cfgUrlLabel')}
                         </label>
@@ -702,7 +555,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
 
         {/* --- COMMON CONTROLS --- */}
         <div className="space-y-6">
-           {(inputMethod === 'library' || inputMethod === 'upload' || inputMethod === 'external') && (
+           {(inputMethod === 'library' || inputMethod === 'upload') && (
               <div className="bg-indigo-50/50 p-5 rounded-2xl border border-indigo-100">
                  <label className="flex items-center text-xs font-bold text-indigo-600 uppercase tracking-widest mb-2">
                     <Target size={14} className="mr-1" /> {t('cfgFocusTopic')}
@@ -775,9 +628,10 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
            {/* Mode Selection with Tactile Cards */}
            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {getModeCards().map((m) => (
-                 <button 
-                    key={m.id} 
-                    onClick={() => setMode(m.id)} 
+                 <button
+                    key={m.id}
+                    onClick={() => setMode(m.id)}
+                    aria-pressed={mode === m.id}
                     className={`
                         relative p-4 rounded-3xl text-left transition-all btn-tactile
                         ${mode === m.id 
@@ -799,7 +653,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
            {/* BLOOM LEVEL SELECTOR (MULTI-SELECT) */}
            <div className="bg-white/50 p-5 rounded-3xl border border-white shadow-sm">
                 <label className="flex items-center text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">
-                    <TrendingUp size={14} className="mr-1.5" /> Level Kognitif (Bisa pilih &gt; 1)
+                    <TrendingUp size={14} className="mr-1.5" /> {t('cfgBloomLabel')}
                 </label>
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
                     {getBloomLevels().map(level => {
@@ -808,6 +662,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                             <button
                                 key={level.id}
                                 onClick={() => toggleExamStyle(level.id)}
+                                aria-pressed={isSelected}
                                 className={`
                                     relative p-2 rounded-xl text-center transition-all 
                                     ${isSelected ? 'bg-indigo-600 text-white shadow-md transform scale-[1.02]' : 'bg-white border border-slate-200 text-slate-500 hover:bg-indigo-50'}
@@ -830,7 +685,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                      <div className="mt-4 pt-4 border-t border-slate-100">
                          <div className="flex items-center justify-between mb-4">
                              <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">{t('cfgBloomMix')}</span>
-                             <span className="text-[10px] text-slate-400 font-medium">Total: 100% ({questionCount} soal)</span>
+                             <span className="text-[10px] text-slate-400 font-medium">{t('cfgQuestionTotal').replace('{count}', String(questionCount))}</span>
                          </div>
                          <div className="space-y-4">
                              {examStyles.map((style, i) => {
@@ -839,7 +694,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                                  const qCount = Math.round((pct / 100) * questionCount);
                                  const dotColors = ['bg-blue-500', 'bg-indigo-500', 'bg-violet-500', 'bg-purple-500', 'bg-fuchsia-500'];
                                  const txtColors = ['text-blue-600', 'text-indigo-600', 'text-violet-600', 'text-purple-600', 'text-fuchsia-600'];
-                                 const colorClass = dotColors[i % dotColors.length].replace('bg-', '');
+                                 const accentColors = ['#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef'];
                                  return (
                                      <div key={style} className="flex flex-col gap-1">
                                          <div className="flex items-center justify-between">
@@ -854,17 +709,16 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                                              min="0" 
                                              max="100" 
                                              value={pct}
+                                             aria-label={`${levelInfo?.label || style} ${pct}%`}
                                              onChange={(e) => handlePercentageChange(style, parseInt(e.target.value))}
-                                             className={`w-full h-1.5 bg-slate-100 rounded-full appearance-none cursor-pointer accent-${colorClass}`}
-                                             style={{
-                                                accentColor: `var(--tw-colors-${colorClass.split('-')[0]}-${colorClass.split('-')[1]})`
-                                             }}
+                                             className="w-full h-1.5 bg-slate-100 rounded-full appearance-none cursor-pointer"
+                                             style={{ accentColor: accentColors[i % accentColors.length] }}
                                          />
                                      </div>
                                  );
                              })}
                          </div>
-                         <p className="text-[10px] text-slate-400 mt-4 text-center">⚡ Geser slider untuk mengatur proporsi soal. Total otomatis 100%.</p>
+                         <p className="text-[10px] text-slate-400 mt-4 text-center">⚡ {t('cfgBloomSliderHint')}</p>
                      </div>
                  )}
            </div>
@@ -879,7 +733,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                     <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden space-y-4">
                         <div className="bg-white p-4 rounded-2xl border border-indigo-100 shadow-sm">
                             <label className="flex items-center text-xs font-bold text-indigo-500 uppercase tracking-widest mb-2">
-                                <MessageSquarePlus size={14} className="mr-1.5" /> Custom Instruksi
+                                <MessageSquarePlus size={14} className="mr-1.5" /> {t('cfgCustomInstruction')}
                             </label>
                             <textarea 
                                 value={customPrompt}
@@ -893,6 +747,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <button 
                                 onClick={() => setEnableRetention(!enableRetention)}
+                                aria-pressed={enableRetention}
                                 className={`flex items-center justify-between p-4 rounded-2xl border-2 transition-all ${enableRetention ? 'bg-indigo-50 border-indigo-200 shadow-inner' : 'bg-white border-transparent hover:border-slate-200'}`}
                             >
                                 <div className="flex items-center">
@@ -900,7 +755,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
                                         <BrainCircuit size={20} />
                                     </div>
                                     <div className="text-left">
-                                        <span className={`block font-bold text-sm ${enableRetention ? 'text-indigo-900' : 'text-slate-600'}`}>Sticky mode</span>
+                                        <span className={`block font-bold text-sm ${enableRetention ? 'text-indigo-900' : 'text-slate-600'}`}>{t('cfgSticky')}</span>
                                     </div>
                                 </div>
                                 <div className={`w-10 h-6 rounded-full p-1 transition-colors ${enableRetention ? 'bg-indigo-500' : 'bg-slate-200'}`}><motion.div className="w-4 h-4 bg-white rounded-full shadow-sm" animate={{ x: enableRetention ? 16 : 0 }} /></div>
@@ -908,6 +763,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
 
                             <button 
                                 onClick={() => setEnableMixedTypes(!enableMixedTypes)}
+                                aria-pressed={enableMixedTypes}
                                 className={`flex items-center justify-between p-4 rounded-2xl border-2 transition-all ${enableMixedTypes ? 'bg-fuchsia-50 border-fuchsia-200 shadow-inner' : 'bg-white border-transparent hover:border-slate-200'}`}
                             >
                                 <div className="flex items-center">
@@ -1002,7 +858,8 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
               </div>
             )}
 
-            <div className="flex gap-4">
+            {formError && <p role="alert" className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{formError}</p>}
+            <div className="flex gap-3 sm:gap-4">
               <button 
                 onClick={handleFlashcardStart} 
                 disabled={!isReady || isGenerating || !hasApiKey} 
@@ -1032,7 +889,7 @@ export const ConfigScreen: React.FC<ConfigScreenProps> = ({ onStart, onContinue,
             onClose={() => { 
               setIsReviewing(false); 
               getDueItems().then(items => {
-                if (items) setDueCards(items.map(i => i.content as Question));
+                if (items) setDueCards(items);
               });
             }} 
           />
