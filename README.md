@@ -23,7 +23,9 @@
   <a href="#i-am-actually-obsessed-with-this-problem">Why I'm obsessed</a> ·
   <a href="#the-dream-im-selling">The dream</a> ·
   <a href="#what-noodl-does-in-painful-detail">Product deep dive</a> ·
+  <a href="#4-game-changers-i-refuse-to-bury-in-a-bullet-list">Game changers</a> ·
   <a href="#build-week-story-messy-and-real">Build Week story</a> ·
+  <a href="#7-this-is-open-source--and-it-is-not-finished-thats-the-feature">Open source</a> ·
   <a href="#for-judges">For judges</a> ·
   <a href="#run-it-tonight">Run it</a>
 </p>
@@ -144,19 +146,68 @@ flowchart TD
 
 ### 3) Practice modes that feel different on purpose
 
-- **Standard** — clean retrieval  
-- **Survival** — pressure; mistakes hurt  
-- **Time Rush** — clock is part of the workout  
-- **Keyboard-first controls** — because pointing at every option with a mouse during a 50-question set is cruelty  
-- **Flashcards** — rate recall when you don't need full MCQ chrome  
-- **Neuro-Sync** — SM-2-style return of weak items (the concepts you keep missing should not get to hide)  
-- **Mix Room** — smash multiple saved units into a broader exam simulation  
+- **Standard** — clean retrieval, full explanations, keyboard-first navigation  
+- **Survival** — lives on the line; pressure changes how you read every option  
+- **Time Rush** — the clock is part of the workout, not decoration  
+- **Retention sequences** — optional expansion so the same concepts reappear in a longer session instead of one-and-done  
+- **Mixed item types** — MCQ isn't the only shape; toggle variety so you're not pattern-matching the UI  
 
-### 4) When text is not enough
+### 4) Game changers I refuse to bury in a bullet list
 
-- **Visual Lab** — scan material for concepts that deserve interactive HTML5 sims / diagrams / process flows (pick a real study pack first — no orphan "demo with empty topic string")  
-- **Knowledge graph** — concept map from questions + explanations, zoom/pan, click into review  
-- **Material overview / deep insight** — cluster what the quiz is *actually* testing  
+This is the part where I get loud. Bloom + generate is the spine — but the *loop* is what makes Noodl feel like a product, not a prompt wrapper.
+
+#### Flashcards you can doomscroll (Tinder energy, study brain)
+
+I am so done with flashcard UIs that feel like filling a government form.
+
+Noodl flashcards are **full-screen, flip-to-reveal, then swipe**:
+
+- Tap to flip question → answer + explanation  
+- **Swipe** (or rate: Lupa / Sulit / Bagus / Mudah) with motion, haptics, sound  
+- Ratings feed **SRS** so "I blanked" actually changes what comes back later  
+- Keyboard arrows when you're at a desk; drag when you're on a phone in bed  
+
+The dream: studying that hijacks the same thumb muscle as doomscrolling — except instead of rotting your attention, you're burning weak concepts until they stick. Short session? Ten cards. Can't sleep? Keep swiping. That is intentional product cruelty in a good way.
+
+#### HTML5 Visual Lab (sims you can *touch*)
+
+Some ideas refuse to live in MCQ. Circulatory flow. Algorithm steps. Trade-offs with sliders.
+
+Visual Lab scans a real study pack, proposes concepts + types (simulation / process flow / diagram / chart / 3D-ish), then generates **self-contained interactive HTML5** — canvas/SVG, controls, live "what just changed" feedback — sandboxed in-app. Pick the pack first (session or Files). Save sims back onto that quiz. Fullscreen when you want to show a friend.
+
+Not a stock photo of a "smart classroom." An actual toy for the concept you're about to be tested on.
+
+#### Knowledge Graph (your exam as a map)
+
+After you've got questions + explanations, Noodl can build a **review map**: core / supporting / detail nodes, edges from shared language, click a node → question/answer/why. Zoom, pan, pinch, focus a branch. Export HTML/JSON if you want to keep the map outside the app.
+
+This is for the moment after a mock exam when you don't need *more* random questions — you need to see **which islands of the material you actually own**.
+
+#### Add more questions (grow the pack without starting over)
+
+Finished a set and still feel thin on C4? **Add more** reuses the same topic/context/config, generates another batch against what you already have (dedupe-aware), and folds into the saved quiz. Study packs should *grow* with your anxiety, not force a full regenerate from zero.
+
+#### Remix (same truth, new shape)
+
+Bored of the option order? Remix shuffles structure — mixed types, reshuffled options, reordered items — so you're practicing **the idea**, not memorizing "B was always correct on card 7." One button. Instantly less gameable.
+
+#### Mix Room / Virtual Room (exam simulation from many packs)
+
+Midterms are never one PDF. Mix Room lets you multi-select saved quizzes, combine questions, optional "varied" transform, then launch as a full quiz **or** swipe flashcards. It's the "everything from weeks 1–6, shuffled" panic button — on purpose.
+
+#### Study Tutor, Material Bank, bank-soal export
+
+- **Study Tutor** — chat grounded in a chosen pack's material (not a random empty persona)  
+- **Material overview / Deep Insight** — cluster what the quiz is testing; AI insight when you want the "so what do I study tonight" view  
+- **Export bank soal** — JSON / CSV / PDF with or without answers for offline drills or sharing with a study group the old-fashioned way  
+
+#### Hands-free experiments (optional, never a trap)
+
+Nose-tip dwell pointer and hand gestures (A–D + nav) after eye-tracking on consumer webcams proved unreliable. Compact dwell UI so overlays don't eat the question. Camera **off by default**. Keyboard and touch stay first-class. This is accessibility R&D with an exit hatch, not a gimmick forced on everyone.
+
+#### Themes, PWA, More hub, the "small" stuff that isn't small
+
+Glass themes. Installable PWA. A **More** hub that routes to tutor / visual lab / material tools with a real pack picker (and **change source** when you picked wrong). Dynamic island-style status during heavy work. i18n. The glue that makes a Build Week app feel like something you'd open tomorrow morning, not only during judging.
 
 ### 5) Access & ownership (the political part, said out loud)
 
@@ -169,6 +220,20 @@ flowchart TD
 ### 6) Diagrams for people who want to stare at the system
 
 English exports live in [`docs/diagrams/`](docs/diagrams/) — learning loop, generation pipeline, architecture, sync, visual lab, graph UX, accessibility, provider routing, Bloom allocation, security map, and more. I generated them because if I'm going to claim architecture, I should show it.
+
+### 7) This is open source — and it is **not finished** (that's the feature)
+
+MIT. Public repo. Fork it. Break it. Improve Bloom heuristics. Add a better pack browser. Ship a teacher dashboard. Port flashcard SRS to your language. Fix my edge cases.
+
+**Noodl will keep growing.** Build Week is a launch spike, not a tombstone. The backlog in my head is already longer than the README: zero-key sample decks for judges, educator review sets, smarter "what Bloom mix next," pack moderation, deeper assistive calibration, more simulation quality, classroom workflows I haven't built yet.
+
+So:
+
+1. **Find it out yourself** — click [the live demo](https://noodl-beta.vercel.app/), generate on *your* notes, swipe flashcards until 2am, open Mix Room, grow a pack with Add more, open the graph after you fail a concept.  
+2. **Contribute** — issues and PRs that preserve source-grounded practice, inspectable learning design, local-first ownership, and honest claims.  
+3. **Share the benefits** — every improvement lands for every student who shouldn't need a private engineering team to get a serious study loop.
+
+If OpenAI Build Week is about what agentic coding unlocks for builders, open source is how that unlock becomes a public good instead of a private flex.
 
 ---
 
@@ -330,14 +395,17 @@ I'm not going to claim Noodl replaces teachers or predicts exam scores. I *will*
 
 ---
 
-## What's next (I'm not done dreaming)
+## What's next (I'm not done dreaming — join in)
 
-- Zero-key sample deck so every judge can click without configuring providers  
+- Zero-key sample deck so every judge / classmate can click without configuring providers  
 - Human-labeled evaluation set for Bloom / groundedness  
 - Smarter recommendations for the learner's next Bloom mix  
 - Public pack moderation + educator curation  
-- Deeper assistive-input calibration  
+- Deeper assistive-input calibration + WCAG grind  
+- Richer HTML5 sim quality and classroom-scale pack libraries  
 - That &lt;3 minute YouTube walkthrough with audio covering Codex + GPT-5.6 usage  
+
+**Want a feature?** Open an issue. **Can build it?** Open a PR. The point of MIT + public history is that Noodl shouldn't depend on one builder's sleep schedule forever.
 
 ---
 
@@ -352,7 +420,7 @@ Direction, not a certificate.
 
 ## Contributing / license
 
-PRs welcome if they preserve: source-grounded generation, explicit learning design, local-first ownership, accessible defaults, honest claims.
+PRs welcome when they preserve: source-grounded generation, explicit learning design, local-first ownership, accessible defaults, honest claims.
 
 ```bash
 git checkout -b feat/your-change
@@ -361,15 +429,16 @@ npm ci && npm run lint && npm test && npm run build
 
 Never commit `.env.local`, API keys, service-role secrets, or private student material.
 
-**MIT** — [LICENSE](LICENSE)
+**MIT** — [LICENSE](LICENSE) · star it, fork it, ship improvements back so more students get the loop for free.
 
 ---
 
 <p align="center">
   <strong>Use your noodle.</strong><br />
   <sub>
+    Swipe cards. Touch sims. Map your weak spots. Remix. Mix packs. Grow the quiz.<br />
     Built screaming-excited during OpenAI Build Week · Education<br />
-    with Codex + GPT-5.6 as the long-horizon engineering partner that made shipping possible<br />
-    <a href="https://noodl-beta.vercel.app/">noodl-beta.vercel.app</a>
+    with Codex + GPT-5.6 as the long-horizon partner that made shipping possible<br />
+    Open source on purpose — <a href="https://github.com/SeraKah-1/noodl">contribute</a> · <a href="https://noodl-beta.vercel.app/">try the demo</a>
   </sub>
 </p>
