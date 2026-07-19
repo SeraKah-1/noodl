@@ -1,0 +1,107 @@
+[
+  {
+    "id": "13-bloom-levels",
+    "title": "Bloom percentage levels (C1–C5)",
+    "source": "README.md",
+    "headers": ["Level", "Cognitive target", "Example intention"],
+    "rows": [
+      ["C1", "Remember", "Recall a definition, term, or fact"],
+      ["C2", "Understand", "Explain or distinguish an idea"],
+      ["C3", "Apply", "Use the idea in a concrete situation"],
+      ["C4", "Analyze", "Compare, decompose, or infer relationships"],
+      ["C5", "Evaluate", "Judge alternatives using evidence or criteria"]
+    ]
+  },
+  {
+    "id": "14-learning-experiences",
+    "title": "Learning experiences after generation",
+    "source": "README.md",
+    "headers": ["Experience", "Purpose"],
+    "rows": [
+      ["Standard / Survival / Time Rush", "Different retrieval pressure without changing source truth"],
+      ["Keyboard-first quiz controls", "Answer and navigate without repetitive pointer travel"],
+      ["Swipeable flashcards", "Rate recall instead of one interaction pattern"],
+      ["Neuro-Sync", "Return weak items through an SM-2-style schedule"],
+      ["Mix Room", "Combine saved units into a broader exam simulation"],
+      ["Knowledge views", "Summaries, insights, simulations, and knowledge graphs"],
+      ["Public learning packs", "Generate once, distribute without every learner owning a key"]
+    ]
+  },
+  {
+    "id": "15-human-vs-codex",
+    "title": "Human product decisions vs Codex engineering work",
+    "source": "README.md",
+    "headers": ["Human decisions", "Codex + GPT-5.6 contributions"],
+    "rows": [
+      ["Bloom percentage blueprint", "Traced contracts from UI through generation and persistence"],
+      ["BYOK and local-first economics", "Unified Quiz, Library, and SRS sync around outboxes and tombstones"],
+      ["Eye-to-nose accessibility pivot", "Repaired grading, resume, SRS identity, keyboard flow, provider routing"],
+      ["Camera privacy boundary", "Hardened Supabase schema, RLS, grants, and public metadata"],
+      ["Public learning-commons model", "Removed unsafe credential/runtime paths and dead code"],
+      ["Product scope and honest claims", "Added tests, CI, build gates, accessible dialogs, responsive fixes"]
+    ]
+  },
+  {
+    "id": "16-verification-areas",
+    "title": "Quality and verification areas",
+    "source": "README.md",
+    "headers": ["Verification area", "Examples"],
+    "rows": [
+      ["Answer correctness", "Fill-blank normalization and accepted-answer behavior"],
+      ["Import boundary", "Quiz payload validation and normalization"],
+      ["Network boundary", "CORS allow-list behavior"],
+      ["Data security", "RLS / schema / grant regression checks"],
+      ["Build integrity", "TypeScript before Vite production build"]
+    ]
+  },
+  {
+    "id": "17-submission-evidence",
+    "title": "OpenAI Build Week submission evidence",
+    "source": "README.md",
+    "headers": ["Item", "Status"],
+    "rows": [
+      ["Competition", "OpenAI Build Week 2026 · Education"],
+      ["Source", "github.com/SeraKah-1/noodl · MIT"],
+      ["Live product", "noodl-beta.vercel.app"],
+      ["Demo video", "Pending final public YouTube upload"],
+      ["Runtime model policy", "Multi-provider, bring your own key"]
+    ]
+  },
+  {
+    "id": "18-supabase-sync-map",
+    "title": "What syncs to Supabase",
+    "source": "docs/SUPABASE.md",
+    "headers": ["Data", "Table", "When"],
+    "rows": [
+      ["Quizzes", "quizzes", "save / login / online / realtime"],
+      ["Library materials", "library_items", "sync cycle"],
+      ["SRS cards", "srs_items", "add/review + sync"],
+      ["Device registry", "devices", "each full sync"],
+      ["Sync cursor", "sync_state", "pull/push timestamps"],
+      ["Profile", "user_profiles", "display name / last device"]
+    ]
+  },
+  {
+    "id": "19-cloud-module-roles",
+    "title": "Cloud-related code modules",
+    "source": "docs/SUPABASE.md",
+    "headers": ["File", "Role"],
+    "rows": [
+      ["supabase.ts", "Browser client + OAuth"],
+      ["services/syncService.ts", "LWW merge, push/pull, realtime, devices"],
+      ["services/storageService.ts", "Local IDB + cloud helpers"],
+      ["services/srsService.ts", "SRS local + cloud upsert"],
+      ["components/AuthWidget.tsx", "Login + manual Sync now"]
+    ]
+  },
+  {
+    "id": "20-oauth-redirect-checklist",
+    "title": "Supabase Auth URL checklist",
+    "source": "docs/SUPABASE.md",
+    "headers": ["Field", "Set to"],
+    "rows": [
+      ["Site URL", "Production URL, e.g. https://YOUR-APP.vercel.app (not localhost alone)"],
+      ["Redirect URLs", "Production URL and local dev URL lines as needed"]
+    ]
+  }
+]

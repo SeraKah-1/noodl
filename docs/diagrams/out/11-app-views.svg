@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="380" viewBox="0 0 900 380">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f8fafc"/><stop offset="100%" stop-color="#eef2ff"/>
+    </linearGradient>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+  <text x="450" y="28" text-anchor="middle" font-family="Inter,Segoe UI,system-ui,sans-serif" font-size="16" font-weight="700" fill="#312e81">Main Noodl product surfaces</text>
+  
+    <rect x="360" y="60" width="180" height="55" rx="14" fill="#4f46e5" stroke="#3730a3" stroke-width="2"/><text x="450" y="91.5" text-anchor="middle" font-family="Inter,Segoe UI,system-ui,sans-serif" font-size="13" font-weight="650" fill="#fff">Home / Generator</text>
+    <line x1="450" y1="115" x2="450" y2="145" stroke="#64748b" stroke-width="2"/>
+  <polygon points="450,145 444,135 456,135" fill="#64748b"/>
+    <rect x="340" y="145" width="220" height="50" rx="14" fill="#eef2ff" stroke="#6366f1" stroke-width="2"/><text x="450" y="174" text-anchor="middle" font-family="Inter,Segoe UI,system-ui,sans-serif" font-size="13" font-weight="650" fill="#1e293b">Config · Bloom · Mode</text>
+    <line x1="450" y1="195" x2="450" y2="225" stroke="#64748b" stroke-width="2"/>
+  <polygon points="450,225 444,215 456,215" fill="#64748b"/>
+    <rect x="360" y="225" width="180" height="50" rx="14" fill="#eef2ff" stroke="#6366f1" stroke-width="2"/><text x="450" y="254" text-anchor="middle" font-family="Inter,Segoe UI,system-ui,sans-serif" font-size="13" font-weight="650" fill="#1e293b">Playable quiz</text>
+    <line x1="450" y1="275" x2="450" y2="300" stroke="#64748b" stroke-width="2"/>
+  <polygon points="450,300 444,290 456,290" fill="#64748b"/>
+    <rect x="40" y="300" width="140" height="50" rx="14" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/><text x="110" y="329" text-anchor="middle" font-family="Inter,Segoe UI,system-ui,sans-serif" font-size="13" font-weight="650" fill="#1e293b">Results</text>
+    <rect x="200" y="300" width="140" height="50" rx="14" fill="#e0f2fe" stroke="#0284c7" stroke-width="2"/><text x="270" y="329" text-anchor="middle" font-family="Inter,Segoe UI,system-ui,sans-serif" font-size="13" font-weight="650" fill="#1e293b">Neuro-Sync</text>
+    <rect x="360" y="300" width="140" height="50" rx="14" fill="#faf5ff" stroke="#8b5cf6" stroke-width="2"/><text x="430" y="321" text-anchor="middle" font-family="Inter,Segoe UI,system-ui,sans-serif" font-size="12" font-weight="650" fill="#1e293b">Knowledge</text><text x="430" y="337" text-anchor="middle" font-family="Inter,Segoe UI,system-ui,sans-serif" font-size="12" font-weight="650" fill="#1e293b">graph</text>
+    <rect x="520" y="300" width="140" height="50" rx="14" fill="#fff7ed" stroke="#f59e0b" stroke-width="2"/><text x="590" y="329" text-anchor="middle" font-family="Inter,Segoe UI,system-ui,sans-serif" font-size="13" font-weight="650" fill="#1e293b">Simulations</text>
+    <rect x="680" y="300" width="180" height="50" rx="14" fill="#f8fafc" stroke="#64748b" stroke-width="2"/><text x="770" y="329" text-anchor="middle" font-family="Inter,Segoe UI,system-ui,sans-serif" font-size="13" font-weight="650" fill="#1e293b">Mix · Files · Chat</text>
+    <line x1="450" y1="275" x2="110" y2="300" stroke="#64748b" stroke-width="2"/>
+  <polygon points="110,300 119.53308759468705,293.2828398178974 120.41306491111969,305.25053132138146" fill="#64748b"/>
+    <line x1="450" y1="275" x2="270" y2="300" stroke="#64748b" stroke-width="2"/>
+  <polygon points="270,300 279.07951250412935,292.6813626481866 280.73033295942565,304.5672699263196" fill="#64748b"/>
+    <line x1="450" y1="275" x2="430" y2="300" stroke="#64748b" stroke-width="2"/>
+  <polygon points="430,300 431.56173761888607,288.4431416202432 440.9321633322024,295.93948219089623" fill="#64748b"/>
+    <line x1="450" y1="275" x2="590" y2="300" stroke="#64748b" stroke-width="2"/>
+  <polygon points="590,300 579.1009804140132,304.14865906821433 581.2104680758172,292.3355281621125" fill="#64748b"/>
+    <line x1="450" y1="275" x2="770" y2="300" stroke="#64748b" stroke-width="2"/>
+  <polygon points="770,300 759.5630525827502,305.2028961751664 760.497704590265,293.23935047897544" fill="#64748b"/>
+  
+</svg>

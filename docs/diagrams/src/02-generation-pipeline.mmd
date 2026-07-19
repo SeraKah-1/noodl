@@ -1,0 +1,15 @@
+%% Bounded parallel question generation (avoids one-shot failure)
+flowchart TD
+    S["Source-grounded assessment plan"] --> W["Bounded parallel wave"]
+    W --> B1["Bloom batch A"]
+    W --> B2["Bloom batch B"]
+    W --> B3["Bloom batch C"]
+    B1 --> R["Keep fulfilled results"]
+    B2 --> R
+    B3 --> R
+    R --> V["Validate and normalize"]
+    V --> D["Reject near-duplicates"]
+    D --> Q{"Target reached?"}
+    Q -->|"No"| T["Small bounded top-up"]
+    T --> V
+    Q -->|"Yes"| P["Playable quiz"]

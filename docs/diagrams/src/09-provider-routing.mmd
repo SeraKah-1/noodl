@@ -1,0 +1,10 @@
+%% BYOK multi-provider routing from Settings
+flowchart LR
+    SET["Settings · AI providers"] --> KEY["User API key · local only"]
+    SET --> MOD["Selected model"]
+    KEY --> R["callAI router"]
+    MOD --> R
+    R --> Q["Quiz generation"]
+    R --> V["Visual simulations"]
+    R --> G["Insights / chat"]
+    R --> C["Concept scan"]

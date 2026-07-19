@@ -1,0 +1,20 @@
+%% High-level Noodl architecture (local-first browser app)
+flowchart TB
+    subgraph Browser["Browser · local-first"]
+        UI["React 19 UI"]
+        STORE["Zustand state"]
+        ORCH["Assessment + provider orchestration"]
+        IDB[("IndexedDB source of truth")]
+        VISION["MediaPipe vision · opt-in"]
+        PWA["Vite PWA / Workbox"]
+        UI --> STORE
+        STORE --> ORCH
+        STORE <--> IDB
+        UI --> VISION
+        PWA --> UI
+    end
+
+    ORCH --> PROVIDERS["BYOK AI providers"]
+    IDB <--> SYNC["Outbox + tombstone sync"]
+    SYNC <--> SUPA[("Supabase Auth · Postgres · RLS")]
+    SUPA --> PUBLIC["Privacy-safe public pack projection"]

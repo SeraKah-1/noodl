@@ -1,0 +1,17 @@
+%% Optional camera accessibility inputs (never required)
+flowchart TB
+    subgraph Primary["Always available"]
+        K["Keyboard-first controls"]
+        T["Touch / pointer"]
+    end
+
+    subgraph Optional["Opt-in · on-device"]
+        N["Nose tip tracking<br/>ghost pointer + dwell"]
+        H["Hand gestures<br/>A–D + navigation"]
+    end
+
+    Primary --> QUIZ["Quiz / flashcards / navigation"]
+    Optional --> QUIZ
+    CAM["Webcam · off by default"] --> MP["MediaPipe in-browser"]
+    MP --> N
+    MP --> H

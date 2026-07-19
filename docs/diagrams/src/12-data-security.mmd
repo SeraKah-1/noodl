@@ -1,0 +1,19 @@
+%% Privacy and security boundaries
+flowchart TB
+    subgraph Client["Browser"]
+        BYOK["Provider keys in localStorage"]
+        IDB["Quizzes · library · SRS in IndexedDB"]
+        CAM["Camera stream · opt-in only"]
+    end
+
+    subgraph Cloud["Optional Supabase"]
+        AUTH["Auth session"]
+        RLS["Row Level Security"]
+        PUB["Public pack projection<br/>no raw private source"]
+    end
+
+    BYOK -.->|never uploaded by Noodl| X["AI vendor of user choice"]
+    IDB <-->|outbox sync when signed in| RLS
+    AUTH --> RLS
+    RLS --> PUB
+    CAM -->|landmarks stay local| MP["MediaPipe"]

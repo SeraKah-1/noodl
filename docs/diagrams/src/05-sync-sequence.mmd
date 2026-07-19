@@ -1,0 +1,14 @@
+%% Local-first sync between devices via Supabase
+sequenceDiagram
+    participant U as Learner
+    participant L as Local IndexedDB
+    participant O as Sync outbox
+    participant S as Supabase + RLS
+    participant D as Second device
+
+    U->>L: Create, edit, review, or delete
+    L->>O: Record pending mutation
+    O->>S: Push when authenticated and online
+    S-->>O: Acknowledge committed state
+    D->>S: Pull permitted rows
+    S-->>D: Merge quizzes, materials, and SRS

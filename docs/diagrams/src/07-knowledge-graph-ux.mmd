@@ -1,0 +1,11 @@
+%% Knowledge graph review map interactions
+flowchart LR
+    Q["Quiz questions + explanations"] --> B["buildGraphDataLocal<br/>cluster concepts"]
+    B --> N["Nodes: core · supporting · detail"]
+    B --> E["Edges: shared tokens / review path"]
+    N --> H["Self-contained HTML map"]
+    E --> H
+    H --> Z["Zoom in / out · wheel · pinch"]
+    H --> P["Pan by drag"]
+    H --> C["Click node → Q&A review panel"]
+    C --> F["Focus branch · related concepts"]

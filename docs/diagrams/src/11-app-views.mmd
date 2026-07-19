@@ -1,0 +1,12 @@
+%% Main product surfaces after generation
+flowchart TB
+    HOME["Home / Generator"] --> CFG["Config material + Bloom + mode"]
+    CFG --> GEN["Generate quiz"]
+    GEN --> PLAY["Quiz interface"]
+    PLAY --> RES["Results + analysis"]
+    RES --> SRS["Neuro-Sync spaced review"]
+    RES --> KG["Knowledge graph"]
+    RES --> VIS["AI simulations"]
+    HOME --> MIX["Mix Room exam sets"]
+    HOME --> FILES["Workspace / history"]
+    HOME --> CHAT["Material chat"]

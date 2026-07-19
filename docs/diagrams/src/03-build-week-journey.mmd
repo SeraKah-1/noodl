@@ -1,0 +1,8 @@
+%% Build Week path: from vibe code to release candidate
+flowchart LR
+    A["One-day vibe-coded product"] --> B["Patch-on-patch debt"]
+    B --> C["Whole-repository audit first"]
+    C --> D["Cross-layer remediation plan"]
+    D --> E["Implementation + deletion"]
+    E --> F["Typecheck, tests, audit, build, browser QA"]
+    F --> G["Production-grade release candidate"]

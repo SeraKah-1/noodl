@@ -178,6 +178,8 @@ The important lesson was not “AI wrote thousands of lines.” It was that an a
 
 ## Architecture
 
+Exported PNG diagrams and tables (English) live in [`docs/diagrams/`](docs/diagrams/) — learning loop, generation pipeline, architecture, sync, Visual Lab, knowledge graph, Bloom allocation, and more.
+
 ```mermaid
 flowchart TB
     subgraph Browser["Browser · local-first"]

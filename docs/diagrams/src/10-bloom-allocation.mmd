@@ -1,0 +1,11 @@
+%% How Bloom percentages become question targets
+flowchart TD
+    L["Learner sets C1–C5 percentages"] --> N["Total question count N"]
+    N --> A["Allocate counts per level"]
+    A --> P["Assessment plan per concept"]
+    P --> B["Parallel batches by Bloom band"]
+    B --> F{"Source coverage enough?"}
+    F -->|yes| K["Keep level"]
+    F -->|no| O["Smart Overflow · step up one level"]
+    K --> QUIZ["Final quiz set"]
+    O --> QUIZ
