@@ -4,8 +4,7 @@ import { AnimatePresence } from 'framer-motion';
 import { useCamera } from '../contexts/CameraContext';
 import { DwellIndicator, DwellRingBadge } from './DwellIndicator';
 import { getLocale } from '../services/i18n';
-import visionWasmLoaderUrl from '@mediapipe/tasks-vision/vision_wasm_module_internal.js?url';
-import visionWasmBinaryUrl from '@mediapipe/tasks-vision/vision_wasm_module_internal.wasm?url';
+import { getVisionFileset } from '../services/mediaPipeVisionService';
 
 /**
  * Nose pointer — comfort-first head mouse (micromovement).
@@ -132,11 +131,10 @@ export const NoseTrackingManager: React.FC<NoseTrackingManagerProps> = ({
             if (active) setStatus('Connection slow...');
         }, 15000);
 
-        const { FaceLandmarker } = await import('@mediapipe/tasks-vision');
-        const vision = {
-          wasmLoaderPath: visionWasmLoaderUrl,
-          wasmBinaryPath: visionWasmBinaryUrl,
-        };
+        const [{ FaceLandmarker }, vision] = await Promise.all([
+          import('@mediapipe/tasks-vision'),
+          getVisionFileset(),
+        ]);
 
         if (!active) return;
 

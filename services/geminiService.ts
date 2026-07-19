@@ -259,17 +259,29 @@ export async function callAI(action: string, payload: any): Promise<any> {
       console.error(`[AIService] ✖ Bad envelope action=${action}`, bodyText.slice(0, 200));
       throw new Error(`[${provider}] Invalid API envelope (not JSON).`);
     }
-    const resultText = jsonRes.choices?.[0]?.message?.content || jsonRes.choices?.[0]?.text || '';
-    const finish = jsonRes.choices?.[0]?.finish_reason || jsonRes.choices?.[0]?.finish_reason;
+    const choice = jsonRes.choices?.[0] || {};
+    const rawContent = choice.message?.content ?? choice.text ?? jsonRes.output_text ?? '';
+    const resultText = typeof rawContent === 'string'
+      ? rawContent
+      : Array.isArray(rawContent)
+        ? rawContent.map((part: any) => part?.text ?? part?.value ?? '').join('')
+        : '';
+    const finish = choice.finish_reason;
+    const usage = jsonRes.usage || {};
+    const reasoningTokens = usage.completion_tokens_details?.reasoning_tokens;
     const ms = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0);
     console.log(
       `[AIService] ✔ OK action=${action} chars=${resultText.length} finish=${finish || '?'} ${ms}ms ` +
+      `completion_tokens=${usage.completion_tokens ?? '?'} reasoning_tokens=${reasoningTokens ?? '?'} ` +
       `preview=${JSON.stringify(String(resultText).slice(0, 80))}`
     );
     if (!resultText) {
       throw new Error(
-        `[${provider}] Empty model content (finish=${finish || 'unknown'}). ` +
-        `Check model id, rate limits, and max_tokens. Provider may have rejected the request silently.`
+        `[${provider}] The model returned no final answer (finish=${finish || 'unknown'}, ` +
+        `completion_tokens=${usage.completion_tokens ?? 'unknown'}, reasoning_tokens=${reasoningTokens ?? 'unknown'}). ` +
+        (finish === 'length'
+          ? 'It exhausted the completion budget before producing final content.'
+          : 'The response envelope did not contain supported text content.')
       );
     }
     return { result: resultText };
