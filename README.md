@@ -1,246 +1,157 @@
 # Noodl
 
 <p align="center">
-  <img src="public/icon-512.png" width="128" alt="Noodl app icon" />
+  <img src="public/icon-512.png" width="128" alt="Noodl — the noodle mascot" />
 </p>
 
-<h3 align="center">Turn class material into a deliberate cognitive workout.</h3>
+<h3 align="center">Use your noodle. Turn class notes into a study loop that actually sticks.</h3>
 
 <p align="center">
-  Noodl converts notes, PDFs, topics, and URLs into a learner-controlled Bloom assessment blueprint,<br />
-  then closes the loop with retrieval practice, spaced review, accessible input, and reusable public study packs.
+  For students who re-read until 2am and still blank on the exam.<br />
+  For friends who share one deck of material and shouldn't each need their own API bill.<br />
+  Built in public during <a href="https://openai.devpost.com/">OpenAI Build Week</a> · Education track.
 </p>
 
 <p align="center">
   <a href="https://noodl-beta.vercel.app/"><img alt="Open live demo" src="https://img.shields.io/badge/OPEN_LIVE_DEMO-111827?style=for-the-badge&logo=vercel&logoColor=white" /></a>
   <a href="https://openai.devpost.com/"><img alt="OpenAI Build Week 2026" src="https://img.shields.io/badge/OpenAI_Build_Week-2026-10a37f?style=for-the-badge&logo=openai&logoColor=white" /></a>
+  <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-22c55e?style=for-the-badge" /></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/SeraKah-1/noodl/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/SeraKah-1/noodl/actions/workflows/ci.yml/badge.svg" /></a>
-  <img alt="React 19" src="https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=111827" />
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white" />
-  <img alt="PWA" src="https://img.shields.io/badge/PWA-installable-5a0fc8?logo=pwa&logoColor=white" />
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-22c55e" /></a>
-</p>
-
-<p align="center">
-  <a href="#the-idea">The idea</a> ·
-  <a href="#how-it-works">How it works</a> ·
-  <a href="#build-week-story">Build Week story</a> ·
-  <a href="#architecture">Architecture</a> ·
-  <a href="#run-locally">Run locally</a> ·
-  <a href="#quality-and-verification">Quality</a>
+  <a href="https://noodl-beta.vercel.app/"><strong>Live demo → noodl-beta.vercel.app</strong></a>
+  ·
+  <a href="#why-noodl-exists">Why</a>
+  ·
+  <a href="#what-you-can-do">What it does</a>
+  ·
+  <a href="#build-week-how-this-actually-got-built">How it got built</a>
+  ·
+  <a href="#run-it">Run it</a>
 </p>
 
 ---
 
-> **“Make it harder” is not an assessment strategy.** Real exams mix recall, understanding, application, analysis, and evaluation. Noodl turns that ambiguity into an explicit blueprint that both the learner and the model can inspect.
+## Why Noodl exists
 
-## OpenAI Build Week 2026
+I kept watching the same pattern: people highlight PDFs, re-read slides, feel "familiar" with the material… then freeze when the test asks them to *use* the idea. Familiarity is not retrieval. And most "AI quiz" tools just dump a pile of questions with no idea of cognitive coverage — like rolling dice and calling it a study plan.
 
-Noodl is a new Education-track project assembled during OpenAI Build Week from my own earlier learning-tool experiments. The repository was created on **July 18, 2026**; its first public sprint contains **36 commits in under 19 hours**. The rapid build proved the product idea—and exposed how quickly patch-on-patch AI coding can accumulate hidden technical debt.
+Noodl is my stubborn answer to that. You bring **your** notes / PDF / topic / URL. You set how much of the quiz should hit remember vs understand vs apply vs analyze vs evaluate (Bloom C1–C5, as percentages you can actually inspect). Then the app generates questions grounded in that material, lets you practice under different pressure modes, and pulls weak items back later with spaced review.
 
-| Submission evidence | Status |
+If that sounds idealistic — yeah. I'm fine with that. Education is where I want AI to be *useful*, not just impressive in a demo GIF. OpenAI Build Week was the push to stop sitting on scattered experiments and ship something a real student could open tonight.
+
+---
+
+## Submission (Education track)
+
+| | |
 |---|---|
-| Competition | [OpenAI Build Week 2026](https://openai.devpost.com/) · Education |
-| Source | [github.com/SeraKah-1/noodl](https://github.com/SeraKah-1/noodl) · MIT |
-| Live product | [noodl-beta.vercel.app](https://noodl-beta.vercel.app/) |
-| Demo video | **Pending final public YouTube upload** |
-| Codex evidence | 019f7807-92f5-7843-8952-86762a81fb1b |
-| Runtime model policy | Multi-provider, bring your own key |
+| Hackathon | [OpenAI Build Week 2026](https://openai.devpost.com/) · **Education** |
+| Repo | [github.com/SeraKah-1/noodl](https://github.com/SeraKah-1/noodl) · MIT · **new repo (created July 18, 2026)** — not a polished multi-year product with a fake "overnight" story |
+| Live product | **[https://noodl-beta.vercel.app/](https://noodl-beta.vercel.app/)** |
+| Demo video | Pending public YouTube (&lt;3 min) — judges: the live app is up now |
+| Codex session (`/feedback` ID) | *Paste after running `/feedback` in the Codex session that did the main remediation* — I don't keep that ID in git; it lives in the Devpost form |
+| How GPT-5.6 + Codex were used | See [the story below](#build-week-how-this-actually-got-built) — analysis-first, long-horizon fixes, not "add one more feature" spam |
 
-The required GPT-5.6 use happened in the Codex engineering workflow described below. Noodl remains provider-neutral at runtime so learners are not forced into one vendor or subscription.
+---
 
-## The idea
+## What you can do
 
-Rereading creates familiarity; exams require retrieval. Generic AI quiz prompts often create a random pile of questions with unclear cognitive coverage. Noodl is designed around a more inspectable contract:
+Drop material in. Set Bloom mix. Generate. Fight for survival mode if you're feeling spicy, or just do standard retrieval. Flashcards when you only have ten minutes. Neuro-Sync when the weak concepts come back to haunt you (they will). Mix Room if you want a mock exam from several packs. Visual lab + knowledge graph when words alone aren't enough. Optional hands-free stuff (nose / hand) because I tried pure eye tracking on a normal webcam and it was… not it.
+
+and you can publish a **public study pack** so classmates don't each need a paid key just to *practice* — generate once, share many times. That part matters to me more than half the UI polish. Equity isn't a badge, it's "can my friend open this without an API bill."
+
+Runtime is **bring-your-own-key** (multi-provider). Your notes stay local-first; cloud is optional. I'm not trying to own anyone's homework forever.
+
+### Bloom, because "hard mode" is not a strategy
+
+| Level | What you're training |
+|---|---|
+| C1 | Remember |
+| C2 | Understand |
+| C3 | Apply |
+| C4 | Analyze |
+| C5 | Evaluate |
+
+You set the percentages. Noodl turns them into targets. It will not magically guarantee your grade — I'm not going to lie to judges or students about that. It *will* stop the quiz from being 100% pure recall by accident.
 
 ```mermaid
 flowchart LR
     A["Your material"] --> B["Concept priorities"]
-    B --> C["Bloom percentage blueprint"]
+    B --> C["Bloom % blueprint"]
     C --> D["Grounded question batches"]
-    D --> E["Active retrieval"]
-    E --> F["Explanations + feedback"]
+    D --> E["Retrieval practice"]
+    E --> F["Feedback"]
     F --> G["Spaced review"]
     G --> E
-    D --> H["Reusable public pack"]
+    D --> H["Shareable pack"]
 ```
 
-### Why Bloom percentages?
+Generation isn't one giant fragile prompt either — parallel waves, keep what worked, top up, reject near-duplicates. Details in the code; the point is: partial failure shouldn't torch the whole study session.
 
-A single difficulty label hides too much. In Noodl, learners distribute the quiz across Bloom C1–C5 levels, and the system converts those percentages into explicit question targets.
+---
 
-| Level | Cognitive target | Example intention |
-|---|---|---|
-| **C1** | Remember | Recall a definition, term, or fact |
-| **C2** | Understand | Explain or distinguish an idea |
-| **C3** | Apply | Use the idea in a concrete situation |
-| **C4** | Analyze | Compare, decompose, or infer relationships |
-| **C5** | Evaluate | Judge alternatives using evidence or criteria |
+## Build Week: how this actually got built
 
-Bloom is not presented as a magic accuracy guarantee. It is a shared, inspectable vocabulary for shaping an assessment. Noodl does **not** promise grades or claim that a generated quiz perfectly predicts an exam.
+ok so transparency, because the commit graph will tell on me anyway.
 
-## How it works
+Noodl is **new**. Repo born **July 18, 2026**. It is *not* a two-year stealth startup. What it *is*: a rework of a pile of my own earlier experiments — quiz gen, flashcards, visual lab, camera control, sync — smashed into one product during Build Week. Classic vibecoding energy. I bounced between coding agents, things looked "done" on the surface in under a day, and under the hood it was a haunted house.
 
-### 1. Plan before generating
+I spent hours — actual hours, not "AI hours" — chasing bugs that would not die. Ask agent to fix. Agent adds more code. New bug appears. Or the old one comes back wearing a hat. Grading wrong. Resume weird. Sync hanging. Security things I didn't want to ship. Accessibility half-wired. I kept thinking maybe the foundation was just cursed.
 
-Noodl detects the material language, extracts concept candidates, assigns high/moderate/filler priority, and allocates question counts against the selected Bloom distribution.
+Then I switched to **Codex** (with **GPT-5.6** under the hood, as Build Week intends) and I changed how I talked to it.
 
-### 2. Generate without one giant point of failure
+I did **not** open with "add feature X."
 
-One request per question is slow and encourages repetition. One enormous request is fragile: output limits or malformed JSON can destroy the whole quiz. Noodl uses bounded parallel batches instead.
+I asked for a full-repo analysis. Senior-level. Correctness, structure, security, the boring stuff. And the write-up hit things I genuinely did not see — needle-in-the-haystack kind of stuff. That was the first moment I went "…oh."
 
-```mermaid
-flowchart TD
-    S["Source-grounded assessment plan"] --> W["Bounded parallel wave"]
-    W --> B1["Bloom batch A"]
-    W --> B2["Bloom batch B"]
-    W --> B3["Bloom batch C"]
-    B1 --> R["Keep fulfilled results"]
-    B2 --> R
-    B3 --> R
-    R --> V["Validate and normalize"]
-    V --> D["Reject near-duplicates"]
-    D --> Q{"Target reached?"}
-    Q -->|"No"| T["Small bounded top-up"]
-    T --> V
-    Q -->|"Yes"| P["Playable quiz"]
-```
+After that I said: fix it. I basically sat there and steered. Plan, long run, thousands of lines moved, more deleted than added in the big remediation, tests and gates appearing. Work that would have been weeks for a small team if we were doing it by hand in the old way — compressed into a night that felt unreal. Not because magic, because the *workflow* finally matched what long-horizon agentic coding is good at: understand the mess, then rewrite the mess, then prove it.
 
-The pipeline uses small independent batches, `Promise.allSettled`, concept rotation, compact memory of previously tested concepts, n-gram duplicate rejection, partial-result preservation, and bounded top-ups. If source coverage is exhausted, Smart Overflow can move upward one cognitive level rather than repeatedly asking the same fact.
+I'm still the person who decided Bloom percentages matter, that keys stay BYOK, that camera is opt-in, that public packs shouldn't leak private notes. Codex / GPT-5.6 was the force multiplier that made "idealism + production" not a joke for a one-person Build Week sprint.
 
-### 3. Turn generation into a learning loop
+If you're judging **Technological Implementation**: the interesting part isn't that an agent typed for me. It's that OpenAI's stack could hold a multi-hour plan across a messy multi-surface app and leave something I was willing to put on Vercel with my name on it.
 
-| Experience | Purpose |
-|---|---|
-| 🎯 **Standard / Survival / Time Rush** | Different retrieval pressure without changing the source truth |
-| ⌨️ **Keyboard-first quiz controls** | Answer and navigate without repetitive pointer travel |
-| 🃏 **Swipeable flashcards** | Rate recall instead of memorizing one interaction pattern |
-| 🧠 **Neuro-Sync** | Return weak items through an SM-2-style review schedule |
-| 🧪 **Mix Room** | Combine saved units into a broader exam simulation |
-| 🕸️ **Knowledge views** | Summaries, deep insights, simulations, and knowledge graphs |
-| ☁️ **Public learning packs** | Generate once, distribute many times without requiring every learner to own a key |
+Live: [noodl-beta.vercel.app](https://noodl-beta.vercel.app/)
 
-## Accessible interaction, shaped by real failure
-
-The first hands-free experiment used eye tracking. On ordinary consumer webcams it was too unstable and too dependent on equipment quality, so the design pivoted to the **nose tip**, a face landmark that is easier to track consistently.
-
-- **Nose mode:** ghost pointer, dwell selection, recenter controls, and scroll priority.
-- **Hand mode:** on-device gesture recognition for A–D answers and navigation.
-- **Keyboard and touch remain primary:** camera input is optional, explicit, and never a trap.
-- **On-device inference:** MediaPipe processes landmarks in the browser; the camera is off by default.
-
-This is an alternative input path, not a claim of universal accessibility. Device quality, lighting, motor range, and calibration still matter.
-
-## Build Week story
-
-### From one-day vibe coding to an audited release candidate
-
-I moved quickly by remixing my own quiz, flashcard, visual-learning, camera-control, and sync experiments into one product. Moving between coding agents made the surface look complete in roughly a day, but most fixes addressed the latest symptom by adding another patch. Grading, resume state, sync, sharing, provider routing, security, and accessibility quietly disagreed underneath the UI.
-
-When I moved to Codex, I deliberately changed technique:
+Diagrams (English exports): [`docs/diagrams/`](docs/diagrams/)
 
 ```mermaid
 flowchart LR
-    A["One-day vibe-coded product"] --> B["Patch-on-patch debt"]
-    B --> C["Whole-repository audit first"]
-    C --> D["Cross-layer remediation plan"]
-    D --> E["Implementation + deletion"]
-    E --> F["Typecheck, tests, audit, build, browser QA"]
-    F --> G["Production-grade release candidate"]
+    A["Vibe mash-up of my old experiments"] --> B["Looks done, is not"]
+    B --> C["Patch spiral"]
+    C --> D["Codex: analyze the whole repo first"]
+    D --> E["Remediate + delete + verify"]
+    E --> F["Ship on Vercel"]
 ```
 
-I did **not** ask Codex for another feature or quick patch. My first request was a senior-level repository analysis covering correctness, Clean Code, DRY, security, and UX engineering. Only after that audit found needle-in-a-haystack failures did I authorize remediation.
+---
 
-GPT-5.6 in Codex powered the deep analysis and long-horizon engineering workflow. I did not type the remediation code; my role was to define the product intent, challenge assumptions, and retain the key product decisions.
+## Architecture (short)
 
-| Human decisions | Codex + GPT-5.6 contributions |
-|---|---|
-| Bloom percentage blueprint | Traced contracts from UI through generation and persistence |
-| BYOK and local-first economics | Unified Quiz, Library, and SRS sync around outboxes and tombstones |
-| Eye-to-nose accessibility pivot | Repaired grading, resume, SRS identity, keyboard flow, and provider routing |
-| Camera privacy boundary | Hardened Supabase schema, RLS, grants, and public metadata |
-| Public learning-commons model | Removed unsafe credential/runtime paths and dead code |
-| Product scope and honest claims | Added tests, CI, build gates, accessible dialogs, and responsive fixes |
-
-### Evidence, not hype
-
-The remediation snapshot before this README:
-
-- **52 tracked code/config files changed**
-- **2,565 insertions / 3,356 deletions**—more code removed than added
-- New behavioral tests, schema-security checks, CI, migration, request handling, validation, and accessible feedback primitives
-- Passing TypeScript gate, test suite, production build, and production dependency audit
-
-The important lesson was not “AI wrote thousands of lines.” It was that an agent became dramatically more useful when asked to **diagnose before mutating, preserve a plan, reason across layers, remove obsolete paths, and verify behavior before stopping**.
-
-## Architecture
-
-Exported PNG diagrams and tables (English) live in [`docs/diagrams/`](docs/diagrams/) — learning loop, generation pipeline, architecture, sync, Visual Lab, knowledge graph, Bloom allocation, and more.
+Browser-first. IndexedDB is the source of truth. Optional Supabase for auth/sync/public packs. Providers via settings keys. PWA shell. More diagrams in `docs/diagrams/`.
 
 ```mermaid
 flowchart TB
     subgraph Browser["Browser · local-first"]
-        UI["React 19 UI"]
-        STORE["Zustand state"]
-        ORCH["Assessment + provider orchestration"]
-        IDB[("IndexedDB source of truth")]
-        VISION["MediaPipe vision · opt-in"]
-        PWA["Vite PWA / Workbox"]
-        UI --> STORE
-        STORE --> ORCH
+        UI["React UI"]
+        STORE["Zustand"]
+        ORCH["Quiz + provider orchestration"]
+        IDB[("IndexedDB")]
+        UI --> STORE --> ORCH
         STORE <--> IDB
-        UI --> VISION
-        PWA --> UI
     end
-
-    ORCH --> PROVIDERS["BYOK AI providers"]
-    IDB <--> SYNC["Outbox + tombstone sync"]
-    SYNC <--> SUPA[("Supabase Auth · Postgres · RLS")]
-    SUPA --> PUBLIC["Privacy-safe public pack projection"]
+    ORCH --> PROVIDERS["BYOK providers"]
+    IDB <--> SYNC["Outbox sync"]
+    SYNC <--> SUPA[("Supabase + RLS")]
 ```
 
-### Local-first synchronization
+Privacy in one breath: keys client-side, camera off by default, public share is a safe projection not your raw private notes. See [`SECURITY.md`](SECURITY.md).
 
-IndexedDB remains the immediate source of truth. Optional Supabase sync uses queued local mutations and deletion tombstones so offline changes are not silently resurrected.
+---
 
-```mermaid
-sequenceDiagram
-    participant U as Learner
-    participant L as Local IndexedDB
-    participant O as Sync outbox
-    participant S as Supabase + RLS
-    participant D as Second device
+## Run it
 
-    U->>L: Create, edit, review, or delete
-    L->>O: Record pending mutation
-    O->>S: Push when authenticated and online
-    S-->>O: Acknowledge committed state
-    D->>S: Pull permitted rows
-    S-->>D: Merge quizzes, materials, and SRS
-```
-
-## Privacy and security boundaries
-
-- 🔑 **BYOK:** provider credentials stay client-side. Never commit keys or embed production secrets in `VITE_*` variables.
-- 🗄️ **Local by default:** quizzes and progress work through IndexedDB without requiring an account.
-- 🔐 **Optional cloud:** Supabase rows are scoped through authentication and Row Level Security.
-- 🌍 **Safer publishing:** public discovery exposes a privacy-safe projection instead of raw private source material.
-- 📷 **Camera opt-in:** vision models load only when requested and landmark processing stays in-browser.
-- 🧹 **Reduced attack surface:** the remediation removed a server-credential AI endpoint and executable runtime CDN dependencies.
-
-Review [`SECURITY.md`](SECURITY.md) before reporting a vulnerability. Do not disclose credentials or private study material in public issues.
-
-## Run locally
-
-### Requirements
-
-- Node.js 20+ (CI currently verifies with Node 24)
-- npm
-- A supported AI-provider key for generation
-- Optional Supabase project for authentication, sync, and public discovery
+**Needs:** Node 20+, npm, a provider API key for generation. Supabase optional.
 
 ```bash
 git clone https://github.com/SeraKah-1/noodl.git
@@ -250,110 +161,64 @@ npm ci
 npm run dev
 ```
 
-Open the URL printed by Vite. The simplest secure path is to enter a provider key in **Settings → AI Providers** instead of putting a real key in a checked-in or deployed environment file.
+Open the Vite URL. Easiest path: **Settings → AI providers → paste key → Save**. Don't commit real keys.
 
-### Supported provider paths
-
-Noodl supports Gemini, OpenAI, Anthropic, OpenRouter, Groq, and custom OpenAI-compatible endpoints. Available model IDs are fetched dynamically where the provider supports discovery.
-
-### Optional Supabase setup
-
-1. Create a project at [supabase.com](https://supabase.com/).
-2. Apply [`supabase/schema.sql`](supabase/schema.sql) to a fresh project, or apply the dated files under [`supabase/migrations/`](supabase/migrations/) to an existing deployment.
-3. Enable Google authentication and configure localhost plus the production URL in the redirect allow-list.
-4. Copy `.env.example` to `.env.local` and set:
+Optional Supabase: apply `supabase/schema.sql` (or migrations), enable Google OAuth with localhost + production redirects, set:
 
 ```env
 VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 ```
 
-Without Supabase variables, Noodl remains usable in local guest mode. Cloud sync and public discovery are simply unavailable.
+Without Supabase you still get local guest study. Sync/public packs just stay off.
 
-## Quality and verification
-
-```bash
-npm run lint          # strict TypeScript check
-npm test              # behavior + security regression suite
-npm run build         # typecheck and production PWA bundle
-npm audit --omit=dev  # production dependency audit
-```
-
-CI runs install, lint, tests, build, and a high-severity production audit for pushes to `main` and for pull requests.
-
-| Verification area | Examples |
-|---|---|
-| Answer correctness | Fill-blank normalization and accepted-answer behavior |
-| Import boundary | Quiz payload validation and normalization |
-| Network boundary | CORS allow-list behavior |
-| Data security | RLS/schema/grant regression checks |
-| Build integrity | TypeScript before Vite production build |
-
-## Project map
-
-```text
-noodl/
-├── components/             # Product screens and accessible UI primitives
-├── contexts/               # Camera lifecycle and shared interaction state
-├── hooks/                  # Hand-gesture and UI behavior hooks
-├── services/               # Generation, providers, storage, sync, SRS, validation
-├── store/                  # Zustand application state
-├── supabase/
-│   └── migrations/         # Dated database hardening changes
-├── tests/                  # Node behavioral regression tests
-├── .github/workflows/      # CI quality gate
-├── App.tsx                 # Application shell and view lifecycle
-├── types.ts                # Quiz, Bloom, storage, and review contracts
-└── vite.config.ts          # Build, PWA, and performance configuration
-```
-
-## Honest limitations
-
-- AI generation requires the learner’s provider access unless they open a pre-generated public pack.
-- Camera input varies with device, lighting, framing, and motor range; it is experimental and optional.
-- Bloom targets shape cognitive intent but do not guarantee that every generated question is perfectly classified.
-- Public sharing and cross-device behavior require a correctly migrated Supabase deployment.
-- A reproducible educator-reviewed benchmark is still needed before making any exam-similarity or grade-impact claim.
-
-## Roadmap
-
-- [ ] No-key sample deck for frictionless judging and onboarding
-- [ ] Human-labelled Bloom and unsupported-fact evaluation set
-- [ ] Performance-aware recommendations for the learner’s next Bloom mix
-- [ ] Public-pack provenance, moderation, and educator curation
-- [ ] Expanded assistive-input calibration and WCAG testing
-- [ ] Final public demo video and Codex `/feedback` evidence
-
-## Research direction
-
-Noodl’s design is informed by—not validated solely by—retrieval-practice research and work on LLM question generation across Bloom levels:
-
-- [Retrieval practice improves learning compared with repeated studying](https://pmc.ncbi.nlm.nih.gov/articles/PMC4593518/)
-- [Question generation using Bloom’s Taxonomy](https://aclanthology.org/2024.bea-1.1/)
-
-These sources motivate the direction. They do not establish that Noodl guarantees a particular score or outcome.
-
-## Contributing
-
-Issues and pull requests are welcome when they preserve the core principles: source-grounded generation, explicit learning design, local-first ownership, accessible interaction, and evidence-backed claims.
+### Checks
 
 ```bash
-git checkout -b feat/your-change
-npm ci
 npm run lint
 npm test
 npm run build
 ```
 
-Please never commit `.env.local`, API keys, Supabase secret/service-role keys, private source documents, or user data.
+CI runs on `main`.
+
+---
+
+## Project map
+
+```text
+components/   screens + UI
+services/     generation, storage, sync, SRS, viz, …
+store/        app state
+supabase/     schema + migrations
+tests/        regression checks
+docs/diagrams exported architecture images
+```
+
+---
+
+## Honest limits
+
+- Generation needs a key unless someone opens a pre-made public pack  
+- Camera modes depend on lighting / device; keyboard and touch stay primary  
+- Bloom targets shape intent; they don't certify perfect classification  
+- Demo video and Devpost `/feedback` session id go in the submission form, not as fake certainty in this README  
+
+---
+
+## Still want to build
+
+Sample deck with no key for judges. Better educator review of question quality. Smarter "what Bloom mix next?" suggestions. Public pack moderation. More assistive-input polish.
+
+---
 
 ## License
 
-Noodl is available under the [MIT License](LICENSE).
+[MIT](LICENSE) — fork it, study with it, improve it.
 
 ---
 
 <p align="center">
   <strong>Use your noodle.</strong><br />
-  <sub>From your material to a deliberate learning loop—then shared with anyone.</sub>
+  <sub>Built for OpenAI Build Week · Education · because practice &gt; passive rereading.</sub>
 </p>
