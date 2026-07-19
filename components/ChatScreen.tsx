@@ -2,21 +2,35 @@ import { t } from '../services/i18n';
 import { PageHeader } from './PageHeader';
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Bot, User, FileText, ArrowLeft } from 'lucide-react';
+import { Send, Bot, ArrowLeft, FolderInput } from 'lucide-react';
 import { chatWithDocument } from '../services/geminiService';
 import { getApiKey } from '../services/storageService';
 import { showErrorNotification } from '../services/errorNotificationService';
-import { AiProvider } from '../types';
+import { getLocale } from '../services/i18n';
 
 interface ChatScreenProps {
   contextText: string;
   sourceFile: File | null;
+  /** Display name for the active study pack (quiz title / file) */
+  sourceLabel?: string;
   onClose: () => void;
+  /** Return to pack picker without leaving the tool route */
+  onChangeSource?: () => void;
 }
 
-export const ChatScreen: React.FC<ChatScreenProps> = ({ contextText, sourceFile, onClose }) => {
-  const [messages, setMessages] = useState<{ role: 'user' | 'model', text: string }[]>([
-    { role: 'model', text: t('chatHello').replace('{source}', sourceFile ? sourceFile.name : t('chatHelloTopic')) }
+export const ChatScreen: React.FC<ChatScreenProps> = ({
+  contextText,
+  sourceFile,
+  sourceLabel,
+  onClose,
+  onChangeSource,
+}) => {
+  const isId = getLocale() === 'id';
+  const sourceName =
+    sourceLabel ||
+    (sourceFile ? sourceFile.name : t('chatHelloTopic'));
+  const [messages, setMessages] = useState<{ role: 'user' | 'model'; text: string }[]>([
+    { role: 'model', text: t('chatHello').replace('{source}', sourceName) },
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -82,20 +96,30 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ contextText, sourceFile,
   return (
     <div className="fixed inset-0 z-50 bg-white/95 backdrop-blur-xl flex flex-col md:max-w-md md:right-0 md:left-auto md:border-l border-slate-200 shadow-2xl">
        {/* Header */}
-       <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-white/50">
-         <div className="flex items-center space-x-3">
-            <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full">
+       <div className="p-4 border-b border-slate-100 flex items-center justify-between gap-2 bg-white/50">
+         <div className="flex items-center space-x-3 min-w-0">
+            <button type="button" onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full shrink-0" aria-label={t('back')}>
               <ArrowLeft size={20} className="text-slate-500" />
             </button>
-            <div>
+            <div className="min-w-0">
               <h2 className="font-bold text-slate-800 flex items-center">
-                <Bot size={18} className="mr-2 text-indigo-500" /> Assistant
+                <Bot size={18} className="mr-2 text-indigo-500 shrink-0" /> Assistant
               </h2>
-              <p className="text-xs text-slate-500 truncate max-w-[150px]">
-                {sourceFile ? sourceFile.name : "Topik Diskusi"}
+              <p className="text-xs text-slate-500 truncate max-w-[180px]" title={sourceName}>
+                {sourceName}
               </p>
             </div>
          </div>
+         {onChangeSource && (
+           <button
+             type="button"
+             onClick={onChangeSource}
+             className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 hover:bg-indigo-100"
+           >
+             <FolderInput size={14} />
+             {isId ? 'Ganti sumber' : 'Change source'}
+           </button>
+         )}
        </div>
 
        {/* Chat Area */}

@@ -220,14 +220,21 @@ export const HubStudyToolPage: React.FC<HubStudyToolPageProps> = ({
     [selected]
   );
 
+  const clearSelection = useCallback(() => {
+    setSelected(null);
+  }, []);
+
   // ── Tool surfaces (full-screen overlays, same as History entry points) ──
+  // Always allow switching pack: onChangeSource returns to the picker.
   if (selected && materialContext.length >= 20) {
     if (tool === 'chat') {
       return (
         <ChatScreen
           contextText={materialContext}
           sourceFile={null}
+          sourceLabel={selected.title}
           onClose={onClose}
+          onChangeSource={clearSelection}
         />
       );
     }
@@ -239,6 +246,7 @@ export const HubStudyToolPage: React.FC<HubStudyToolPageProps> = ({
           quizId={selected.quizId || undefined}
           materialContext={materialContext}
           onClose={onClose}
+          onChangeSource={clearSelection}
         />
       );
     }
@@ -251,6 +259,7 @@ export const HubStudyToolPage: React.FC<HubStudyToolPageProps> = ({
         initialAiData={selected.aiOverviewData}
         materialContext={materialContext}
         onClose={onClose}
+        onChangeSource={clearSelection}
       />
     );
   }
